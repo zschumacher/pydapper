@@ -11,7 +11,7 @@ A pure python library inspired by the NuGet library [dapper](https://dapper-tuto
 to provide more convenient methods for working with databases in python.
 
 ## Help (TODO)
-See the [documentation]() for more details.
+See the [documentation](https://pydapper.readthedocs.io/en/latest/) for more details.
 
 ## Installation
 It is recommended to only install the database apis you need for your use case.  Example below is for psycopg2!

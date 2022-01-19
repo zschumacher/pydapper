@@ -30,11 +30,9 @@ class BaseSqlParamHandler(ABC):
         self._sql = sql
         self._param = param
         if isinstance(self._param, list):
-            all_params_are_same_type = all(
-                isinstance(param, param_type := type(self._param[0])) for param in self._param[1:]
-            )
+            all_params_are_same_type = all(isinstance(param, type(self._param[0])) for param in self._param[1:])
             if not all_params_are_same_type:
-                raise ValueError(f"All objects in params must be of type {param_type!r}")
+                raise ValueError(f"All objects in params must be of type {type(self._param[0])}")
 
     @abstractmethod
     def get_param_placeholder(self, param_name: str) -> str:
@@ -174,7 +172,8 @@ class Commands(ABC):
             headers = get_col_names(cursor)
             data = cursor.fetchall()
 
-        if (num_records := len(data)) == 0:
+        num_records = len(data)
+        if num_records == 0:
             raise NoResultException("Expected exactly one record, got zero")
         elif num_records > 1:
             raise MoreThanOneResultException(f"Expected exactly one record, got {num_records}")

@@ -10,7 +10,7 @@ to provide more convenient methods for working with databases in python.
 
 ## Example
 ```python
-{!docs/../docs_src/methods/query/simple_query.py!}
+{!docs/../docs_src/methods/query/basic_query.py!}
 ```
 (*This script is complete,  it should run "as is"*)
 

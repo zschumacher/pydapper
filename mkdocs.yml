@@ -30,6 +30,9 @@ theme:
         icon: material/lightbulb
         name: "Switch to light mode"
 
+repo_name: zschumacher/pydapper
+repo_url: https://github.com/zschumacher/pydapper
+
 markdown_extensions:
   - markdown_include.include
   - pymdownx.highlight

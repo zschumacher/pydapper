@@ -10,7 +10,7 @@ A pure python library inspired by the NuGet library [dapper](https://dapper-tuto
 *pydapper* is built on top of the [dbapi 2.0 spec](https://www.python.org/dev/peps/pep-0249/)
 to provide more convenient methods for working with databases in python.
 
-## Help (TODO)
+## Help
 See the [documentation](https://pydapper.readthedocs.io/en/latest/) for more details.
 
 ## Installation

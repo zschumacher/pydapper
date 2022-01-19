@@ -1,3 +1,9 @@
+[![CircleCI](https://circleci.com/gh/zschumacher/pydapper/tree/main.svg?style=svg)](https://circleci.com/gh/zschumacher/pydapper/tree/main)
+[![codecov](https://codecov.io/gh/zschumacher/pydapper/branch/main/graph/badge.svg?token=3X1IR81HL2)](https://codecov.io/gh/zschumacher/pydapper)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Imports: isort](https://img.shields.io/badge/%20imports-isort-%231674b1?style=flat&labelColor=ef8336)](https://pycqa.github.io/isort/)
+
 # pydapper
 A pure python library inspired by the NuGet library [dapper](https://dapper-tutorial.net).
 

@@ -1,0 +1,20 @@
+version: '3.1'
+
+services:
+
+  postgresql:
+    image: postgres:latest
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: pydapper
+      POSTGRES_PASSWORD: pydapper
+
+  mssql-server:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    ports:
+      - "1434:1433"
+    environment:
+      SA_PASSWORD: "pydapper!PYDAPPER"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Express"

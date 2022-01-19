@@ -1,0 +1,40 @@
+site_name: pydapper
+nav:
+  - Overview: index.md
+  - Database Support: database_support.md
+  - Methods:
+      - execute: methods/execute.md
+      - execute_scalar: methods/execute_scalar.md
+      - query: methods/query.md
+      - query_first: methods/query_first.md
+      - query_first_or_default: methods/query_first_or_default.md
+      - query_single: methods/query_single.md
+      - query_single_or_default: methods/query_single_or_default.md
+      - query_multiple: methods/query_multiple.md
+
+theme:
+  name: 'material'
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/lightbulb-outline
+        name: "Switch to dark mode"
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/lightbulb
+        name: "Switch to light mode"
+
+markdown_extensions:
+  - markdown_include.include
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.extra
+  - pymdownx.emoji:
+      emoji_index: !!python/name:materialx.emoji.twemoji
+      emoji_generator: !!python/name:materialx.emoji.to_svg

@@ -1,3 +1,4 @@
+[![PyPI version](https://badge.fury.io/py/pydapper.svg)](https://badge.fury.io/py/pydapper)
 [![CircleCI](https://circleci.com/gh/zschumacher/pydapper/tree/main.svg?style=svg)](https://circleci.com/gh/zschumacher/pydapper/tree/main)
 [![codecov](https://codecov.io/gh/zschumacher/pydapper/branch/main/graph/badge.svg?token=3X1IR81HL2)](https://codecov.io/gh/zschumacher/pydapper)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

@@ -36,9 +36,9 @@ jobs:
         uses: actions/cache@v1
         with:
           path: .venv
-          key: v8-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles(format('{0}{1}', github.workspace, '/poetry.lock')) }}
+          key: v8-${{ runner.os }}-3.9-${{ hashFiles(format('{0}{1}', github.workspace, '/poetry.lock')) }}
           restore-keys: |
-            v8-${{ runner.os }}-${{ matrix.python-version }}-
+            v8-${{ runner.os }}-3.9-
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
@@ -117,7 +117,10 @@ jobs:
           poetry install --extras "psycopg2 pymssql"
 
       - name: test
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         run: |
           poetry run pytest --cov=. --cov-branch -v --durations=25
           poetry run coverage report -m
           poetry run coverage html
+          poetry run codecov -F ${{ matrix.python-version }}

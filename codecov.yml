@@ -1,0 +1,12 @@
+coverage:
+  precision: 2
+  round: down
+  range: "100...100"
+  status:
+    project:
+      target: 100%
+      threshold: 0%
+
+codecov:
+  max_report_age: off
+  allow_coverage_offsets: True

@@ -50,6 +50,7 @@ pytest-xdist = "^2.5.0"
 mkdocs = "^1.2.3"
 mkdocs-material = "^8.1.7"
 markdown-include = "^0.6.0"
+codecov = "^2.1.12"
 
 [tool.poetry.extras]
 psycopg2 = ["psycopg2-binary", "types-psycopg2"]

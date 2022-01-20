@@ -69,7 +69,7 @@ jobs:
     - name: Install dependencies
       if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
       run: |
-        poetry install
+        poetry install --extras "psycopg2 pymssql"
 
     - name: mypy
       run: |

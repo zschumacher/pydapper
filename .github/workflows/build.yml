@@ -54,7 +54,6 @@ jobs:
         POETRY_VERSION: "1.1.11"
       run: |
         curl -sSL https://install.python-poetry.org | python -
-        source $HOME/.poetry/env
         poetry config virtualenvs.create true
         poetry config virtualenvs.in-project true
 
@@ -70,12 +69,10 @@ jobs:
     - name: Install dependencies
       if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
       run: |
-        source $HOME/.poetry/env
         poetry install
 
     - name: mypy
       run: |
-          source $HOME/.poetry/env
           poetry run mypy --config-file mypy.ini .
 
     - name: test

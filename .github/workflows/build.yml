@@ -54,7 +54,7 @@ jobs:
         curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python -
         poetry config virtualenvs.create true
         poetry config virtualenvs.in-project true
-        source $HOME/.poetry/env
+        source ~/.poetry/env
         poetry --version
 
     - name: Cache dependencies

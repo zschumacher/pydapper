@@ -1,5 +1,8 @@
 import importlib
 from typing import Any
+from typing import Dict
+from typing import List
+from typing import Tuple
 
 
 def safe_getattr(obj: Any, key: str) -> Any:
@@ -13,17 +16,17 @@ def safe_getattr(obj: Any, key: str) -> Any:
         raise KeyError(f"Key {key!r} can not be accessed on {obj!r} or does not exist")
 
 
-def database_row_to_dict(col_names: list[str], row: tuple[Any]) -> dict[str, Any]:
+def database_row_to_dict(col_names: List[str], row: Tuple[Any]) -> Dict[str, Any]:
     return dict(zip(col_names, row))
 
 
-def serialize_dict_row(model: Any, row: dict):
+def serialize_dict_row(model: Any, row: Dict[str, Any]):
     if model == dict:
         return row
     return model(**row)
 
 
-def get_col_names(cursor: Any) -> list[str]:
+def get_col_names(cursor: Any) -> List[str]:
     return [i[0] for i in cursor.description]
 
 

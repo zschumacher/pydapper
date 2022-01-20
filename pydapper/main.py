@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
+from typing import Dict
+from typing import List
 from typing import Type
 
 from .dsn_parser import PydapperParseResult
@@ -14,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class CommandFactory:
-    registry: dict[str, "Type[Commands]"] = dict()
+    registry: Dict[str, "Type[Commands]"] = dict()
 
     @classmethod
     def from_dsn(cls, dsn: str, **connect_kwargs) -> "Commands":

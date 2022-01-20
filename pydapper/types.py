@@ -1,11 +1,16 @@
-from __future__ import annotations
+import sys
+
+if sys.version_info < (3, 8):
+    from typing_extensions import Protocol
+else:
+    from typing import Protocol
 
 from abc import abstractmethod
 from typing import Any
+from typing import List
 from typing import Mapping
 from typing import MutableMapping
 from typing import Optional
-from typing import Protocol
 from typing import Union
 
 
@@ -15,7 +20,7 @@ class SupportsAttrAccess(Protocol):
 
 
 ParamType = Union[SupportsAttrAccess, Mapping, MutableMapping]
-ListParamType = Union[list[SupportsAttrAccess], list[Mapping], list[MutableMapping]]
+ListParamType = Union[List[SupportsAttrAccess], List[Mapping], List[MutableMapping]]
 
 
 class ConnectionType(Protocol):

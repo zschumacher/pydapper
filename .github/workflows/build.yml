@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.7, 3.8. 3.9, 3.10]
+        python-version: [3.7, 3.8, 3.9, 3.10]
 
     services:
       postgres:
@@ -54,6 +54,7 @@ jobs:
         curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python -
         poetry config virtualenvs.create true
         poetry config virtualenvs.in-project true
+        source $HOME/.poetry/env
         poetry --version
 
     - name: Cache dependencies
@@ -67,10 +68,13 @@ jobs:
 
     - name: Install dependencies
       if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
-      run: poetry install
+      run: |
+        source $HOME/.poetry/env
+        poetry install
 
     - name: mypy
       run: |
+          source $HOME/.poetry/env
           poetry run mypy --config-file mypy.ini .
 
     - name: test
@@ -80,4 +84,3 @@ jobs:
         poetry run pytest --cov=. --cov-branch -v --durations=25
         poetry run coverage report -m
         poetry run coverage html
-

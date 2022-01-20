@@ -29,12 +29,12 @@ def base_dsn(user, password, server, port):
 
 
 @pytest.fixture(scope="session")
-def default_dsn():
+def default_dsn(base_dsn):
     return f"{base_dsn}/postgres"
 
 
 @pytest.fixture(scope="session")
-def application_dsn(database_name):
+def application_dsn(base_dsn, database_name):
     return f"{base_dsn}/{database_name}"
 
 

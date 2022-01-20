@@ -143,9 +143,8 @@ class TestExecuteScalar:
         assert first_task_description == "Set up a test database"
 
 
-def test_using(application_connect_args_kwargs):
-    args, kwargs = application_connect_args_kwargs
-    with using(_pymssql.connect(*args, **kwargs)) as commands:
+def test_using(application_connect_kwargs):
+    with using(_pymssql.connect(**application_connect_kwargs)) as commands:
         assert isinstance(commands, PymssqlCommands)
 
 

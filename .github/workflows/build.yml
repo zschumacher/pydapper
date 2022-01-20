@@ -3,17 +3,62 @@ name: build
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
     branches:
-      - master
+      - main
 
 jobs:
+  fmt:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+        with:
+          submodules: 'recursive'
+
+      - name: set up python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9.9'
+
+      - name: Install poetry
+        env:
+          POETRY_VERSION: "1.1.11"
+        run: |
+          curl -sSL https://install.python-poetry.org | python -
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+
+      - name: Cache dependencies
+        id: cache-poetry-deps
+        uses: actions/cache@v1
+        with:
+          path: .venv
+          key: v8-${{ runner.os }}-3.9-${{ hashFiles(format('{0}{1}', github.workspace, '/poetry.lock')) }}
+          restore-keys: |
+            v8-${{ runner.os }}-3.9-
+
+      - name: Install dependencies
+        if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
+        run: |
+          poetry install --extras "psycopg2 pymssql"
+
+      - name: mypy
+        run: |
+          poetry run mypy --config-file mypy.ini .
+
+      - name: black and isort
+        run: |
+          poetry run isort --check .
+          poetry run black --check .
+
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.7, 3.8. 3.9, 3.10]
+        python-version: [ '3.7', '3.8', '3.9', '3.10' ]
 
     services:
       postgres:
@@ -39,45 +84,43 @@ jobs:
           MSSQL_PID: "Express"
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v1
-      with:
-        submodules: 'recursive'
+      - name: Checkout
+        uses: actions/checkout@v1
+        with:
+          submodules: 'recursive'
 
-    - name: set up python
-      uses: actions/setup-python@v2
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: set up python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install poetry
-      run: |
-        curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python -
-        poetry config virtualenvs.create true
-        poetry config virtualenvs.in-project true
-        poetry --version
+      - name: Install poetry
+        env:
+          POETRY_VERSION: "1.1.11"
+        run: |
+          curl -sSL https://install.python-poetry.org | python -
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
 
-    - name: Cache dependencies
-      id: cache-poetry-deps
-      uses: actions/cache@v1
-      with:
-        path: .venv
-        key: v8-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles(format('{0}{1}', github.workspace, '/poetry.lock')) }}
-        restore-keys: |
-          v8-${{ runner.os }}-${{ matrix.python-version }}-
+      - name: Cache dependencies
+        id: cache-poetry-deps
+        uses: actions/cache@v1
+        with:
+          path: .venv
+          key: v8-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles(format('{0}{1}', github.workspace, '/poetry.lock')) }}
+          restore-keys: |
+            v8-${{ runner.os }}-${{ matrix.python-version }}-
 
-    - name: Install dependencies
-      if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
-      run: poetry install
+      - name: Install dependencies
+        if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
+        run: |
+          poetry install --extras "psycopg2 pymssql"
 
-    - name: mypy
-      run: |
-          poetry run mypy --config-file mypy.ini .
-
-    - name: test
-      run: |
-        poetry run isort -y -c
-        poetry run black --check .
-        poetry run pytest --cov=. --cov-branch -v --durations=25
-        poetry run coverage report -m
-        poetry run coverage html
-
+      - name: test
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          poetry run pytest --cov=. --cov-branch -v --durations=25
+          poetry run coverage report -m
+          poetry run coverage html
+          poetry run codecov -F ${{ matrix.python-version }}

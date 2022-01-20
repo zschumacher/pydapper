@@ -1,3 +1,5 @@
+from typing import Dict
+
 import dsnparse
 
 _DEFAULT_DB_API = {
@@ -19,7 +21,7 @@ class PydapperParseResult(dsnparse.ParseResult):
         self.hostname: str = self.hostname
         self.username: str = self.username
         self.password: str = self.password
-        self.query: dict[str, str] = self.query  # dict of query string
+        self.query: Dict[str, str] = self.query  # dict of query string
         self.query_str: str = self.query_str  # raw query string
         self.port: str = self.port
         self.fragment: str = self.fragment

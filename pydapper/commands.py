@@ -1,12 +1,15 @@
 import re
 from abc import ABC
 from abc import abstractmethod
-from functools import cached_property
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import List
+from typing import Tuple
 from typing import Type
 from typing import Union
 from typing import cast
+
+from cached_property import cached_property
 
 from .exceptions import MoreThanOneResultException
 from .exceptions import NoResultException
@@ -39,13 +42,13 @@ class BaseSqlParamHandler(ABC):
         ...
 
     @cached_property
-    def ordered_param_names(self) -> tuple[str, ...]:
+    def ordered_param_names(self) -> Tuple[str, ...]:
         matches = re.findall(BaseSqlParamHandler._PARAM_REGEX, self._sql)
-        matches = cast(list[str], matches)
+        matches = cast(List[str], matches)
         return tuple(matches)
 
     @cached_property
-    def ordered_param_values(self) -> Union[tuple[Any, ...], list[tuple[Any, ...]]]:
+    def ordered_param_values(self) -> Union[Tuple[Any, ...], List[Tuple[Any, ...]]]:
         if isinstance(self._param, list):
             return [tuple(safe_getattr(p, name) for name in self.ordered_param_names) for p in self._param]
 
@@ -104,7 +107,7 @@ class Commands(ABC):
             rowcount = handler.execute(cursor)
         return rowcount
 
-    def query(self, sql: str, model: Any = dict, param: "ParamType" = None) -> list[Any]:
+    def query(self, sql: str, model: Any = dict, param: "ParamType" = None) -> List[Any]:
         handler = self.SqlParamHandler(sql, param)
         with self.cursor() as cursor:
             handler.execute(cursor)
@@ -113,10 +116,10 @@ class Commands(ABC):
         return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
 
     def query_multiple(
-        self, queries: tuple[str], models: tuple[Any] = None, param: "ParamType" = None
-    ) -> tuple[list[Any], ...]:
+        self, queries: Tuple[str], models: Tuple[Any] = None, param: "ParamType" = None
+    ) -> Tuple[List[Any], ...]:
         if models is None:
-            models = cast(tuple[dict], tuple(dict for _ in queries))
+            models = cast(Tuple[dict], tuple(dict for _ in queries))
 
         if len(queries) != len(models):
             raise ValueError("Number of queries must equal number of models")
@@ -135,7 +138,7 @@ class Commands(ABC):
                 serialized_data = [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
                 results.append(serialized_data)
 
-        return cast(tuple[list[Any]], tuple(results))
+        return cast(Tuple[List[Any]], tuple(results))
 
     def query_first(
         self,

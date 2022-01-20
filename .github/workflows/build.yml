@@ -52,9 +52,9 @@ jobs:
     - name: Install poetry
       run: |
         curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python -
+        source $HOME/.poetry/env
         poetry config virtualenvs.create true
         poetry config virtualenvs.in-project true
-        $HOME/.poetry/bin/poetry --version
 
     - name: Cache dependencies
       id: cache-poetry-deps

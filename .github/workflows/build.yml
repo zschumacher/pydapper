@@ -1,0 +1,83 @@
+name: build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.7, 3.8. 3.9, 3.10]
+
+    services:
+      postgres:
+        image: postgres:latest
+        ports:
+          - 5433:5432
+        env:
+          POSTGRES_USER: pydapper
+          POSTGRES_PASSWORD: pydapper
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      mssql-server:
+        image: mcr.microsoft.com/mssql/server:2019-latest
+        ports:
+          - 1434:1433
+        env:
+          SA_PASSWORD: "pydapper!PYDAPPER"
+          ACCEPT_EULA: "Y"
+          MSSQL_PID: "Express"
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v1
+      with:
+        submodules: 'recursive'
+
+    - name: set up python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install poetry
+      run: |
+        curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python -
+        poetry config virtualenvs.create true
+        poetry config virtualenvs.in-project true
+        poetry --version
+
+    - name: Cache dependencies
+      id: cache-poetry-deps
+      uses: actions/cache@v1
+      with:
+        path: .venv
+        key: v8-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles(format('{0}{1}', github.workspace, '/poetry.lock')) }}
+        restore-keys: |
+          v8-${{ runner.os }}-${{ matrix.python-version }}-
+
+    - name: Install dependencies
+      if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
+      run: poetry install
+
+    - name: mypy
+      run: |
+          poetry run mypy --config-file mypy.ini .
+
+    - name: test
+      run: |
+        poetry run isort -y -c
+        poetry run black --check .
+        poetry run pytest --cov=. --cov-branch -v --durations=25
+        poetry run coverage report -m
+        poetry run coverage html
+

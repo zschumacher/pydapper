@@ -18,6 +18,6 @@ a full description of the context manager behavior.
 ### Example - `using`
 Use *pydapper* with a custom connection pool.
 ```python
-{!docs/../docs_src/connections/pymssql_using.py!}
+{!docs/../docs_src/connections/sqlite3_using.py!}
 ```
 

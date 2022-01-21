@@ -40,7 +40,6 @@ import pydapper
 with pydapper.connect("some.db") as commands:
    # do stuff
 ```
-ç
 
 ### `using`
 You should use the `using` method when you want to use your own connection.  A use case

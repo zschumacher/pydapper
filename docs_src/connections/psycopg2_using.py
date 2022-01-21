@@ -1,6 +1,6 @@
-import pydapper
 from psycopg2.pool import SimpleConnectionPool
 
+import pydapper
 
 my_pool = SimpleConnectionPool(1, 10, "postgresql://pydapper:pydapper@localhost/pydapper")
 

@@ -1,10 +1,11 @@
-import pydapper
-from collections import deque
 import sqlite3
+from collections import deque
+
+import pydapper
 
 
 class SimplePool:
-    """ sqlite3 does not provide a pool interface, this is a simple example that should never be used in production """
+    """sqlite3 does not provide a pool interface, this is a simple example that should never be used in production"""
 
     def __init__(self, database: str):
         self._database = database

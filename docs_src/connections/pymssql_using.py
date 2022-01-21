@@ -1,10 +1,12 @@
-import pydapper
 from collections import deque
+
 import pymssql
+
+import pydapper
 
 
 class SimplePool:
-    """ pymssql does not provide a pool interface, this is a simple example that should never be used in production """
+    """pymssql does not provide a pool interface, this is a simple example that should never be used in production"""
 
     def __init__(self, **connect_kwargs):
         self._connect_kwargs = connect_kwargs
@@ -23,13 +25,7 @@ class SimplePool:
             conn.close()
 
 
-my_pool = SimplePool(
-    server="localhost",
-    port=1434,
-    user="sa",
-    password="pydapper!PYDAPPER",
-    database="pydapper"
-)
+my_pool = SimplePool(server="localhost", port=1434, user="sa", password="pydapper!PYDAPPER", database="pydapper")
 
 commands = pydapper.using(my_pool.getconn())
 print(type(commands))

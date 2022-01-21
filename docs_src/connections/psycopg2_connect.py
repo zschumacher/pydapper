@@ -10,4 +10,3 @@ with connect("postgresql://pydapper:pydapper@localhost/pydapper") as commands:
     with commands.cursor() as raw_cursor:
         print(type(raw_cursor))
         # <class 'psycopg2.extensions.cursor'>
-

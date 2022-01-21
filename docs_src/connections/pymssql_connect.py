@@ -10,5 +10,3 @@ with connect("mssql://sa:pydapper!PYDAPPER@localhost:1434/pydapper") as commands
     with commands.cursor() as raw_cursor:
         print(type(raw_cursor))
         # <class 'pymssql._pymssql.Cursor'>
-
-

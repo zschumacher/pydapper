@@ -5,11 +5,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Imports: isort](https://img.shields.io/badge/%20imports-isort-%231674b1?style=flat&labelColor=ef8336)](https://pycqa.github.io/isort/)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pydapper)
 
 
 A pure python library inspired by the NuGet library [dapper](https://dapper-tutorial.net).
 
-*pydapper* is built on top of the [dbapi 2.0 spec](https://www.python.org/dev/peps/pep-0249/)
+*pydapper* is built on top of the [database api (dbapi) 2.0 spec](https://www.python.org/dev/peps/pep-0249/)
 to provide more convenient methods for working with databases in python.
 
 ## Example
@@ -47,3 +48,4 @@ Why would I use *pydapper*?
 ```python
 {!docs/../docs_src/anti_example.py!}
 ```
+

@@ -10,7 +10,7 @@
 
 A pure python library inspired by the NuGet library [dapper](https://dapper-tutorial.net).
 
-*pydapper* is built on top of the [dbapi 2.0 spec](https://www.python.org/dev/peps/pep-0249/)
+*pydapper* is built on top of the [database api (dbapi) 2.0 spec](https://www.python.org/dev/peps/pep-0249/)
 to provide more convenient methods for working with databases in python.
 
 ## Example
@@ -48,3 +48,4 @@ Why would I use *pydapper*?
 ```python
 {!docs/../docs_src/anti_example.py!}
 ```
+

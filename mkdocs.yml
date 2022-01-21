@@ -1,7 +1,12 @@
 site_name: pydapper
 nav:
   - Overview: index.md
-  - Database Support: database_support.md
+  - Database Support:
+      - Intro - Database Support: database_support/intro.md
+      - Microsoft SQL Server: database_support/mssql.md
+      - PostgreSQL: database_support/postgresql.md
+      - SQLite: database_support/sqlite.md
+
   - Methods:
       - execute: methods/execute.md
       - execute_scalar: methods/execute_scalar.md
@@ -32,6 +37,9 @@ theme:
 
 repo_name: zschumacher/pydapper
 repo_url: https://github.com/zschumacher/pydapper
+
+# disable edit links
+edit_uri: ''
 
 markdown_extensions:
   - markdown_include.include

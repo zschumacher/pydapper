@@ -28,17 +28,14 @@ jobs:
           POETRY_VERSION: "1.1.11"
         run: |
           curl -sSL https://install.python-poetry.org | python -
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project true
+          poetry config virtualenvs.create false
 
       - name: Cache dependencies
         id: cache-poetry-deps
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
-          path: .venv
-          key: v8-${{ runner.os }}-3.9-${{ hashFiles(format('{0}{1}', github.workspace, '/poetry.lock')) }}
-          restore-keys: |
-            v8-${{ runner.os }}-3.9-
+          path: ${{ env.pythonLocation }}
+          key: ${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-fmt
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
@@ -99,17 +96,14 @@ jobs:
           POETRY_VERSION: "1.1.11"
         run: |
           curl -sSL https://install.python-poetry.org | python -
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project true
+          poetry config virtualenvs.create false
 
       - name: Cache dependencies
         id: cache-poetry-deps
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
-          path: .venv
-          key: v8-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles(format('{0}{1}', github.workspace, '/poetry.lock')) }}
-          restore-keys: |
-            v8-${{ runner.os }}-${{ matrix.python-version }}-
+          path: ${{ env.pythonLocation }}
+          key: ${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-test
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
@@ -122,5 +116,4 @@ jobs:
         run: |
           poetry run pytest --cov=. --cov-branch -v --durations=25
           poetry run coverage report -m
-          poetry run coverage html
           poetry run codecov -F ${{ matrix.python-version }}

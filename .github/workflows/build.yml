@@ -97,14 +97,12 @@ jobs:
           POETRY_VERSION: "1.1.11"
         run: |
           curl -sSL https://install.python-poetry.org | python -
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project true
 
       - name: Cache dependencies
         id: cache-poetry-deps
         uses: actions/cache@v1
         with:
-          path: .venv
+          path: ${{ env.pythonLocation }}
           key: v1-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}
           restore-keys: |
             v1-${{ runner.os }}-${{ env.pythonLocation }}-

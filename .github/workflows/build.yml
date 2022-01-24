@@ -31,12 +31,10 @@ jobs:
 
       - name: Cache dependencies
         id: cache-poetry-deps
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ${{ env.pythonLocation }}
-          key: python-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}
-          restore-keys: |
-            python-${{ runner.os }}-3.9-
+          key: python-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-fmt
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
@@ -100,12 +98,10 @@ jobs:
 
       - name: Cache dependencies
         id: cache-poetry-deps
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ${{ env.pythonLocation }}
-          key: python-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}
-          restore-keys: |
-            python-${{ runner.os }}-${{ env.pythonLocation }}-
+          key: python-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-test
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'

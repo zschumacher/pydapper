@@ -28,13 +28,14 @@ jobs:
           POETRY_VERSION: "1.1.11"
         run: |
           curl -sSL https://install.python-poetry.org | python -
+          poetry config virtualenvs.create false
 
       - name: Cache dependencies
         id: cache-poetry-deps
         uses: actions/cache@v2
         with:
           path: ${{ env.pythonLocation }}
-          key: python-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-fmt
+          key: ${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-fmt
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
@@ -95,13 +96,14 @@ jobs:
           POETRY_VERSION: "1.1.11"
         run: |
           curl -sSL https://install.python-poetry.org | python -
+          poetry config virtualenvs.create false
 
       - name: Cache dependencies
         id: cache-poetry-deps
         uses: actions/cache@v2
         with:
           path: ${{ env.pythonLocation }}
-          key: python-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-test
+          key: ${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-test
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'

@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v1
         with:
           path: .venv
-          key: v1-${{ runner.os }}-3.9-${{ hashFiles('poetry.lock')) }}
+          key: v1-${{ runner.os }}-3.9-${{ hashFiles('poetry.lock') }}
           restore-keys: |
             v1-${{ runner.os }}-3.9-
 
@@ -107,7 +107,7 @@ jobs:
         uses: actions/cache@v1
         with:
           path: .venv
-          key: v1-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('poetry.lock')) }}
+          key: v1-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
           restore-keys: |
             v1-${{ runner.os }}-${{ matrix.python-version }}-
 

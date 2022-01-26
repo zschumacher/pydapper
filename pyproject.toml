@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pydapper"
-version = "0.1.1a2"
+version = "0.1.1a3"
 description = "A pure python lib inspired by the dotnet lib dapper"
 authors = ["Zach Schumacher <zschu15@gmail.com>"]
 license = "MIT"

@@ -1,0 +1,49 @@
+name: fmt
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: set up python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9.9'
+
+      - name: Install poetry
+        env:
+          POETRY_VERSION: "1.1.11"
+        run: |
+          curl -sSL https://install.python-poetry.org | python -
+          poetry config virtualenvs.create false
+
+      - name: Cache dependencies
+        id: cache-poetry-deps
+        uses: actions/cache@v2
+        with:
+          path: ${{ env.pythonLocation }}
+          key: ${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-fmt
+
+      - name: Install dependencies
+        if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
+        run: poetry install --extras "psycopg2 pymssql"
+
+      - name: mypy
+        run: poetry run mypy --config-file mypy.ini .
+
+      - name: black
+        run: poetry run isort --check .
+
+      - name: isort
+        run: poetry run black --check .

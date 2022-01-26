@@ -47,7 +47,3 @@ print(tasks)
 # [Task(id=1, description='Add a README!', due_date=datetime.date(2022, 1, 16))]
 ```
 (This script is complete, it should run "as is")
-
-
-### Latest Changes
-

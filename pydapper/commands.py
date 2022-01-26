@@ -1,8 +1,10 @@
 import re
 from abc import ABC
 from abc import abstractmethod
+from re import Match
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Generator
 from typing import List
 from typing import Tuple
 from typing import Type
@@ -57,7 +59,13 @@ class BaseSqlParamHandler(ABC):
     @cached_property
     def prepared_sql(self):
         pattern = re.compile("|".join(re.escape(f"?{name}?") for name in self.ordered_param_names))
-        return pattern.sub(self.get_param_placeholder, self._sql)  # type: ignore
+
+        def sub_param_with_placeholder(m: Match) -> str:
+            matched_placeholder = m.group(0)
+            matched_param_name = matched_placeholder.strip("?")
+            return self.get_param_placeholder(matched_param_name)
+
+        return pattern.sub(sub_param_with_placeholder, self._sql)  # type: ignore
 
     def execute(self, cursor: "CursorType") -> int:
         if self._param:
@@ -107,13 +115,28 @@ class Commands(ABC):
             rowcount = handler.execute(cursor)
         return rowcount
 
-    def query(self, sql: str, model: Any = dict, param: "ParamType" = None) -> List[Any]:
-        handler = self.SqlParamHandler(sql, param)
+    def _buffered_query(self, handler: BaseSqlParamHandler, model: Any) -> List[Any]:
         with self.cursor() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
             data = cursor.fetchall()
-        return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
+            return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
+
+    def _unbuffered_query(self, handler: BaseSqlParamHandler, model: Any) -> Generator[Any, None, None]:
+        with self.cursor() as cursor:
+            handler.execute(cursor)
+            headers = get_col_names(cursor)
+            while True:
+                row = cursor.fetchone()
+                if not row:
+                    break
+                yield serialize_dict_row(model, database_row_to_dict(headers, row))
+
+    def query(
+        self, sql: str, model: Any = dict, param: "ParamType" = None, buffered: bool = True
+    ) -> Union[List[Any], Generator[Any, None, None]]:
+        handler = self.SqlParamHandler(sql, param)
+        return self._buffered_query(handler, model) if buffered else self._unbuffered_query(handler, model)
 
     def query_multiple(
         self, queries: Tuple[str], models: Tuple[Any] = None, param: "ParamType" = None

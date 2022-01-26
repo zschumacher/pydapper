@@ -18,7 +18,11 @@ _PARAM_TYPE_LOOKUP = {float: "%d", int: "%d", str: "%s", Decimal: "%d"}
 class PymssqlCommands(Commands):
     class SqlParamHandler(BaseSqlParamHandler):
         def get_param_placeholder(self, param_name) -> str:
-            param_value = safe_getattr(self._param, param_name)
+            if isinstance(self._param, list):
+                test_param = self._param[0]
+            else:
+                test_param = self._param
+            param_value = safe_getattr(test_param, param_name)
             return _PARAM_TYPE_LOOKUP.get(type(param_value), "%s")
 
     @classmethod

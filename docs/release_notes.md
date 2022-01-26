@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* 🔖 Release version 0.1.1a3. PR [#15](https://github.com/zschumacher/pydapper/pull/15) by [@zschumacher](https://github.com/zschumacher).
 ### 0.1.1a3
 #### Features
 * ✨Add `buffered` kwarg to `query` method. PR [#12](https://github.com/zschumacher/pydapper/pull/12) by [@zschumacher](https://github.com/zschumacher).

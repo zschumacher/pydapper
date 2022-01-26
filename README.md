@@ -41,13 +41,9 @@ class Task:
 
     
 with connect("postgresql+psycopg2://pydapper:pydapper@locahost/pydapper") as commands:
-    tasks = conn.query("select id, description, due_date from task;", model=Task)
+    tasks = commands.query("select id, description, due_date from task;", model=Task)
     
 print(tasks)
 # [Task(id=1, description='Add a README!', due_date=datetime.date(2022, 1, 16))]
 ```
 (This script is complete, it should run "as is")
-
-
-### Latest Changes
-

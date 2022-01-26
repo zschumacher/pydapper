@@ -25,7 +25,7 @@ You can get creative with what you pass in to the model kwarg of `query`
 
 
 ### Example - Buffering queries
-By default, `query` fetches all results and stores them in a lift (buffered).  By setting `buffered=False`, you can
+By default, `query` fetches all results and stores them in a list (buffered).  By setting `buffered=False`, you can
 instead have `query` act as a generator function, fetching one record from the result set at a time.  This may be useful
 if querying a large amount of data that would not fit into memory, but note that this keeps both the connection and
 cursor open while you're retrieving results.

@@ -106,5 +106,5 @@ def mysql_connector_python_commands(server, database_name) -> MySqlConnectorPyth
     with MySqlConnectorPythonCommands(
         mysql.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)
     ) as commands:
-        print(commands.query("show tables"))
+        print(commands.query("show tables in pydapper"))
         yield commands

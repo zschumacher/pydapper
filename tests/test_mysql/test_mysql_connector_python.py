@@ -1,8 +1,4 @@
-import datetime
-from decimal import Decimal
-
 import mysql.connector
-import pytest
 
 from pydapper import connect
 from pydapper import using

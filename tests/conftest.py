@@ -110,7 +110,7 @@ def mysql_setup(database_name, setup_sql_dir, server):
     ) as conn:
         with conn.cursor() as cursor:
             setup_sql = (setup_sql_dir / "mysql.sql").read_text()
-            cursor.execute(setup_sql)
+            cursor.execute(setup_sql, multi=True)
 
 
 @pytest.fixture(scope="function")

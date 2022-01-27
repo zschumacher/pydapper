@@ -8,6 +8,19 @@ Supported drivers:
 ## pymssql
 `pymssql` is the default dbapi driver for Microsoft SQL Server in *pydapper*.
 
+### Installation
+=== "pip"
+
+    ```console
+    pip install pydapper[pymssql]
+    ```
+
+=== "poetry"
+
+    ```console
+    poetry add pydapper -E pymssql
+    ```
+
 ### Example - `connect`
 Please see the [pymssql docs](https://www.pymssql.org/pymssql_examples.html#using-the-with-statement-context-managers) for
 a full description of the context manager behavior.
@@ -20,4 +33,3 @@ Use *pydapper* with a custom connection pool.
 ```python
 {!docs/../docs_src/connections/pymssql_using.py!}
 ```
-

@@ -3,14 +3,15 @@ import sqlite3
 from contextlib import suppress
 from pathlib import Path
 
+import mysql.connector
 import psycopg2
 import pytest
 from psycopg2.errors import DuplicateDatabase
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from pymssql import _pymssql
 
-from pydapper import connect
 from pydapper.mssql import PymssqlCommands
+from pydapper.mysql import MySqlConnectorPythonCommands
 from pydapper.postgresql import Psycopg2Commands
 from pydapper.sqlite import Sqlite3Commands
 
@@ -21,8 +22,8 @@ def setup_sql_dir():
 
 
 @pytest.fixture(scope="session")
-def database_name(worker_id):
-    return f"pydapper_{worker_id}"
+def database_name():
+    return f"pydapper"
 
 
 @pytest.fixture(scope="session")
@@ -50,13 +51,6 @@ def sqlite3_commands(database_name) -> Sqlite3Commands:
 
 @pytest.fixture(scope="session", autouse=True)
 def postgres_setup(setup_sql_dir, database_name, server):
-    # connect to the root and create the db
-    conn = psycopg2.connect(f"postgresql://pydapper:pydapper@{server}:5433/postgres")
-    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-    cursor = conn.cursor()
-    with suppress(DuplicateDatabase):
-        cursor.execute(f"CREATE DATABASE {database_name}")
-
     # connect to the newly created database and create the tables
     setup_sql = (setup_sql_dir / "postgresql.sql").read_text()
     with psycopg2.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}") as conn:
@@ -91,8 +85,31 @@ def mssql_setup(database_name, setup_sql_dir, server):
 
 
 @pytest.fixture(scope="function")
-def pymssql_commands(server, database_name) -> Psycopg2Commands:
+def pymssql_commands(server, database_name) -> PymssqlCommands:
     with PymssqlCommands(
         _pymssql.connect(server=server, port=1434, password="pydapper!PYDAPPER", user="sa", database=database_name)
+    ) as commands:
+        yield commands
+
+
+@pytest.fixture(scope="session", autouse=True)
+def mysql_setup(database_name, setup_sql_dir, server):
+    conn = mysql.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", autocommit=True)
+    cursor = conn.cursor()
+    owner_table = (setup_sql_dir / "mysql" / "owner.sql").read_text()
+    cursor.execute(owner_table)
+    task_table = (setup_sql_dir / "mysql" / "task.sql").read_text()
+    cursor.execute(task_table)
+    owner_insert = (setup_sql_dir / "mysql" / "insert_owner.sql").read_text()
+    cursor.execute(owner_insert)
+    task_insert = (setup_sql_dir / "mysql" / "insert_task.sql").read_text()
+    cursor.execute(task_insert)
+    conn.close()
+
+
+@pytest.fixture(scope="function")
+def mysql_connector_python_commands(server, database_name) -> MySqlConnectorPythonCommands:
+    with MySqlConnectorPythonCommands(
+        mysql.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)
     ) as commands:
         yield commands

@@ -8,6 +8,7 @@ command_fixtures = [
     lazy_fixture("psycopg2_commands"),
     lazy_fixture("pymssql_commands"),
     lazy_fixture("sqlite3_commands"),
+    lazy_fixture("mysql_connector_python_commands"),
 ]
 
 

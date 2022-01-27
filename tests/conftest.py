@@ -106,7 +106,7 @@ def mysql_setup(database_name, setup_sql_dir, server):
     cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database_name}")
     conn.close()
 
-    conn = mysql.connector.connect(host=server, port=3307, password="pydapper", user="root", database=database_name)
+    conn = mysql.connector.connect(host=server, port=3307, password="pydapper", user="root")
     cursor = conn.cursor(buffered=True)
     setup_sql = (setup_sql_dir / "mysql.sql").read_text()
     cursor.execute(setup_sql, multi=True)

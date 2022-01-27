@@ -47,6 +47,7 @@ jobs:
         env:
             MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
             MYSQL_DATABASE: "pydapper"
+            MYSQL_ROOT_HOST: "%"
         options: >-
           --health-cmd "mysqladmin ping"
           --health-interval 10s 

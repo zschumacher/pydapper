@@ -43,7 +43,7 @@ jobs:
       mysql:
         image: mysql:latest
         ports:
-          - 13306:3306
+          - 3307:3306
         env:
           MYSQL_ROOT_PASSWORD: pydapper
           MYSQL_USER: pydapper

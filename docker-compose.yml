@@ -26,4 +26,5 @@ services:
     environment:
       MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
       MYSQL_DATABASE: "pydapper"
-      MYSQL_ROOT_HOST: "%"
+      MYSQL_USER: "pydapper"
+      MYSQL_PASSWORD: "pydapper"

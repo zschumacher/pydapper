@@ -1,13 +1,10 @@
-DROP TABLE IF EXISTS pydapper.task;
-DROP TABLE IF EXISTS pydapper.owner;
-
-CREATE TABLE pydapper.owner (
+CREATE TABLE IF NOT EXISTS pydapper.owner (
     id integer NOT NULL AUTO_INCREMENT,
     name text NOT NULL,
     PRIMARY KEY ( id )
 );
 
-CREATE TABLE pydapper.task (
+CREATE TABLE IF NOT EXISTS pydapper.task (
     id          integer AUTO_INCREMENT,
     description text NOT NULL,
     due_date    date NOT NULL,
@@ -25,5 +22,3 @@ INSERT IGNORE INTO pydapper.task (id, description, due_date, owner_id) VALUES
 (3, 'Run the test suite', '2022-01-01', 1)
 ;
 
-GRANT ALL ON *.* TO 'root'@'%';
-FLUSH PRIVILEGES;

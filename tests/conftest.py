@@ -103,14 +103,14 @@ def pymssql_commands(server, database_name) -> PymssqlCommands:
 def mysql_setup(database_name, setup_sql_dir, server):
     with mysql.connector.connect(host=server, port=3307, password="pydapper", user="root", autocommit=True) as conn:
         with conn.cursor() as cursor:
-            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database_name} ")
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database_name}")
 
     with mysql.connector.connect(
         host=server, port=3307, password="pydapper", user="root", database=database_name, autocommit=True
     ) as conn:
         with conn.cursor() as cursor:
             setup_sql = (setup_sql_dir / "mysql.sql").read_text()
-            cursor.execute(setup_sql, multi=True)
+            cursor.execute(setup_sql)
 
 
 @pytest.fixture(scope="function")

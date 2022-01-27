@@ -3,14 +3,15 @@ import sqlite3
 from contextlib import suppress
 from pathlib import Path
 
+import mysql.connector
 import psycopg2
 import pytest
 from psycopg2.errors import DuplicateDatabase
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from pymssql import _pymssql
 
-from pydapper import connect
 from pydapper.mssql import PymssqlCommands
+from pydapper.mysql import MySqlConnectorPythonCommands
 from pydapper.postgresql import Psycopg2Commands
 from pydapper.sqlite import Sqlite3Commands
 
@@ -91,8 +92,30 @@ def mssql_setup(database_name, setup_sql_dir, server):
 
 
 @pytest.fixture(scope="function")
-def pymssql_commands(server, database_name) -> Psycopg2Commands:
+def pymssql_commands(server, database_name) -> PymssqlCommands:
     with PymssqlCommands(
         _pymssql.connect(server=server, port=1434, password="pydapper!PYDAPPER", user="sa", database=database_name)
+    ) as commands:
+        yield commands
+
+
+@pytest.fixture(scope="session", autouse=True)
+def mysql_setup(database_name, setup_sql_dir, server):
+    with mysql.connector.connect(host=server, port=3307, password="pydapper", user="root", autocommit=True) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database_name} ")
+
+    with mysql.connector.connect(
+        host=server, port=3307, password="pydapper", user="root", database=database_name, autocommit=True
+    ) as conn:
+        with conn.cursor() as cursor:
+            setup_sql = (setup_sql_dir / "mysql.sql").read_text()
+            cursor.execute(setup_sql)
+
+
+@pytest.fixture(scope="function")
+def mysql_connector_python_commands(server, database_name) -> MySqlConnectorPythonCommands:
+    with MySqlConnectorPythonCommands(
+        mysql.connector.connect(host=server, port=3307, password="pydapper", user="root", database=database_name)
     ) as commands:
         yield commands

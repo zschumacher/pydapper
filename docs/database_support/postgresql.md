@@ -34,4 +34,3 @@ Use *pydapper* with a `psycopg2` connection pool.
 ```python
 {!docs/../docs_src/connections/psycopg2_using.py!}
 ```
-

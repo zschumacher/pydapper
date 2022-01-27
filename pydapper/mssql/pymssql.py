@@ -11,6 +11,7 @@ from ..utils import safe_getattr
 if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
 
+
 _PARAM_TYPE_LOOKUP = {float: "%d", int: "%d", str: "%s", Decimal: "%d"}
 
 

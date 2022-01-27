@@ -20,4 +20,3 @@ Use *pydapper* with a custom connection pool.
 ```python
 {!docs/../docs_src/connections/sqlite3_using.py!}
 ```
-

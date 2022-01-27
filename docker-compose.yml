@@ -18,3 +18,12 @@ services:
       SA_PASSWORD: "pydapper!PYDAPPER"
       ACCEPT_EULA: "Y"
       MSSQL_PID: "Express"
+
+  mysql:
+    image: mysql:latest
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: pydapper
+      MYSQL_USER: pydapper
+      MYSQL_PASSWORD: pydapper

@@ -22,8 +22,8 @@ def setup_sql_dir():
 
 
 @pytest.fixture(scope="session")
-def database_name(worker_id):
-    return f"pydapper_{worker_id}"
+def database_name():
+    return f"pydapper"
 
 
 @pytest.fixture(scope="session")

@@ -51,13 +51,6 @@ def sqlite3_commands(database_name) -> Sqlite3Commands:
 
 @pytest.fixture(scope="session", autouse=True)
 def postgres_setup(setup_sql_dir, database_name, server):
-    # connect to the root and create the db
-    conn = psycopg2.connect(f"postgresql://pydapper:pydapper@{server}:5433/postgres")
-    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-    cursor = conn.cursor()
-    with suppress(DuplicateDatabase):
-        cursor.execute(f"CREATE DATABASE {database_name}")
-
     # connect to the newly created database and create the tables
     setup_sql = (setup_sql_dir / "postgresql.sql").read_text()
     with psycopg2.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}") as conn:
@@ -101,11 +94,6 @@ def pymssql_commands(server, database_name) -> PymssqlCommands:
 
 @pytest.fixture(scope="session", autouse=True)
 def mysql_setup(database_name, setup_sql_dir, server):
-    conn = mysql.connector.connect(host=server, port=3307, user="root")
-    cursor = conn.cursor(buffered=True)
-    cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database_name}")
-    conn.close()
-
     conn = mysql.connector.connect(host=server, port=3307, user="root")
     cursor = conn.cursor(buffered=True)
     setup_sql = (setup_sql_dir / "mysql.sql").read_text()

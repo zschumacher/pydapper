@@ -28,7 +28,7 @@ def database_name(worker_id):
 
 @pytest.fixture(scope="session")
 def server():
-    return "localhost"
+    return "127.0.0.1"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -106,7 +106,7 @@ def mysql_setup(database_name, setup_sql_dir, server):
             cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database_name}")
 
     with mysql.connector.connect(
-        host=server, port=3307, password="pydapper", user="root", database=database_name, autocommit=True
+        host=server, port=3307, password="pydapper", user="root", database=database_name
     ) as conn:
         with conn.cursor() as cursor:
             setup_sql = (setup_sql_dir / "mysql.sql").read_text()

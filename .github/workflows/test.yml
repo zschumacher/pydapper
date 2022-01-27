@@ -40,6 +40,15 @@ jobs:
           ACCEPT_EULA: "Y"
           MSSQL_PID: "Express"
 
+      mysql:
+        image: mysql:latest
+        ports:
+          - 3307:3306
+        env:
+          MYSQL_ROOT_PASSWORD: pydapper
+          MYSQL_USER: pydapper
+          MYSQL_PASSWORD: pydapper
+
     steps:
       - name: Checkout
         uses: actions/checkout@v1
@@ -65,7 +74,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
-        run: poetry install --extras "psycopg2 pymssql"
+        run: poetry install --extras "psycopg2 pymssql mysql-connector-python"
 
       - name: test
         env:

@@ -45,9 +45,7 @@ jobs:
         ports:
           - 3307:3306
         env:
-          MYSQL_ROOT_PASSWORD: pydapper
-          MYSQL_USER: pydapper
-          MYSQL_PASSWORD: pydapper
+            MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
         options: >-
           --health-cmd "mysqladmin ping"
           --health-interval 10s 

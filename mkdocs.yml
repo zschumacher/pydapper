@@ -46,6 +46,9 @@ markdown_extensions:
   - markdown_include.include
   - pymdownx.highlight
   - pymdownx.inlinehilite
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
   - pymdownx.extra
   - pymdownx.emoji:
       emoji_index: !!python/name:materialx.emoji.twemoji

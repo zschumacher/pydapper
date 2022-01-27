@@ -23,3 +23,4 @@ INSERT IGNORE INTO pydapper.task (id, description, due_date, owner_id) VALUES
 ;
 
 GRANT ALL ON *.* TO 'root'@'%';
+FLUSH PRIVILEGES;

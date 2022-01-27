@@ -8,6 +8,18 @@ Supported drivers:
 ## psycopg2
 `psycopg2` is the default dbapi driver for PostgreSQL in *pydapper*.
 
+### Installation
+=== "pip"
+
+    ```console
+    pip install pydapper[psycopg2]
+    ```
+
+=== "poetry"
+
+    ```console
+    poetry add pydapper -E psycopg2
+    ```
 ### Example - `connect`
 Please see the [psycopg2 docs](https://www.psycopg.org/docs/usage.html#with-statement) for a full description of the
 context manager behavior.  

@@ -18,10 +18,13 @@ See the [documentation](https://pydapper.readthedocs.io/en/latest/) for more det
 
 ## Installation
 It is recommended to only install the database apis you need for your use case.  Example below is for psycopg2!
-```bash
-# pip 
+### pip
+```console
 pip install pydapper[psycopg2]
-# poetry
+```
+
+### poetry
+```console
 poetry add pydapper -E psycopg2
 ```
 

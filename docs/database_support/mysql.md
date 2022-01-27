@@ -14,6 +14,19 @@ Supported drivers:
     When using `query_first` with MySQL, it is advisable to use `LIMIT 1` in your query to prevent downloading
     unneeded rows.
 
+### Installation
+=== "pip"
+
+    ```console
+    pip install pydapper[mysql-connector-python]
+    ```
+
+=== "poetry"
+
+    ```console
+    poetry add pydapper -E mysql-connector-python
+    ```
+
 ### Example - `connect`
 The [mysql-connector-python docs](https://github.com/mysql/mysql-connector-python/blob/90eaeca65a6bbfc1fd9218aad5303957798215c3/lib/mysql/connector/abstracts.py#L142) 
 do not have clear examples of the behavior of the context manager.  For the current version, the context manager 

@@ -6,7 +6,9 @@ from pydapper.mysql import MySqlConnectorPythonCommands
 
 
 def test_using(server, database_name):
-    with using(mysql.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)) as commands:
+    with using(
+        mysql.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)
+    ) as commands:
         assert isinstance(commands, MySqlConnectorPythonCommands)
 
 

@@ -177,10 +177,6 @@ class Commands(ABC):
             row = cursor.fetchone()
             if not row:
                 raise NoResultException("Query returned no results")
-            if hasattr(cursor, "reset"):
-                # not actually part of the dbapi 2.0 spec, but the cursors that implement typically require releasing
-                # the cursor after a call to fetchone if there are more than one results in the resultset
-                cursor.reset()  # type: ignore
         return serialize_dict_row(model, database_row_to_dict(headers, row))
 
     def query_first_or_default(self, sql: str, default: Any, model: Any = dict, param: Any = None) -> Any:

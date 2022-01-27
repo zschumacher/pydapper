@@ -1,9 +1,17 @@
 from typing import TYPE_CHECKING
+from typing import Any
+
+from mysql.connector.connection import MySQLCursor
 
 from pydapper import register
 from pydapper.commands import Commands
 
+from ..exceptions import NoResultException
+from ..types import ParamType
+from ..utils import database_row_to_dict
+from ..utils import get_col_names
 from ..utils import import_dbapi_module
+from ..utils import serialize_dict_row
 
 if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
@@ -23,3 +31,24 @@ class MySqlConnectorPythonCommands(Commands):
             **connect_kwargs,
         )
         return cls(conn)
+
+    def query_first(
+        self,
+        sql: str,
+        model: Any = dict,
+        param: "ParamType" = None,
+    ) -> Any:
+        """
+        the mysql connector throws an exception if you only read one row from a cursor.  We must call `free_result`
+        after fetching one row in order to dispose of the cursor server side.
+        """
+        handler = self.SqlParamHandler(sql, param)
+
+        with self.cursor() as cursor:
+            handler.execute(cursor)
+            headers = get_col_names(cursor)
+            row = cursor.fetchone()
+            if not row:
+                raise NoResultException("Query returned no results")
+            self.connection.free_result()  # type: ignore
+        return serialize_dict_row(model, database_row_to_dict(headers, row))

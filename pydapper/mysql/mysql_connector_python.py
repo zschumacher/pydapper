@@ -39,8 +39,8 @@ class MySqlConnectorPythonCommands(Commands):
         param: "ParamType" = None,
     ) -> Any:
         """
-        the mysql connector throws an exception if you only read one row from a cursor.  We must call `free_result`
-        after fetching one row in order to dispose of the cursor server side.
+        the mysql connector throws an exception if you only read one row from a cursor.  Unfortunately, we have to
+        fetchall to make the lib happy.
         """
         handler = self.SqlParamHandler(sql, param)
 
@@ -50,5 +50,5 @@ class MySqlConnectorPythonCommands(Commands):
             row = cursor.fetchone()
             if not row:
                 raise NoResultException("Query returned no results")
-            self.connection.free_result()  # type: ignore
+            cursor.fetchall()
         return serialize_dict_row(model, database_row_to_dict(headers, row))

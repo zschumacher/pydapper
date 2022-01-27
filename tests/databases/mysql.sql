@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS owner (
     name text NOT NULL,
     PRIMARY KEY ( id )
 );
+COMMIT;
 
 CREATE TABLE IF NOT EXISTS task (
     id          integer AUTO_INCREMENT,
@@ -12,13 +13,15 @@ CREATE TABLE IF NOT EXISTS task (
     PRIMARY KEY ( id ),
     FOREIGN KEY ( owner_id ) REFERENCES owner(id)
 );
+COMMIT;
 
 INSERT IGNORE INTO owner (id, name) VALUES
 (1, 'Zach Schumacher') ;
-
+COMMIT;
 
 INSERT IGNORE INTO task (id, description, due_date, owner_id) VALUES
 (1, 'Set up a test database', '2021-12-31', 1),
 (2, 'Seed the test database', '2021-12-31', 1),
 (3, 'Run the test suite', '2022-01-01', 1)
 ;
+COMMIT ;

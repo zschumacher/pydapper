@@ -1,10 +1,13 @@
-CREATE TABLE IF NOT EXISTS pydapper.owner (
+DROP TABLE IF EXISTS pydapper.task;
+DROP TABLE IF EXISTS pydapper.owner;
+
+CREATE TABLE pydapper.owner (
     id integer NOT NULL AUTO_INCREMENT,
     name text NOT NULL,
     PRIMARY KEY ( id )
 );
 
-CREATE TABLE IF NOT EXISTS pydapper.task (
+CREATE TABLE pydapper.task (
     id          integer AUTO_INCREMENT,
     description text NOT NULL,
     due_date    date NOT NULL,

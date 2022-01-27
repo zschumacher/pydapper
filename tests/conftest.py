@@ -28,7 +28,7 @@ def database_name():
 
 @pytest.fixture(scope="session")
 def server():
-    return "localhost
+    return "localhost"
 
 
 @pytest.fixture(scope="session", autouse=True)

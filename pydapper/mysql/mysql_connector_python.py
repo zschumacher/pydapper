@@ -1,8 +1,6 @@
 from typing import TYPE_CHECKING
 from typing import Any
 
-from mysql.connector.connection import MySQLCursor
-
 from pydapper import register
 from pydapper.commands import Commands
 

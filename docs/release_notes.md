@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* ✨Add mysql support for `mysql-connector-python`. PR [#16](https://github.com/zschumacher/pydapper/pull/16) by [@zschumacher](https://github.com/zschumacher).
 
 ### 0.1.1a3
 #### Features

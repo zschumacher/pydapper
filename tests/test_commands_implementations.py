@@ -98,7 +98,7 @@ class TestQueryMultiple:
             (
                 'select id as "id", name as "name" from owner',
                 'select id as "id", description as "description", due_date as "due_date", owner_id as "owner_id" '
-                'from task',
+                "from task",
             ),
             models=(Owner, Task),
         )

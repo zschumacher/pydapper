@@ -1,9 +1,10 @@
 import mysql.connector
+import pytest
 
 from pydapper import connect
 from pydapper import using
 from pydapper.mysql import MySqlConnectorPythonCommands
-import pytest
+
 
 def test_using(server, database_name):
     with using(

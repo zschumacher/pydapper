@@ -1,9 +1,10 @@
 import sqlite3
 
+import pytest
+
 from pydapper import connect
 from pydapper import using
 from pydapper.sqlite import Sqlite3Commands
-import pytest
 
 
 def test_using(database_name):

@@ -1,9 +1,9 @@
 import psycopg2
+import pytest
 
 from pydapper import connect
 from pydapper import using
 from pydapper.postgresql.psycopg2 import Psycopg2Commands
-import pytest
 
 
 def test_using(server, database_name):

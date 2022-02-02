@@ -3,7 +3,7 @@ import mysql.connector
 from pydapper import connect
 from pydapper import using
 from pydapper.mysql import MySqlConnectorPythonCommands
-
+import pytest
 
 def test_using(server, database_name):
     with using(
@@ -12,6 +12,7 @@ def test_using(server, database_name):
         assert isinstance(commands, MySqlConnectorPythonCommands)
 
 
-def test_connect(database_name, server):
-    with connect(f"mysql+mysql://pydapper:pydapper@{server}:3307/{database_name}") as commands:
+@pytest.mark.parametrize("driver", ["mysql", "mysql+mysql"])
+def test_connect(driver, database_name, server):
+    with connect(f"{driver}://pydapper:pydapper@{server}:3307/{database_name}") as commands:
         assert isinstance(commands, MySqlConnectorPythonCommands)

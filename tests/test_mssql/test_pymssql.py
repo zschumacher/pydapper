@@ -16,8 +16,9 @@ def test_using(server, database_name):
         assert isinstance(commands, PymssqlCommands)
 
 
-def test_connect(database_name, server):
-    with connect(f"mssql+pymssql://sa:pydapper!PYDAPPER@{server}:1434/{database_name}") as commands:
+@pytest.mark.parametrize("driver", ["mssql", "mysql+pymssql"])
+def test_connect(driver, database_name, server):
+    with connect(f"{driver}://sa:pydapper!PYDAPPER@{server}:1434/{database_name}") as commands:
         assert isinstance(commands, PymssqlCommands)
 
 

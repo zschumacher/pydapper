@@ -9,7 +9,11 @@ command_fixtures = [
     lazy_fixture("pymssql_commands"),
     lazy_fixture("sqlite3_commands"),
     lazy_fixture("mysql_connector_python_commands"),
+    lazy_fixture("cx_Oracle_commands"),
 ]
+
+# NOTE: you may notice some tests write sql like `select id as "id"`.  This is because some rdbms' (like oracle)
+# return all column names as upper case in cursor.description, so we have to force lowercase
 
 
 @pytest.mark.parametrize("commands", command_fixtures)
@@ -25,8 +29,8 @@ class TestExecute:
             commands.execute(
                 "INSERT INTO task (description, due_date, owner_id) VALUES (?description?, ?due_date?, ?owner_id?)",
                 [
-                    {"description": "new task", "due_date": "2022-01-01", "owner_id": 1},
-                    {"description": "another new task", "due_date": "2022-01-01", "owner_id": 1},
+                    {"description": "new task", "due_date": datetime.date(2022, 1, 1), "owner_id": 1},
+                    {"description": "another new task", "due_date": datetime.date(2022, 1, 1), "owner_id": 1},
                 ],
             )
             == 2
@@ -41,7 +45,9 @@ class TestQuery:
         assert all(isinstance(record, dict) for record in data)
 
     def test_param(self, commands):
-        data = commands.query("select * from task where due_date = ?due_date?", param={"due_date": "2021-12-31"})
+        data = commands.query(
+            "select * from task where due_date = ?due_date?", param={"due_date": datetime.date(2021, 12, 31)}
+        )
         assert len(data) == 2
         assert all(isinstance(record, dict) for record in data)
 
@@ -68,7 +74,7 @@ class TestQueryMultiple:
     def test_param(self, commands):
         owner, task = commands.query_multiple(
             ("select * from owner where id = ?id?", "select * from task where due_date = ?due_date?"),
-            param={"id": 1, "due_date": "2021-12-31"},
+            param={"id": 1, "due_date": datetime.date(2021, 12, 31)},
         )
         assert len(owner) == 1
         assert len(task) == 2
@@ -88,7 +94,14 @@ class TestQueryMultiple:
             id: int
             name: str
 
-        owner, task = commands.query_multiple(("select * from owner", "select * from task"), models=(Owner, Task))
+        owner, task = commands.query_multiple(
+            (
+                'select id as "id", name as "name" from owner',
+                'select id as "id", description as "description", due_date as "due_date", owner_id as "owner_id" '
+                'from task',
+            ),
+            models=(Owner, Task),
+        )
 
         assert len(owner) == 1
         assert len(task) == 3
@@ -103,7 +116,7 @@ class TestQueryFirst:
         assert isinstance(task, dict)
 
     def test_param(self, commands):
-        task = commands.query_first("select * from task where id = ?id?", param={"id": 1})
+        task = commands.query_first('select id as "id" from task where id = ?id?', param={"id": 1})
         assert task["id"] == 1
 
 
@@ -125,11 +138,11 @@ class TestQueryFirstOrDefault:
 @pytest.mark.parametrize("commands", command_fixtures)
 class TestQuerySingle:
     def test(self, commands):
-        task = commands.query_single("select * from task where id = 1")
+        task = commands.query_single('select id as "id" from task where id = 1')
         assert task["id"] == 1
 
     def test_param(self, commands):
-        task = commands.query_single("select * from task where id = ?id?", param={"id": 1})
+        task = commands.query_single('select id as "id" from task where id = ?id?', param={"id": 1})
         assert task["id"] == 1
 
 

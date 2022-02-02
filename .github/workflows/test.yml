@@ -55,6 +55,21 @@ jobs:
           --health-timeout 5s 
           --health-retries 5
 
+      oracle:
+        image: gvenzl/oracle-xe:slim
+        ports:
+          - 1522:1521
+        env:
+          ORACLE_RANDOM_PASSWORD: "yes"
+          APP_USER: "pydapper"
+          APP_USER_PASSWORD: "pydapper"
+          ORACLE_DATABASE: "pydapper"
+        options: >- # oracle has a longer startup so give the healthcheck more retries
+          --health-cmd healthcheck.sh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v1

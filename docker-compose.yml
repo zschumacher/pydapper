@@ -28,3 +28,13 @@ services:
       MYSQL_DATABASE: "pydapper"
       MYSQL_USER: "pydapper"
       MYSQL_PASSWORD: "pydapper"
+
+  oracle:
+    image: gvenzl/oracle-xe:slim
+    ports:
+      - "1522:1521"
+    environment:
+      ORACLE_RANDOM_PASSWORD: "yes"
+      APP_USER: "pydapper"
+      APP_USER_PASSWORD: "pydapper"
+      ORACLE_DATABASE: "pydapper"

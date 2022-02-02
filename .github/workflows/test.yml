@@ -88,8 +88,8 @@ jobs:
 
       - name: Install Oracle Instant Client
         run: |
-          apt-get update
-          apt-get install wget alien libaio1 -y
+          sudo apt-get update
+          sudo apt-get install wget alien libaio1 -y
           wget https://download.oracle.com/otn_software/linux/instantclient/215000/oracle-instantclient-basiclite-21.5.0.0.0-1.x86_64.rpm
           sudo alien -i oracle-instantclient-basiclite-21.5.0.0.0-1.x86_64.rpm
 

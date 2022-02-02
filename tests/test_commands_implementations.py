@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import pytest
 from pytest_lazyfixture import lazy_fixture
 
+from pydapper.oracle import CxOracleCommands
+
 command_fixtures = [
     lazy_fixture("psycopg2_commands"),
     lazy_fixture("pymssql_commands"),
@@ -25,16 +27,36 @@ class TestExecute:
         )
 
     def test_multiple(self, commands):
-        assert (
-            commands.execute(
-                "INSERT INTO task (description, due_date, owner_id) VALUES (?description?, ?due_date?, ?owner_id?)",
-                [
-                    {"description": "new task", "due_date": datetime.date(2022, 1, 1), "owner_id": 1},
-                    {"description": "another new task", "due_date": datetime.date(2022, 1, 1), "owner_id": 1},
-                ],
+        if isinstance(commands, CxOracleCommands):
+            # oracle doesn't really do autoincrement and it breaks sometimes
+            assert (
+                commands.execute(
+                    "INSERT INTO task (id, description, due_date, owner_id) "
+                    "VALUES (?id?, ?description?, ?due_date?, ?owner_id?)",
+                    [
+                        {"id": 4, "description": "new task", "due_date": datetime.date(2022, 1, 1), "owner_id": 1},
+                        {
+                            "id": 5,
+                            "description": "another new task",
+                            "due_date": datetime.date(2022, 1, 1),
+                            "owner_id": 1,
+                        },
+                    ],
+                )
+                == 2
             )
-            == 2
-        )
+        else:
+            assert (
+                commands.execute(
+                    "INSERT INTO task (description, due_date, owner_id) "
+                    "VALUES (?description?, ?due_date?, ?owner_id?)",
+                    [
+                        {"description": "new task", "due_date": datetime.date(2022, 1, 1), "owner_id": 1},
+                        {"description": "another new task", "due_date": datetime.date(2022, 1, 1), "owner_id": 1},
+                    ],
+                )
+                == 2
+            )
 
 
 @pytest.mark.parametrize("commands", command_fixtures)

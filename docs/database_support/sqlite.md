@@ -11,16 +11,31 @@ Supported drivers:
 ### Instalation
 `sqlite3` is part of the stdlib and thus does not require installing an extra.
 === "pip"
-
     ```console
     pip install pydapper
     ```
 
 === "poetry"
-
     ```console
     poetry add pydapper
     ```
+
+### DSN format
+=== "Template"
+    ```python
+    dsn = f"sqlite+sqlite3://{path_to_db}"
+    ```
+
+=== "Example"
+    ```python
+    dsn = "sqlite+sqlite3://my.db"
+    ```
+
+=== "Example (Default Driver)"
+    ```python
+    dsn = "sqlite://my.db"
+    ```
+
 
 ### Example - `connect`
 Please see the [sqlite3 docs](https://docs.python.org/3/library/sqlite3.html#using-the-connection-as-a-context-manager) for

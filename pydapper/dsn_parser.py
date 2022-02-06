@@ -7,6 +7,8 @@ _DEFAULT_DB_API = {
     "postgresql": "psycopg2",
     "sqlite": "sqlite3",
     "mssql": "pymssql",
+    "mysql": "mysql",
+    "oracle": "cx_Oracle",
 }
 
 

@@ -5,6 +5,7 @@ nav:
       - Intro - Database Support: database_support/intro.md
       - Microsoft SQL Server: database_support/mssql.md
       - MySQL: database_support/mysql.md
+      - Oracle: database_support/oracle.md
       - PostgreSQL: database_support/postgresql.md
       - SQLite: database_support/sqlite.md
   - Methods:

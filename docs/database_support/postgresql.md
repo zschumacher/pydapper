@@ -10,16 +10,31 @@ Supported drivers:
 
 ### Installation
 === "pip"
-
     ```console
     pip install pydapper[psycopg2]
     ```
 
 === "poetry"
-
     ```console
     poetry add pydapper -E psycopg2
     ```
+
+### DSN format
+=== "Template"
+    ```python
+    dsn = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
+    ```
+
+=== "Example"
+    ```python
+    dsn = "postgresql+psycopg2://myuser:mypassword:1521@localhost/myservicename"
+    ```
+
+=== "Example (Default Driver)"
+    ```python
+    dsn = "postgresql://myuser:mypassword:1521@localhost/myservicename"
+    ```
+
 ### Example - `connect`
 Please see the [psycopg2 docs](https://www.psycopg.org/docs/usage.html#with-statement) for a full description of the
 context manager behavior.  

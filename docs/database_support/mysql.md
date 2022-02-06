@@ -16,16 +16,33 @@ Supported drivers:
 
 ### Installation
 === "pip"
-
     ```console
     pip install pydapper[mysql-connector-python]
     ```
 
 === "poetry"
-
     ```console
     poetry add pydapper -E mysql-connector-python
     ```
+
+### DSN format
+=== "Template"
+    ```python
+    dsn = f"mysql+mysql-connector-python://{user}:{password}@{host}:{port}/{dbname}"
+    ```
+
+=== "Example"
+    ```python
+    dsn = "mysql+mysql-connector-python://myuser:mypassword:3306@localhost/mydb"
+    ```
+
+=== "Example (Default Driver)"
+    ```python
+    dsn = "mysql://myuser:mypassword:3306@localhost/mydb"
+    ```
+
+!!! note
+    Databases and schemas are synonymous in MySQL.
 
 ### Example - `connect`
 The [mysql-connector-python docs](https://github.com/mysql/mysql-connector-python/blob/90eaeca65a6bbfc1fd9218aad5303957798215c3/lib/mysql/connector/abstracts.py#L142) 

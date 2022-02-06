@@ -55,6 +55,21 @@ jobs:
           --health-timeout 5s 
           --health-retries 5
 
+      oracle:
+        image: gvenzl/oracle-xe:slim
+        ports:
+          - 1522:1521
+        env:
+          ORACLE_RANDOM_PASSWORD: "yes"
+          APP_USER: "pydapper"
+          APP_USER_PASSWORD: "pydapper"
+          ORACLE_DATABASE: "pydapper"
+        options: >- # oracle has a longer startup so give the healthcheck more retries
+          --health-cmd healthcheck.sh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v1
@@ -71,6 +86,13 @@ jobs:
           curl -sSL https://install.python-poetry.org | python -
           poetry config virtualenvs.create false
 
+      - name: Install Oracle Instant Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install wget alien libaio1 -y
+          wget https://download.oracle.com/otn_software/linux/instantclient/215000/oracle-instantclient-basiclite-21.5.0.0.0-1.x86_64.rpm
+          sudo alien -i oracle-instantclient-basiclite-21.5.0.0.0-1.x86_64.rpm
+
       - name: Cache dependencies
         id: cache-poetry-deps
         uses: actions/cache@v2
@@ -80,7 +102,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
-        run: poetry install --extras "psycopg2 pymssql mysql-connector-python"
+        run: poetry install --extras "psycopg2 pymssql mysql-connector-python cx_Oracle"
 
       - name: test
         env:

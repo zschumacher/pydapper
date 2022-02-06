@@ -3,15 +3,15 @@ import sqlite3
 from contextlib import suppress
 from pathlib import Path
 
+import cx_Oracle
 import mysql.connector
 import psycopg2
 import pytest
-from psycopg2.errors import DuplicateDatabase
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from pymssql import _pymssql
 
 from pydapper.mssql import PymssqlCommands
 from pydapper.mysql import MySqlConnectorPythonCommands
+from pydapper.oracle import CxOracleCommands
 from pydapper.postgresql import Psycopg2Commands
 from pydapper.sqlite import Sqlite3Commands
 
@@ -111,5 +111,29 @@ def mysql_setup(database_name, setup_sql_dir, server):
 def mysql_connector_python_commands(server, database_name) -> MySqlConnectorPythonCommands:
     with MySqlConnectorPythonCommands(
         mysql.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)
+    ) as commands:
+        yield commands
+
+
+@pytest.fixture(scope="session", autouse=True)
+def oracle_setup(database_name, setup_sql_dir, server):
+    conn = cx_Oracle.connect(password="pydapper", user="pydapper", dsn=f"{server}:1522/{database_name}")
+    cursor = conn.cursor()
+    owner_table = (setup_sql_dir / "oracle" / "owner.sql").read_text()
+    cursor.execute(owner_table)
+    task_table = (setup_sql_dir / "oracle" / "task.sql").read_text()
+    cursor.execute(task_table)
+    owner_insert = (setup_sql_dir / "oracle" / "insert_owner.sql").read_text()
+    cursor.execute(owner_insert)
+    task_insert = (setup_sql_dir / "oracle" / "insert_task.sql").read_text()
+    cursor.execute(task_insert)
+    conn.commit()
+    conn.close()
+
+
+@pytest.fixture(scope="function")
+def cx_Oracle_commands(server, database_name) -> CxOracleCommands:
+    with CxOracleCommands(
+        cx_Oracle.connect(password="pydapper", user="pydapper", dsn=f"{server}:1522/{database_name}")
     ) as commands:
         yield commands

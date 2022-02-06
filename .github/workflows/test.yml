@@ -102,7 +102,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
-        run: poetry install --extras "psycopg2 pymssql mysql-connector-python cx-Oracle"
+        run: poetry install --extras "psycopg2 pymssql mysql-connector-python cx_Oracle"
 
       - name: test
         env:

@@ -59,7 +59,7 @@ pytest-lazy-fixture = "^0.6.3"
 psycopg2 = ["psycopg2-binary", "types-psycopg2"]
 pymssql = ["pymssql", "types-pymssql"]
 mysql-connector-python = ["mysql-connector-python"]
-cx-Oracle = ["cx-Oracle"]
+cx_Oracle = ["cx-Oracle"]
 
 [tool.isort]
 force_grid_wrap = 0

@@ -112,7 +112,7 @@ jobs:
 
       - name: Install Oracle Instant Client
         run: |
-          sudo apt install oracle-instantclient-basiclite_21.5.0.0.0-2_amd64.deb
+          sudo apt install ./oracle-instantclient-basiclite_21.5.0.0.0-2_amd64.deb
 
       - name: Cache dependencies
         id: cache-poetry-deps

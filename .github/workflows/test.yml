@@ -84,7 +84,7 @@ jobs:
           POETRY_VERSION: "1.1.11"
         run: |
           curl -sSL https://install.python-poetry.org | python -
-          /home/runner/.local/bin/poetry config virtualenvs.create false
+          poetry config virtualenvs.create false
 
       - name: cache oracle instantclient download
         id: cache-oracle-instantclient-download

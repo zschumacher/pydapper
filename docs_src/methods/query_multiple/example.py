@@ -18,7 +18,7 @@ class Task:
     owner_id: int
 
 
-with connect("postgresql://pydapper:pydapper@localhost/pydapper") as commands:
+with connect() as commands:
     task, owner = commands.query_multiple(
         ("select * from task limit 1", "select * from owner limit 1"), models=(Task, Owner)
     )

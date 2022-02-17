@@ -12,7 +12,7 @@ class Task:
     owner_id: int
 
 
-with connect("postgresql://pydapper:pydapper@localhost/pydapper") as commands:
+with connect() as commands:
     task = commands.query_first("select * from task", model=Task)
 
 print(task)

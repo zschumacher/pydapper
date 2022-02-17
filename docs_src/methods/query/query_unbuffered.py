@@ -1,6 +1,6 @@
 from pydapper import connect
 
-with connect("postgresql://pydapper:pydapper@localhost/pydapper") as commands:
+with connect() as commands:
     data = commands.query("select * from task", buffered=False)
     print(type(data))
     # <class 'generator'>

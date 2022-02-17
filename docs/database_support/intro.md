@@ -32,6 +32,8 @@ lifecyle for you using `connect`.
 *connect* will manage the connection for you.  When instantiating connect using a context manager, *connect* will use
 the context manager that is implemented on the dbapi you are using.
 
+You can optionally not pass the dsn into *connect* and set the `PYDAPPER_DSN` environment variable instead.
+
 Below is a generic example of using *pydapper* to connect to `sqlite`.
 
 ```python

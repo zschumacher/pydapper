@@ -28,7 +28,7 @@ select t.id, t.description, t.due_date, o.id as owner_id, o.name as owner_name
   limit 1
 """
 
-with connect("postgresql://pydapper:pydapper@localhost/pydapper") as commands:
+with connect() as commands:
     data = commands.query(query, model=Task.from_query_row)
 
 print(data)

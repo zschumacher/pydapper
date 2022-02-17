@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING
 from typing import Dict
-from typing import List
 from typing import Type
 
 from .dsn_parser import PydapperParseResult
@@ -19,7 +19,10 @@ class CommandFactory:
     registry: Dict[str, "Type[Commands]"] = dict()
 
     @classmethod
-    def from_dsn(cls, dsn: str, **connect_kwargs) -> "Commands":
+    def from_dsn(cls, dsn: str = None, **connect_kwargs) -> "Commands":
+        dsn = dsn or os.getenv("PYDAPPER_DSN")
+        if dsn is None:  # pragma: no cover
+            raise ValueError("dsn must be passed to connect or env var `PYDAPPER_DSN` must be set.")
         parsed_dsn = PydapperParseResult(dsn)
         return cls.registry[parsed_dsn.dbapi].connect(parsed_dsn, **connect_kwargs)
 

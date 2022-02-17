@@ -20,6 +20,11 @@ class TestCommandFactory:
         commands = CommandFactory.from_dsn(MOCK_DSN)
         assert isinstance(commands, MockCommands)
 
+    def test_from_dsn_env_var(self, register_mock_commands, monkeypatch):
+        monkeypatch.setenv("PYDAPPER_DSN", MOCK_DSN)
+        commands = CommandFactory.from_dsn()
+        assert isinstance(commands, MockCommands)
+
     def test_register(self, register_mock_commands):
         assert CommandFactory.registry["tests"] is MockCommands
 

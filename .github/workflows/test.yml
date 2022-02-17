@@ -79,15 +79,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Cache poetry installation
-        id: cache-poetry-installation
-        uses: actions/cache@v2
-        with:
-          path: /home/runner/.local/bin/poetry
-          key: ${{ runner.os }}-${{ hashFiles('.tool-versions') }}-test
-
       - name: Install poetry
-        if: steps.cache-poetry-installation.outputs.cache-hit != 'true'
         env:
           POETRY_VERSION: "1.1.11"
         run: |
@@ -99,7 +91,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: oracle-instantclient-basiclite_21.5.0.0.0-2_amd64.deb
-          key: ${{ runner.os }}-${{ hashFiles('.oracle-instantclient') }}-test
+          key: oracle-instantclient-basiclite_21.5.0.0.0-2_amd64
 
       - name: Download Oracle Instant Client
         if: steps.cache-oracle-instantclient-download.outputs.cache-hit != 'true'
@@ -108,7 +100,6 @@ jobs:
           sudo apt-get install wget alien libaio1 -y
           wget https://download.oracle.com/otn_software/linux/instantclient/215000/oracle-instantclient-basiclite-21.5.0.0.0-1.x86_64.rpm
           sudo alien oracle-instantclient-basiclite-21.5.0.0.0-1.x86_64.rpm
-          ls
 
       - name: Install Oracle Instant Client
         run: |
@@ -123,12 +114,12 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
-        run: /home/runner/.local/bin/poetry install --extras "psycopg2 pymssql mysql-connector-python cx_Oracle"
+        run: poetry install --extras "psycopg2 pymssql mysql-connector-python cx_Oracle"
 
       - name: test
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         run: |
-          /home/runner/.local/bin/poetry run pytest --cov=. --cov-branch -v --durations=25
-          /home/runner/.local/bin/poetry run coverage report -m
-          /home/runner/.local/bin/poetry run codecov -F ${{ matrix.python-version }}
+          poetry run pytest --cov=. --cov-branch -v --durations=25
+          poetry run coverage report -m
+          poetry run codecov -F ${{ matrix.python-version }}

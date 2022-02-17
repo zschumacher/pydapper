@@ -21,7 +21,7 @@ class CommandFactory:
     @classmethod
     def from_dsn(cls, dsn: str = None, **connect_kwargs) -> "Commands":
         dsn = dsn or os.getenv("PYDAPPER_DSN")
-        if dsn is None:  # pragma no cover
+        if dsn is None:  # pragma: no cover
             raise ValueError("dsn must be passed to connect or env var `PYDAPPER_DSN` must be set.")
         parsed_dsn = PydapperParseResult(dsn)
         return cls.registry[parsed_dsn.dbapi].connect(parsed_dsn, **connect_kwargs)

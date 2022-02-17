@@ -15,7 +15,7 @@ class Task:
 sentinel = object()
 
 
-with connect("postgresql://pydapper:pydapper@localhost/pydapper") as commands:
+with connect() as commands:
     task = commands.query_single_or_default("select * from task where id = -1", model=Task, default=sentinel)
 
 if task is sentinel:

@@ -93,7 +93,7 @@ jobs:
           wget https://download.oracle.com/otn_software/linux/instantclient/215000/oracle-instantclient-basiclite-21.5.0.0.0-1.x86_64.rpm
           sudo alien -i oracle-instantclient-basiclite-21.5.0.0.0-1.x86_64.rpm
 
-      - name: Cache dependencies
+      - name: Cache poetry dependencies
         id: cache-poetry-deps
         uses: actions/cache@v2
         with:
@@ -102,7 +102,8 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
-        run: poetry install --extras "psycopg2 pymssql mysql-connector-python cx_Oracle"
+        run: |
+          poetry install --extras "psycopg2 pymssql mysql-connector-python cx_Oracle"
 
       - name: test
         env:

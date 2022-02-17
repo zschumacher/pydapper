@@ -12,7 +12,7 @@ class Task:
     owner_id: int
 
 
-with connect("postgresql://pydapper:pydapper@localhost/pydapper") as commands:
+with connect() as commands:
     data = commands.query("select * from task limit 1", model=Task)
 
 print(data)

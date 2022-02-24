@@ -1,6 +1,6 @@
-from pydapper import connect
+import pydapper
 
-with connect("mssql://sa:pydapper!PYDAPPER@localhost:1434/pydapper") as commands:
+with pydapper.connect("mssql://sa:pydapper!PYDAPPER@localhost:1434/pydapper") as commands:
     print(type(commands))
     # <class 'pydapper.mssql.pymssql.PymssqlCommands'>
 

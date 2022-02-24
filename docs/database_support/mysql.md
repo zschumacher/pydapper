@@ -6,7 +6,8 @@ Supported drivers:
 | [mysql-connector-python](https://dev.mysql.com/doc/connector-python/en/) | :thumbsup: | `mysql+mysql` | `mysql.connector.connection_cext.CMySQLConnection` |
 
 ## mysql-connector-python
-`mysql-connector-python` is the default dbapi driver for MySQL in *pydapper*.
+`mysql-connector-python` is the default dbapi driver for MySQL in *pydapper*.  It is actually registered as `mysql`
+because that is the name of the actual package that is installed.
 
 !!! note
     Because of the build in behavior of `mysql-connector-python`, it is currently required to run `cursor.fetchall()`
@@ -28,12 +29,12 @@ Supported drivers:
 ### DSN format
 === "Template"
     ```python
-    dsn = f"mysql+mysql-connector-python://{user}:{password}@{host}:{port}/{dbname}"
+    dsn = f"mysql+mysql://{user}:{password}@{host}:{port}/{dbname}"
     ```
 
 === "Example"
     ```python
-    dsn = "mysql+mysql-connector-python://myuser:mypassword:3306@localhost/mydb"
+    dsn = "mysql+mysql://myuser:mypassword:3306@localhost/mydb"
     ```
 
 === "Example (Default Driver)"

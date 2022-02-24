@@ -1,6 +1,6 @@
-from pydapper import connect
+import pydapper
 
-with connect("postgresql://pydapper:pydapper@localhost/pydapper") as commands:
+with pydapper.connect("postgresql://pydapper:pydapper@localhost/pydapper") as commands:
     print(type(commands))
     # <class 'pydapper.postgresql.psycopg2.Psycopg2Commands'>
 

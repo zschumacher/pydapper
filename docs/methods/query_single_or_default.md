@@ -12,7 +12,7 @@ set is empty; this method throws an exception if there is more than one element 
 
 
 ## First, Single and Default
-{!docs/methods/.first_single_default.md!}
+{!docs/.first_single_default.md!}
 
 ## Example
 Execute a query and map the result to a dataclass.

@@ -17,6 +17,15 @@ nav:
       - query_single: methods/query_single.md
       - query_single_or_default: methods/query_single_or_default.md
       - query_multiple: methods/query_multiple.md
+  - Async Methods:
+      - execute_async: async_methods/execute_async.md
+      - execute_scalar_async: async_methods/execute_scalar_async.md
+      - query_async: async_methods/query_async.md
+      - query_first_async: async_methods/query_first_async.md
+      - query_first_or_default_async: async_methods/query_first_or_default_async.md
+      - query_single_async: async_methods/query_single_async.md
+      - query_single_or_default_async: async_methods/query_single_or_default_async.md
+      - query_multiple_async: async_methods/query_multiple_async.md
   - Release Notes: release_notes.md
 
 theme:

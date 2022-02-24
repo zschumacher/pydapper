@@ -1,6 +1,6 @@
 
 `execute` can execute a command one or multiple times and return the number of affected rows. This method is usually used
-to execute CRUD operations.
+to execute insert, update or delete operations.
 
 ## Parameters
 | name  | type                       | description                       | optional     | default |

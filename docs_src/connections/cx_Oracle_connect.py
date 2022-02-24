@@ -1,6 +1,6 @@
-from pydapper import connect
+import pydapper
 
-with connect("oracle+cx_Oracle://pydapper:pydapper@localhost:1522/pydapper") as commands:
+with pydapper.connect("oracle+cx_Oracle://pydapper:pydapper@localhost:1522/pydapper") as commands:
     print(type(commands))
     # <class 'pydapper.oracle.cx_Oracle.CxOracleCommands'>
 

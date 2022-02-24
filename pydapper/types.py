@@ -49,6 +49,28 @@ class ConnectionType(Protocol):
         ...
 
 
+class AsyncConnectionType(Protocol):
+    @abstractmethod
+    def __await__(self):
+        ...
+
+    @abstractmethod
+    async def __aenter__(self):
+        ...
+
+    @abstractmethod
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        ...
+
+    @abstractmethod
+    async def cursor(self, *args: Optional[Any], **kwargs: Optional[Any]) -> "AsyncCursorType":
+        ...
+
+    @abstractmethod
+    async def close(self):
+        ...
+
+
 class CursorType(Protocol):
     rowcount: int
 
@@ -78,4 +100,36 @@ class CursorType(Protocol):
 
     @abstractmethod
     def close(self):
+        ...
+
+
+class AsyncCursorType(Protocol):
+    rowcount: int
+
+    @abstractmethod
+    async def __aenter__(self) -> "AsyncCursorType":
+        ...
+
+    @abstractmethod
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        ...
+
+    @abstractmethod
+    async def execute(self, sql: str, parameters: Any):
+        ...
+
+    @abstractmethod
+    async def fetchone(self):
+        ...
+
+    @abstractmethod
+    async def fetchall(self):
+        ...
+
+    @abstractmethod
+    async def executemany(self, sql, params):
+        ...
+
+    @abstractmethod
+    async def close(self):
         ...

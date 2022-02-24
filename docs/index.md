@@ -23,7 +23,7 @@ What's going on here?
 
 * `connect` handles creating a connection and returning the pydapper entrypoint for the dsn you pass in
 * the `query` method is executing the sql string and serializing each item in the result set to the model passed (`Task`)
-* the context manager is a proxy to whatever the underlying dbapi for the specified DSN has implemented (in this case psycopg2)
+* the context manager is a proxy to whatever the underlying dbapi for the specified DSN has implemented ([see database support docs](database_support/intro.md))
 
 
 ## Rationale

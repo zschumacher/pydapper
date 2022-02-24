@@ -10,7 +10,7 @@ record in the result set.
  | model | `Any`       | the callable to serialize the model;  callable must be able to accept column names as kwargs. | :thumbsup:   | `dict`  |
 
 ## First, Single and Default
-{!docs/methods/.first_single_default.md!}
+{!docs/.first_single_default.md!}
 
 ## Example
 Execute a query and map the first result to a dataclass.

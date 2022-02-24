@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* ✨ Add async support starting with `aiopg`. PR [#22](https://github.com/zschumacher/pydapper/pull/22) by [@zschumacher](https://github.com/zschumacher).
 ## 0.3.0
 ### Features
 * ✨ support `PYDAPPER_DSN` environment variable for connections. PR [#21](https://github.com/zschumacher/pydapper/pull/21) by [@zschumacher](https://github.com/zschumacher).

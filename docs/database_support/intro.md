@@ -39,8 +39,23 @@ Below is a generic example of using *pydapper* to connect to `sqlite`.
 ```python
 import pydapper
 
-with pydapper.connect("some.db") as commands:
+with pydapper.connect() as commands:
    # do stuff
+```
+
+### `connect_async`
+*connect_async* will manage an asynchronous connection for you when using a dsn of a supported async dbapi.  The api
+is almost identical to that of the sync api.
+
+```python
+import pydapper
+import asyncio
+
+async def main():
+    async with pydapper.connect_async() as commands:
+        # do stuff
+
+asyncio.run(main())
 ```
 
 ### `using`
@@ -69,3 +84,15 @@ What's going on here?
 * grab the actual dbapi connection object, which is stored in the `connection` property of the Django
   connection proxy
 * pass the dbapi connection object into `pydapper.using` and get a pydapper `Commands` instance back
+
+### `using_async`
+You should use the `using_async` method when you want to use your own connection.  The api is almost identical to that
+of the sync api.
+
+```python
+import pydapper
+
+some_pool = ConnectionPool()
+conn = await some_pool.acquire()
+commands = pydapper.using_async(conn)
+```

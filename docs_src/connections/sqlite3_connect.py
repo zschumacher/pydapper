@@ -1,6 +1,6 @@
-from pydapper import connect
+import pydapper
 
-with connect("sqlite://pydapper.db") as commands:
+with pydapper.connect("sqlite://pydapper.db") as commands:
     print(type(commands))
     # <class 'pydapper.sqlite.sqlite3.Sqlite3Commands'>
 

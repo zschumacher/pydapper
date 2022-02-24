@@ -4,6 +4,9 @@ import pytest
 
 from pydapper.exceptions import MoreThanOneResultException
 from pydapper.exceptions import NoResultException
+from tests.mocks import MockAsyncCommands
+from tests.mocks import MockAsyncConnection
+from tests.mocks import MockAsyncCursor
 from tests.mocks import MockCommands
 from tests.mocks import MockConnection
 from tests.mocks import MockCursor
@@ -46,6 +49,20 @@ class TestParamHandler:
         handler = MockParamHandler(sql, param)
         with MockCursor() as cursor:
             assert handler.execute(cursor) == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "sql, param, expected",
+        [
+            ("select * from table", None, 0),
+            ("select * from table where id = ?id?", {"id": 1}, 0),
+            ("insert into table(?id?, ?name?)", [{"id": 1, "name": "Zach"}, {"id": 2, "name": "Bob"}], 2),
+        ],
+    )
+    async def test_execute_async(self, sql, param, expected):
+        handler = MockParamHandler(sql, param)
+        async with MockAsyncCursor() as cursor:
+            assert await handler.execute_async(cursor) == expected
 
 
 class TestCommands:
@@ -168,3 +185,153 @@ class TestCommands:
     def test_execute_scalar_raises_on_no_result(self, connection, set_fetchone_to_return_none):
         with MockCommands(connection) as commands, pytest.raises(NoResultException):
             commands.execute_scalar("select * from some_table")
+
+
+class TestCommandsAsync:
+    @pytest.fixture
+    def connection(self):
+        return MockAsyncConnection()
+
+    @pytest.fixture
+    def set_fetchone_to_return_none(self, mocker):
+        async def fetchone(s):
+            return None
+
+        mocker.patch("tests.mocks.MockAsyncCursor.fetchone", fetchone)
+
+    @pytest.fixture
+    def set_fetchall_return_one(self, faker, mocker):
+        async def fetchall(s):
+            return ((1, faker.name()),)
+
+        mocker.patch("tests.mocks.MockAsyncCursor.fetchall", fetchall)
+
+    @pytest.fixture
+    def set_fetchall_return_empty(self, mocker):
+        async def fetchall(s):
+            return tuple()
+
+        mocker.patch("tests.mocks.MockAsyncCursor.fetchall", fetchall)
+
+    @pytest.mark.asyncio
+    async def test__aenter__(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            assert not commands.connection.closed
+
+    @pytest.mark.asyncio
+    async def test__aexit__(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            pass
+        assert commands.connection.closed
+
+    @pytest.mark.asyncio
+    async def test_cursor(self, connection):
+        cursor = await MockAsyncCommands(connection).cursor()
+        assert isinstance(cursor, MockAsyncCursor)
+
+    @pytest.mark.asyncio
+    async def test_execute(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            affected_rows = await commands.execute_async(
+                "insert into some_table (id, name), (?id?, ?name?)", param={"id": 1, "name": "Zach"}
+            )
+        assert affected_rows == 1
+
+    @pytest.mark.asyncio
+    async def test_query(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_async("select id, name from some_table", model=SimpleNamespace)
+        assert len(data) == 2
+        assert all(isinstance(row, SimpleNamespace) for row in data)
+
+    @pytest.mark.asyncio
+    async def test_query_multiple(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            data1, data2 = await commands.query_multiple_async(
+                ("select id, name from some_table", "select id, name from another_table"),
+                models=(SimpleNamespace, dict),
+            )
+        assert len(data1) == 2
+        assert len(data2) == 2
+        assert not data1 == data2
+        assert all(isinstance(row, SimpleNamespace) for row in data1)
+        assert all(isinstance(row, dict) for row in data2)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "sql, models",
+        [
+            (("select * from some_table", "select * from another"), (dict,)),  # more queries than models
+            ("select * from some_table;", (dict, dict)),  # more models than queries
+        ],
+    )
+    async def test_query_multiple_validation(self, connection, sql, models):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(ValueError):
+                await commands.query_multiple_async(sql, models=models)
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_raises(self, connection, set_fetchall_return_empty):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(NoResultException):
+                await commands.query_multiple_async(("select * from whatever",))
+
+    @pytest.mark.asyncio
+    async def test_query_first(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_first_async("select id, name from some_table", model=SimpleNamespace)
+        assert isinstance(record, SimpleNamespace)
+        assert record.id
+        assert record.name
+
+    @pytest.mark.asyncio
+    async def test_query_first_raises_on_no_result(self, connection, set_fetchone_to_return_none):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(NoResultException):
+                await commands.query_first_async("select * from some_table")
+
+    @pytest.mark.asyncio
+    async def test_query_first_or_default(self, connection, set_fetchone_to_return_none):
+        default = SimpleNamespace(id=10, name="default")
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_first_or_default_async("select * from some_table", default=default)
+        assert data is default
+
+    @pytest.mark.asyncio
+    async def test_query_single(self, connection, set_fetchall_return_one):
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_async("select * from some_table")
+        assert isinstance(record, dict)
+        assert record["id"]
+        assert record["name"]
+
+    @pytest.mark.asyncio
+    async def test_query_single_raises_on_no_result(self, connection, set_fetchall_return_empty):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(NoResultException):
+                await commands.query_single_async("select * from some_table")
+
+    @pytest.mark.asyncio
+    async def test_query_single_raises_on_many_results(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(MoreThanOneResultException):
+                await commands.query_single_async("select * from some_table")
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default(self, connection, set_fetchall_return_empty):
+        default = SimpleNamespace(id=10, name="default")
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_or_default_async("select * from some_table", default=default)
+        assert record is default
+
+    @pytest.mark.asyncio
+    async def test_execute_scalar(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            id_ = await commands.execute_scalar_async("select id, name from some_table")
+        assert id_ == 1
+
+    @pytest.mark.asyncio
+    async def test_execute_scalar_raises_on_no_result(self, connection, set_fetchone_to_return_none):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(NoResultException):
+                await commands.execute_scalar_async("select * from some_table")

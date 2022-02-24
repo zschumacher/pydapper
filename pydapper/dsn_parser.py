@@ -16,7 +16,7 @@ class PydapperParseResult(dsnparse.ParseResult):
     # noinspection PyUnresolvedReferences
     def __init__(self, dsn, **defaults):
         super().__init__(dsn, **defaults)
-        # make linters and editors happy (type values generated dynamically)
+        # make linters and editors happy
         self.dsn: str = self.dsn
         self.scheme: str = self.scheme
         self.path: str = self.path

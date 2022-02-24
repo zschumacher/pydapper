@@ -12,7 +12,7 @@ set contains no records.
 
 
 ## First, Single and Default
-{!docs/methods/.first_single_default.md!}
+{!docs/.first_single_default.md!}
 
 ## Example
 Execute a query and map the first result to a dataclass.

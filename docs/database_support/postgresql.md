@@ -61,3 +61,44 @@ Use *pydapper* with a `psycopg2` connection pool.
 ```python
 {!docs/../docs_src/connections/psycopg2_using.py!}
 ```
+
+## aiopg
+
+### Installation
+=== "pip"
+    ```console
+    pip install pydapper[aiopg]
+    ```
+
+=== "poetry"
+    ```console
+    poetry add pydapper -E aiopg
+    ```
+
+### DSN format
+=== "Template"
+    ```python
+    dsn = f"postgresql+aipog://{user}:{password}@{host}:{port}/{dbname}"
+    ```
+
+=== "Example"
+    ```python
+    dsn = "postgresql+aipog://myuser:mypassword:1521@localhost/myservicename"
+    ```
+
+### Example - `connect_async`
+Please see the [aiopg docs](https://aiopg.readthedocs.io/en/stable/) for a full description of the
+context manager behavior.  
+```python
+{!docs/../docs_src/connections/aiopg_connect.py!}
+```
+
+!!! note
+    `aiopg` always runs in [autocommit mode](https://aiopg.readthedocs.io/en/stable/core.html#aiopg.Connection.autocommit).
+
+
+### Example - `using_async`
+Use *pydapper* with a `aiopg` connection pool.
+```python
+{!docs/../docs_src/connections/aiopg_using.py!}
+```

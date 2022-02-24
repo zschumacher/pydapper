@@ -1,7 +1,7 @@
-from pydapper import connect
+import pydapper
 
 # NOTE: setting autocommit to True will cause the transaction to commit immediately
-with connect("mysql+mysql-connector-python://root:pydapper@localhost:3307/pydapper", autocommit=True) as commands:
+with pydapper.connect("mysql+mysql://root:pydapper@localhost:3307/pydapper", autocommit=True) as commands:
     print(type(commands))
     # <class 'pydapper.mysql.mysql_connector_python.MySqlConnectorPythonCommands'>
 

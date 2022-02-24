@@ -4,7 +4,33 @@ import pytest
 
 from pydapper.dsn_parser import PydapperParseResult
 from pydapper.dsn_parser import parse
-from tests.dsn import *
+
+SQLITE3_DSN = "sqlite+sqlite3://some.db"
+PSYCOPG2_DSN = "postgresql+psycopg2://pydapper:password@localhost:5433/postgres"
+PYMSSQL_DSN = "mssql+pymssql://sa:pydapper!PYDAPPER@localhost:1433/master"
+MYSQL_CONNECTOR_PYTHON_DSN = "mysql+mysql://pydapper:pydapper@localhost:3307/pydapper"
+CX_ORACLE_DSN = "oracle+cx_Oracle://pydapper:pydapper@localhost:1522/pydapper"
+AIOPG_DSN = "postgresql+aiopg://pydapper:pydapper@localhost:5433/postgres"
+SQLITE_DEFAULT_DSN = "sqlite://some.db"
+POSTGRES_DEFAULT_DSN = "postgresql://pydapper:password@localhost:5433/postgres"
+MSSQL_DEFAULT_DSN = "mssql://sa:pydapper!PYDAPPER@localhost:1433/master"
+MYSQL_DEFAULT_DSN = "mysql://pydapper:pyapper@localhost:3307/pydapper"
+ORACLE_DEFAULT_DSN = "oracle://pydapper:pydapper@localhost:1522/pydapper"
+
+
+ALL_DSNS = [
+    SQLITE3_DSN,
+    PSYCOPG2_DSN,
+    PYMSSQL_DSN,
+    MYSQL_CONNECTOR_PYTHON_DSN,
+    CX_ORACLE_DSN,
+    AIOPG_DSN,
+    SQLITE_DEFAULT_DSN,
+    POSTGRES_DEFAULT_DSN,
+    MSSQL_DEFAULT_DSN,
+    MYSQL_DEFAULT_DSN,
+    ORACLE_DEFAULT_DSN,
+]
 
 
 class TestPydapperParseResult:
@@ -19,9 +45,14 @@ class TestPydapperParseResult:
             (SQLITE3_DSN, "sqlite"),
             (PSYCOPG2_DSN, "postgresql"),
             (PYMSSQL_DSN, "mssql"),
+            (MYSQL_CONNECTOR_PYTHON_DSN, "mysql"),
+            (CX_ORACLE_DSN, "oracle"),
+            (AIOPG_DSN, "postgresql"),
             (SQLITE_DEFAULT_DSN, "sqlite"),
             (POSTGRES_DEFAULT_DSN, "postgresql"),
             (MSSQL_DEFAULT_DSN, "mssql"),
+            (MYSQL_DEFAULT_DSN, "mysql"),
+            (ORACLE_DEFAULT_DSN, "oracle"),
         ],
     )
     def test_dbms(self, dsn, expected):
@@ -34,9 +65,14 @@ class TestPydapperParseResult:
             (SQLITE3_DSN, "sqlite3"),
             (PSYCOPG2_DSN, "psycopg2"),
             (PYMSSQL_DSN, "pymssql"),
+            (MYSQL_CONNECTOR_PYTHON_DSN, "mysql"),
+            (CX_ORACLE_DSN, "cx_Oracle"),
+            (AIOPG_DSN, "aiopg"),
             (SQLITE_DEFAULT_DSN, "sqlite3"),
             (POSTGRES_DEFAULT_DSN, "psycopg2"),
             (MSSQL_DEFAULT_DSN, "pymssql"),
+            (MYSQL_DEFAULT_DSN, "mysql"),
+            (ORACLE_DEFAULT_DSN, "cx_Oracle"),
             ("postgresql+://locahost:5432/postgres", ValueError),
         ],
     )

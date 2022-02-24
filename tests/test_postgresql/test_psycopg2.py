@@ -35,7 +35,18 @@ def test_connect(driver, server, database_name):
 
 
 class TestExecute(ExecuteTestSuite):
-    ...
+    def test_multiple(self, commands):
+        assert (
+            commands.execute(
+                "INSERT INTO task (id, description, due_date, owner_id) "
+                "VALUES (?id?, ?description?, ?due_date?, ?owner_id?)",
+                [
+                    {"id": 4, "description": "new task", "due_date": datetime.date(2022, 1, 1), "owner_id": 1},
+                    {"id": 5, "description": "another new task", "due_date": datetime.date(2022, 1, 1), "owner_id": 1},
+                ],
+            )
+            == 2
+        )
 
 
 class TestQuery(QueryTestSuite):

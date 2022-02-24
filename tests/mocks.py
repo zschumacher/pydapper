@@ -1,5 +1,3 @@
-from unittest.mock import AsyncMock
-
 from faker import Faker
 
 from pydapper.commands import BaseSqlParamHandler

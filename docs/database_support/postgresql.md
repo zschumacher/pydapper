@@ -78,12 +78,12 @@ Use *pydapper* with a `psycopg2` connection pool.
 ### DSN format
 === "Template"
     ```python
-    dsn = f"postgresql+aipog://{user}:{password}@{host}:{port}/{dbname}"
+    dsn = f"postgresql+aiopg://{user}:{password}@{host}:{port}/{dbname}"
     ```
 
 === "Example"
     ```python
-    dsn = "postgresql+aipog://myuser:mypassword:1521@localhost/myservicename"
+    dsn = "postgresql+aiopg://myuser:mypassword:1521@localhost/myservicename"
     ```
 
 ### Example - `connect_async`

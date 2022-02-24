@@ -33,7 +33,7 @@ poetry add pydapper -E psycopg2
 from dataclasses import dataclass
 import datetime
 
-from pydapper import connect
+import pydapper
 
 
 @dataclass
@@ -43,7 +43,7 @@ class Task:
     due_date: datetime.date
 
     
-with connect("postgresql+psycopg2://pydapper:pydapper@locahost/pydapper") as commands:
+with pydapper.connect("postgresql+psycopg2://pydapper:pydapper@locahost/pydapper") as commands:
     tasks = commands.query("select id, description, due_date from task;", model=Task)
     
 print(tasks)

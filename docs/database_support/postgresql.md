@@ -27,12 +27,12 @@ Supported drivers:
 
 === "Example"
     ```python
-    dsn = "postgresql+psycopg2://myuser:mypassword:1521@localhost/myservicename"
+    dsn = "postgresql+psycopg2://myuser:mypassword:1521@localhost/mydb"
     ```
 
 === "Example (Default Driver)"
     ```python
-    dsn = "postgresql://myuser:mypassword:1521@localhost/myservicename"
+    dsn = "postgresql://myuser:mypassword:1521@localhost/mydb"
     ```
 
 ### Example - `connect`
@@ -83,7 +83,7 @@ Use *pydapper* with a `psycopg2` connection pool.
 
 === "Example"
     ```python
-    dsn = "postgresql+aiopg://myuser:mypassword:1521@localhost/myservicename"
+    dsn = "postgresql+aiopg://myuser:mypassword:1521@localhost/mydb"
     ```
 
 ### Example - `connect_async`

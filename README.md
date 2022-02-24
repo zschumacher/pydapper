@@ -28,7 +28,26 @@ pip install pydapper[psycopg2]
 poetry add pydapper -E psycopg2
 ```
 
-## A Simple Example
+## Never write this again...
+```python
+from psycopg2 import connect
+
+@dataclass
+class Task:
+    id: int
+    description: str
+    due_date: datetime.date
+
+with connect("postgresql://pydapper:pydapper@localhost/pydapper") as conn:
+    with conn.cursor() as cursor:
+        cursor.execute("select id, description, due_date from task")
+        headers = [i[0] for i in cursor.description]
+        data = cursor.fetchall()
+
+list_data = [Task(**dict(zip(headers, row))) for row in data]
+```
+
+## Instead, write...
 ```python
 from dataclasses import dataclass
 import datetime
@@ -45,8 +64,5 @@ class Task:
     
 with pydapper.connect("postgresql+psycopg2://pydapper:pydapper@locahost/pydapper") as commands:
     tasks = commands.query("select id, description, due_date from task;", model=Task)
-    
-print(tasks)
-# [Task(id=1, description='Add a README!', due_date=datetime.date(2022, 1, 16))]
 ```
 (This script is complete, it should run "as is")

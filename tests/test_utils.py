@@ -1,10 +1,8 @@
-import asyncio
 from contextlib import ExitStack
 from types import SimpleNamespace
 
 import pytest
 
-from pydapper.utils import CoroutineContextManager
 from pydapper.utils import database_row_to_dict
 from pydapper.utils import get_col_names
 from pydapper.utils import import_dbapi_module

@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* 🔧  use coro-context-manager. PR [#23](https://github.com/zschumacher/pydapper/pull/23) by [@zschumacher](https://github.com/zschumacher).
 ## 0.4.0
 ### Features
 * ✨ Add async support starting with `aiopg`. PR [#22](https://github.com/zschumacher/pydapper/pull/22) by [@zschumacher](https://github.com/zschumacher).

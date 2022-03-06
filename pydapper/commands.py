@@ -13,10 +13,10 @@ from typing import Union
 from typing import cast
 
 from cached_property import cached_property
+from coro_context_manager import CoroContextManager
 
 from .exceptions import MoreThanOneResultException
 from .exceptions import NoResultException
-from .utils import CoroutineContextManager
 from .utils import database_row_to_dict
 from .utils import get_col_names
 from .utils import safe_getattr
@@ -255,8 +255,8 @@ class CommandsAsync(BaseCommands, ABC):
     async def connect_async(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "CommandsAsync":
         ...
 
-    def cursor(self, *args, **kwargs) -> "CoroutineContextManager[AsyncCursorType]":
-        return CoroutineContextManager(self.connection.cursor(*args, **kwargs))
+    def cursor(self, *args, **kwargs) -> "CoroContextManager[AsyncCursorType]":
+        return CoroContextManager(self.connection.cursor(*args, **kwargs))
 
     async def execute_async(self, sql: str, param: Union["ParamType", "ListParamType"] = None) -> int:
         handler = self.SqlParamHandler(sql, param)

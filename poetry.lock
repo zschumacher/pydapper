@@ -147,6 +147,14 @@ optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 
 [[package]]
+name = "coro-context-manager"
+version = "0.1.1"
+description = "A simple object to wrap coroutines to make them awaitable or used via an asyn context manager"
+category = "main"
+optional = false
+python-versions = ">=3.7,<=3.10"
+
+[[package]]
 name = "coverage"
 version = "6.3.2"
 description = "Code coverage measurement for Python"
@@ -749,7 +757,7 @@ pymssql = ["pymssql", "types-pymssql"]
 [metadata]
 lock-version = "1.1"
 python-versions = ">=3.7,<=3.10"
-content-hash = "1672afbcb63a59ae2493a5bd7d488cfb8ef685eb9d63d289ad424ba526910259"
+content-hash = "c1d05e73336d620cf240556553ab6e1592fc78a58421a791b0219e4f147671bc"
 
 [metadata.files]
 aiopg = [
@@ -800,6 +808,10 @@ codecov = [
 colorama = [
     {file = "colorama-0.4.4-py2.py3-none-any.whl", hash = "sha256:9f47eda37229f68eee03b24b9748937c7dc3868f906e8ba69fbcbdd3bc5dc3e2"},
     {file = "colorama-0.4.4.tar.gz", hash = "sha256:5941b2b48a20143d2267e95b1c2a7603ce057ee39fd88e7329b0c292aa16869b"},
+]
+coro-context-manager = [
+    {file = "coro-context-manager-0.1.1.tar.gz", hash = "sha256:de3064f901f6f3493b785e7095dbfe296c06517fdac339273ab367f68e145fad"},
+    {file = "coro_context_manager-0.1.1-py3-none-any.whl", hash = "sha256:f54290ce10623aed721e3d72e4f3bfa0663d624e2213ecdd7db0001366a609bc"},
 ]
 coverage = [
     {file = "coverage-6.3.2-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:9b27d894748475fa858f9597c0ee1d4829f44683f3813633aaf94b19cb5453cf"},

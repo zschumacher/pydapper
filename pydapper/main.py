@@ -9,10 +9,11 @@ from typing import Type
 from typing import Union
 from typing import cast
 
+from coro_context_manager import CoroContextManager
+
 from .commands import Commands
 from .commands import CommandsAsync
 from .dsn_parser import PydapperParseResult
-from .utils import CoroutineContextManager
 
 if TYPE_CHECKING:
     from .commands import Commands
@@ -57,9 +58,9 @@ class CommandFactory:
         return cls.sync_registry[parsed_dsn.dbapi].connect(parsed_dsn, **connect_kwargs)
 
     @classmethod
-    def from_dsn_async(cls, dsn: str = None, **connect_kwargs) -> CoroutineContextManager["CommandsAsync"]:
+    def from_dsn_async(cls, dsn: str = None, **connect_kwargs) -> CoroContextManager["CommandsAsync"]:
         parsed_dsn = parse_dsn(dsn)
-        return CoroutineContextManager(cls.async_registry[parsed_dsn.dbapi].connect_async(parsed_dsn, **connect_kwargs))
+        return CoroContextManager(cls.async_registry[parsed_dsn.dbapi].connect_async(parsed_dsn, **connect_kwargs))
 
     @classmethod
     def from_connection(cls, connection: ConnectionType) -> "Commands":

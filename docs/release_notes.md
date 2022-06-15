@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* ✨ Add `oracledb` support. PR [#25](https://github.com/zschumacher/pydapper/pull/25) by [@troyswanson](https://github.com/troyswanson).
 * 🔧 Bump black to the stable release v22.3.0. PR [#27](https://github.com/zschumacher/pydapper/pull/27) by [@zschumacher](https://github.com/zschumacher).
 * 🔧  use coro-context-manager. PR [#23](https://github.com/zschumacher/pydapper/pull/23) by [@zschumacher](https://github.com/zschumacher).
 ## 0.4.0

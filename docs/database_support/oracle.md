@@ -1,10 +1,10 @@
 # [Oracle](https://www.oracle.com/database/)
 Supported drivers:
 
-| dbapi                                                                   | default     | driver             | connection class       |
-|-------------------------------------------------------------------------|-------------|--------------------|------------------------|
-| [cx_Oracle](https://cx-oracle.readthedocs.io/en/latest/)                | :thumbsup:  | `oracle+cx_Oracle` | `cx_Oracle.Connection` |
-| [oracledb](https://python-oracledb.readthedocs.io/en/latest/index.html) | :thumbsdown | `oracle+oracledb`  | `oracledb.Connection`  |
+| dbapi                                                                   | default      | driver             | connection class       |
+|-------------------------------------------------------------------------|--------------|--------------------|------------------------|
+| [cx_Oracle](https://cx-oracle.readthedocs.io/en/latest/)                | :thumbsup:   | `oracle+cx_Oracle` | `cx_Oracle.Connection` |
+| [oracledb](https://python-oracledb.readthedocs.io/en/latest/index.html) | :thumbsdown: | `oracle+oracledb`  | `oracledb.Connection`  |
 
 ## cx_Oracle
 `cx_Oracle` is the default dbapi driver for Oracle in *pydapper*.

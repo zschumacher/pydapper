@@ -66,3 +66,8 @@ with pydapper.connect("postgresql+psycopg2://pydapper:pydapper@locahost/pydapper
     tasks = commands.query("select id, description, due_date from task;", model=Task)
 ```
 (This script is complete, it should run "as is")
+
+## Buy me a coffee
+If you find this project useful, consider buying me a coffee!  
+
+<a href="https://www.buymeacoffee.com/zachschumacher" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>

@@ -204,18 +204,18 @@ python-versions = "*"
 
 [[package]]
 name = "devtools"
-version = "0.8.0"
-description = "Python's missing debug print command and other development tools."
+version = "0.9.0"
+description = "Python's missing debug print command, and more."
 category = "dev"
 optional = false
-python-versions = ">=3.6"
+python-versions = ">=3.7"
 
 [package.dependencies]
 asttokens = ">=2.0.0,<3.0.0"
 executing = ">=0.8.0,<1.0.0"
 
 [package.extras]
-pygments = ["Pygments (>=2.2.0)"]
+pygments = ["pygments (>=2.2.0)"]
 
 [[package]]
 name = "dsnparse"
@@ -258,7 +258,7 @@ python-versions = "*"
 python-dateutil = ">=2.8.1"
 
 [package.extras]
-dev = ["twine", "markdown", "flake8", "wheel"]
+dev = ["wheel", "flake8", "markdown", "twine"]
 
 [[package]]
 name = "idna"
@@ -505,8 +505,8 @@ python-versions = ">=3.6"
 importlib-metadata = {version = ">=0.12", markers = "python_version < \"3.8\""}
 
 [package.extras]
-dev = ["pre-commit", "tox"]
-testing = ["pytest", "pytest-benchmark"]
+testing = ["pytest-benchmark", "pytest"]
+dev = ["tox", "pre-commit"]
 
 [[package]]
 name = "protobuf"
@@ -628,7 +628,7 @@ coverage = {version = ">=5.2.1", extras = ["toml"]}
 pytest = ">=4.6"
 
 [package.extras]
-testing = ["fields", "hunter", "process-tests", "six", "pytest-xdist", "virtualenv"]
+testing = ["virtualenv", "pytest-xdist", "six", "process-tests", "hunter", "fields"]
 
 [[package]]
 name = "pytest-mock"
@@ -803,7 +803,7 @@ pymssql = ["pymssql", "types-pymssql"]
 [metadata]
 lock-version = "1.1"
 python-versions = ">=3.7,<3.11"
-content-hash = "94cb67d05163e796bd1a0d3d4f1e1b6475b5f1d36eb8b7a65357f56ce3c67b30"
+content-hash = "d4028735481cb29f04a97029c12e4af47d006a09823f57dca0048081ed09b15c"
 
 [metadata.files]
 aiopg = [
@@ -1018,8 +1018,8 @@ cx-oracle = [
     {file = "cx_Oracle-8.3.0.tar.gz", hash = "sha256:3b2d215af4441463c97ea469b9cc307460739f89fdfa8ea222ea3518f1a424d9"},
 ]
 devtools = [
-    {file = "devtools-0.8.0-py3-none-any.whl", hash = "sha256:00717ef184223cf36c65bbd17c6eb412f8a7564f47957f9e8b2b7610661b17fb"},
-    {file = "devtools-0.8.0.tar.gz", hash = "sha256:6162a2f61c70242479dff3163e7837e6a9bf32451661af1347bfa3115602af16"},
+    {file = "devtools-0.9.0-py3-none-any.whl", hash = "sha256:689cf4e7c75024237c42093ba19f4fa9cf15980269f02463aeab4d97d4b0a215"},
+    {file = "devtools-0.9.0.tar.gz", hash = "sha256:86ede6e0273e023db766344d14098228785b48a80f31716f28e8b9453d52fa1e"},
 ]
 dsnparse = [
     {file = "dsnparse-0.1.15.tar.gz", hash = "sha256:2ac5705b17cb28e8b115053c2d51cf3321dc2041b1d75e2db6157e05146d0fba"},

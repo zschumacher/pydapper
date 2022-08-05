@@ -258,7 +258,7 @@ python-versions = "*"
 python-dateutil = ">=2.8.1"
 
 [package.extras]
-dev = ["twine", "markdown", "flake8", "wheel"]
+dev = ["wheel", "flake8", "markdown", "twine"]
 
 [[package]]
 name = "idna"
@@ -505,8 +505,8 @@ python-versions = ">=3.6"
 importlib-metadata = {version = ">=0.12", markers = "python_version < \"3.8\""}
 
 [package.extras]
-dev = ["pre-commit", "tox"]
-testing = ["pytest", "pytest-benchmark"]
+testing = ["pytest-benchmark", "pytest"]
+dev = ["tox", "pre-commit"]
 
 [[package]]
 name = "protobuf"
@@ -628,7 +628,7 @@ coverage = {version = ">=5.2.1", extras = ["toml"]}
 pytest = ">=4.6"
 
 [package.extras]
-testing = ["fields", "hunter", "process-tests", "six", "pytest-xdist", "virtualenv"]
+testing = ["virtualenv", "pytest-xdist", "six", "process-tests", "hunter", "fields"]
 
 [[package]]
 name = "pytest-mock"
@@ -734,7 +734,7 @@ python-versions = ">=3.6"
 
 [[package]]
 name = "types-psycopg2"
-version = "2.9.16"
+version = "2.9.18"
 description = "Typing stubs for psycopg2"
 category = "main"
 optional = true
@@ -1457,8 +1457,8 @@ typed-ast = [
     {file = "typed_ast-1.5.4.tar.gz", hash = "sha256:39e21ceb7388e4bb37f4c679d72707ed46c2fbf2a5609b8b8ebc4b067d977df2"},
 ]
 types-psycopg2 = [
-    {file = "types-psycopg2-2.9.16.tar.gz", hash = "sha256:b350d7cf7aaa24c42854f6656fb70547799271eccb738fc5e244840b798bb373"},
-    {file = "types_psycopg2-2.9.16-py3-none-any.whl", hash = "sha256:adf3be817cb82e17e6d36c4112718dbda38f98db291d736f022a1d89b53c832c"},
+    {file = "types-psycopg2-2.9.18.tar.gz", hash = "sha256:9b0e9e1f097b15cd9fa8aad2596a9e3082fd72f8d9cfe52b190cfa709105b6c0"},
+    {file = "types_psycopg2-2.9.18-py3-none-any.whl", hash = "sha256:14c779dcab18c31453fa1cad3cf4b1601d33540a344adead3c47a6b8091cd2fa"},
 ]
 types-pymssql = [
     {file = "types-pymssql-2.1.0.tar.gz", hash = "sha256:72e04114ce360a0606c3e78caab036636928ad52c4dd839e057932342774763e"},

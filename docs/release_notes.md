@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* 🔧 Address Dependabot PRs. PR [#42](https://github.com/zschumacher/pydapper/pull/42) by [@zschumacher](https://github.com/zschumacher).
 * 🔧  Add Dependabot. PR [#31](https://github.com/zschumacher/pydapper/pull/31) by [@zschumacher](https://github.com/zschumacher).
 ## 0.5.0
 ### Features

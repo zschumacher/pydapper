@@ -44,7 +44,7 @@ coro-context-manager = "^0.1.1"
 
 [tool.poetry.dev-dependencies]
 black = "^22.3"
-coverage = "^6.2"
+coverage = "^6.4"
 devtools = "^0.8.0"
 Faker = "^10.0.0"
 isort = "^5.10.1"

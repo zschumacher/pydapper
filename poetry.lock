@@ -1,6 +1,6 @@
 [[package]]
 name = "aiopg"
-version = "1.3.3"
+version = "1.3.4"
 description = "Postgres integration with asyncio."
 category = "main"
 optional = true
@@ -258,7 +258,7 @@ python-versions = "*"
 python-dateutil = ">=2.8.1"
 
 [package.extras]
-dev = ["twine", "markdown", "flake8", "wheel"]
+dev = ["wheel", "flake8", "markdown", "twine"]
 
 [[package]]
 name = "idna"
@@ -505,8 +505,8 @@ python-versions = ">=3.6"
 importlib-metadata = {version = ">=0.12", markers = "python_version < \"3.8\""}
 
 [package.extras]
-dev = ["pre-commit", "tox"]
-testing = ["pytest", "pytest-benchmark"]
+testing = ["pytest-benchmark", "pytest"]
+dev = ["tox", "pre-commit"]
 
 [[package]]
 name = "protobuf"
@@ -628,7 +628,7 @@ coverage = {version = ">=5.2.1", extras = ["toml"]}
 pytest = ">=4.6"
 
 [package.extras]
-testing = ["fields", "hunter", "process-tests", "six", "pytest-xdist", "virtualenv"]
+testing = ["virtualenv", "pytest-xdist", "six", "process-tests", "hunter", "fields"]
 
 [[package]]
 name = "pytest-mock"
@@ -807,8 +807,8 @@ content-hash = "94cb67d05163e796bd1a0d3d4f1e1b6475b5f1d36eb8b7a65357f56ce3c67b30
 
 [metadata.files]
 aiopg = [
-    {file = "aiopg-1.3.3-py3-none-any.whl", hash = "sha256:2842dd8741460eeef940032dcb577bfba4d4115205dd82a73ce13b3271f5bf0a"},
-    {file = "aiopg-1.3.3.tar.gz", hash = "sha256:547c6ba4ea0d73c2a11a2f44387d7133cc01d3c6f3b8ed976c0ac1eff4f595d7"},
+    {file = "aiopg-1.3.4-py3-none-any.whl", hash = "sha256:b5b74a124831aad71608c3c203479db90bac4a7eb3f8982bc48c3d3e6f1e57bf"},
+    {file = "aiopg-1.3.4.tar.gz", hash = "sha256:23f9e4cd9f28e9d91a6de3b4fb517e8bed25511cd954acccba9fe3a702d9b7d0"},
 ]
 asttokens = [
     {file = "asttokens-2.0.5-py2.py3-none-any.whl", hash = "sha256:0844691e88552595a6f4a4281a9f7f79b8dd45ca4ccea82e5e05b4bbdb76705c"},

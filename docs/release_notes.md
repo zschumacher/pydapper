@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* 🔧 Add example for serializing one to many relationships to docs. PR [#44](https://github.com/zschumacher/pydapper/pull/44) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.5.1
 ### Internal

@@ -68,3 +68,8 @@ clean-pyc: ## remove Python file artifacts
 
 docs: ## spin up a local server for mkdocs
 	poetry run mkdocs serve
+
+resetlock:
+	rm poetry.lock
+	git checkout main poetry.lock
+	poetry lock --no-update

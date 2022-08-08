@@ -34,9 +34,7 @@ async def main():
         async for record in await commands.query_async(query, buffered=False):
             if (owner_id := record["owner_id"]) not in owners:
                 owners[owner_id] = Owner(id=owner_id, name=record["owner_name"], tasks=list())
-            owners[owner_id].tasks.append(
-                Task(id=record["task_id"], description=record["description"])
-            )
+            owners[owner_id].tasks.append(Task(id=record["task_id"], description=record["description"]))
 
     print(list(owners.values()))
     """

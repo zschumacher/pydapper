@@ -1,7 +1,7 @@
 import typing
+from dataclasses import dataclass
 
 import pydapper
-from dataclasses import dataclass
 
 
 @dataclass

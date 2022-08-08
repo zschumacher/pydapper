@@ -9,6 +9,7 @@
  | model    | `Any`       | the callable to serialize the model;  callable must be able to accept column names as kwargs. | :thumbsup:   | `dict`  |
  | buffered | `bool`      | whether to buffer reading the results of the query                                            | :thumbsup:   | `True`  |
 
+
 ## Example - Serialize to a dataclass
 The raw sql query can be executed using the `query` method and map the results to a list of dataclasses.
 ```python
@@ -16,7 +17,8 @@ The raw sql query can be executed using the `query` method and map the results t
 ```
 (*This script is complete, it should run "as is"*)
 
-### Example - Serialize a one to one relationship
+
+### Example - Serialize a one-to-one relationship
 You can get creative with what you pass in to the model kwarg of `query`
 ```python
 {!docs/../docs_src/methods/query/one_to_one_query.py!}
@@ -31,5 +33,14 @@ if querying a large amount of data that would not fit into memory, but note that
 cursor open while you're retrieving results.
 ```python
 {!docs/../docs_src/methods/query/query_unbuffered.py!}
+```
+(This script is complete, it should run "as is")
+
+
+## Example - Serializing a one-to-many relationship
+Using model is nice for simple serialization, but more complex serializations might require more complex logic.  In this
+case, it is recommended to return an unbuffered result and serialize it as you iterate.  See the example below:
+```python
+{!docs/../docs_src/methods/query/one_to_many_query.py!}
 ```
 (This script is complete, it should run "as is")

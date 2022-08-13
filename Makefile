@@ -69,7 +69,10 @@ clean-pyc: ## remove Python file artifacts
 docs: ## spin up a local server for mkdocs
 	poetry run mkdocs serve
 
-resetlock:
+resetlock: ## reset the poetry lock file from main
 	rm poetry.lock
 	git checkout main poetry.lock
 	poetry lock --no-update
+
+colima: ## start up colima to run oracle images on ARM chips
+	colima start --arch x86_64 --memory 4

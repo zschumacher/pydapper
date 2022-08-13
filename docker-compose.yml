@@ -11,13 +11,12 @@ services:
       POSTGRES_PASSWORD: pydapper
 
   mssql-server:
-    image: mcr.microsoft.com/mssql/server:2019-latest
+    image: mcr.microsoft.com/azure-sql-edge:latest
     ports:
       - "1434:1433"
     environment:
       SA_PASSWORD: "pydapper!PYDAPPER"
-      ACCEPT_EULA: "Y"
-      MSSQL_PID: "Express"
+      ACCEPT_EULA: "1"
 
   mysql:
     image: mysql:latest
@@ -30,6 +29,7 @@ services:
       MYSQL_PASSWORD: "pydapper"
 
   oracle:
+    # view the ref for running on ARM chips https://github.com/gvenzl/oci-oracle-xe#oracle-xe-on-apple-m-chips
     image: gvenzl/oracle-xe:slim
     ports:
       - "1522:1521"

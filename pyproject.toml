@@ -65,6 +65,16 @@ mysql-connector-python = ["mysql-connector-python"]
 cx_Oracle = ["cx-Oracle"]
 oracledb = ["oracledb"]
 aiopg = ["aiopg"]
+all = [
+    "psycopg2",
+    "pymssql",
+    "mysql-connector-python",
+    "cx_Oracle",
+    "oracledb",
+    "aiopg",
+    "types-psycopg2",
+    "types-pymssql"
+]
 
 [tool.isort]
 force_grid_wrap = 0

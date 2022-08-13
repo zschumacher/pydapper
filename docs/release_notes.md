@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* :wrench: Better developer support for arm chips. PR [#52](https://github.com/zschumacher/pydapper/pull/52) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.5.2
 ### Docs

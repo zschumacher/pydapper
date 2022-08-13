@@ -1,9 +1,14 @@
 
 ## Latest Changes
 
+
+## 0.5.2
+### Docs
+* 🔧 Add example for serializing one-to-many relationships to docs. PR [#44](https://github.com/zschumacher/pydapper/pull/44) by [@zschumacher](https://github.com/zschumacher).
+
+### Internal
 * 🔧 Address dependabot 2022-08-13. PR [#51](https://github.com/zschumacher/pydapper/pull/51) by [@zschumacher](https://github.com/zschumacher).
 * 🔧 Add extra to install all optional deps. PR [#50](https://github.com/zschumacher/pydapper/pull/50) by [@zschumacher](https://github.com/zschumacher).
-* 🔧 Add example for serializing one to many relationships to docs. PR [#44](https://github.com/zschumacher/pydapper/pull/44) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.5.1
 ### Internal

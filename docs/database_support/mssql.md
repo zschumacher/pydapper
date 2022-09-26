@@ -44,6 +44,12 @@ a full description of the context manager behavior.
 {!docs/../docs_src/connections/pymssql_connect.py!}
 ```
 
+### Example - `insert`
+[pymssql](https://www.pymssql.org/) requires the user to commit inserts and updates
+```python
+{!docs/../docs_src/connections/pymssql_insert.py!}
+``` 
+
 ### Example - `using`
 Use *pydapper* with a custom connection pool.
 ```python

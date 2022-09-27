@@ -1,5 +1,7 @@
-import pydapper
 from dataclasses import dataclass
+
+import pydapper
+
 
 @dataclass
 class Note:

@@ -83,6 +83,10 @@ class CursorType(Protocol):
         ...
 
     @abstractmethod
+    def __iter__(self):
+        ...
+
+    @abstractmethod
     def execute(self, sql: str, parameters: Any):
         ...
 
@@ -112,6 +116,10 @@ class AsyncCursorType(Protocol):
 
     @abstractmethod
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        ...
+
+    @abstractmethod
+    async def __aiter__(self):
         ...
 
     @abstractmethod

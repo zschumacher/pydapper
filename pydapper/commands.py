@@ -132,17 +132,13 @@ class Commands(BaseCommands, ABC):
         with self.cursor() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
-            data = cursor.fetchall()
-            return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
+            return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in cursor]
 
     def _unbuffered_query(self, handler: BaseSqlParamHandler, model: Any) -> Generator[Any, None, None]:
         with self.cursor() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
-            while True:
-                row = cursor.fetchone()
-                if not row:
-                    break
+            for row in cursor:
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
 
     def query(
@@ -166,13 +162,12 @@ class Commands(BaseCommands, ABC):
                 handler = self.SqlParamHandler(query, param)
                 handler.execute(cursor)
                 headers = get_col_names(cursor)
-                data = cursor.fetchall()
+                data = [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in cursor]
 
                 if not data:
                     raise NoResultException(f"No results returned from query {query}")
 
-                serialized_data = [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
-                results.append(serialized_data)
+                results.append(data)
 
         return cast(Tuple[List[Any]], tuple(results))
 
@@ -267,17 +262,13 @@ class CommandsAsync(BaseCommands, ABC):
         async with self.cursor() as cursor:
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
-            data = await cursor.fetchall()
-            return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
+            return [serialize_dict_row(model, database_row_to_dict(headers, row)) async for row in cursor]
 
     async def _unbuffered_query(self, handler: BaseSqlParamHandler, model: Any) -> AsyncGenerator[Any, None]:
         async with self.cursor() as cursor:
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
-            while True:
-                row = await cursor.fetchone()
-                if not row:
-                    break
+            async for row in cursor:
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
 
     async def query_async(self, sql: str, model: Any = dict, param: "ParamType" = None, buffered: bool = True):
@@ -302,13 +293,12 @@ class CommandsAsync(BaseCommands, ABC):
                 handler = self.SqlParamHandler(query, param)
                 await handler.execute_async(cursor)
                 headers = get_col_names(cursor)
-                data = await cursor.fetchall()
+                data = [serialize_dict_row(model, database_row_to_dict(headers, row)) async for row in cursor]
 
                 if not data:
                     raise NoResultException(f"No results returned from query {query}")
 
-                serialized_data = [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
-                results.append(serialized_data)
+                results.append(data)
 
         return cast(Tuple[List[Any]], tuple(results))
 

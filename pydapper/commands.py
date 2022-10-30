@@ -152,7 +152,7 @@ class Commands(BaseCommands, ABC):
         return self._buffered_query(handler, model) if buffered else self._unbuffered_query(handler, model)
 
     def query_multiple(
-        self, queries: Tuple[str], models: Tuple[Any] = None, param: "ParamType" = None
+        self, queries: Tuple[str, ...], models: Tuple[Any, ...] = None, param: "ParamType" = None
     ) -> Tuple[List[Any], ...]:
         if models is None:
             models = cast(Tuple[dict], tuple(dict for _ in queries))
@@ -288,7 +288,7 @@ class CommandsAsync(BaseCommands, ABC):
         return self._unbuffered_query(handler, model)
 
     async def query_multiple_async(
-        self, queries: Tuple[str], models: Tuple[Any] = None, param: "ParamType" = None
+        self, queries: Tuple[str, ...], models: Tuple[Any, ...] = None, param: "ParamType" = None
     ) -> Tuple[List[Any], ...]:
         if models is None:
             models = cast(Tuple[dict], tuple(dict for _ in queries))

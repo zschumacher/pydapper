@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* 🔧 Add variable length tuple typing annotation for query_multiple. PR [#67](https://github.com/zschumacher/pydapper/pull/67) by [@enewnham](https://github.com/enewnham).
 * 🔧 Dependabot updates 2022-10-28. PR [#85](https://github.com/zschumacher/pydapper/pull/85) by [@zschumacher](https://github.com/zschumacher).
 * :wrench: Better developer support for arm chips. PR [#52](https://github.com/zschumacher/pydapper/pull/52) by [@zschumacher](https://github.com/zschumacher).
 

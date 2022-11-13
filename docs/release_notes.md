@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* ⬆️ support python 3.11. PR [#84](https://github.com/zschumacher/pydapper/pull/84) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.5.3
 ### Internal

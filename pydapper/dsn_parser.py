@@ -14,7 +14,7 @@ _DEFAULT_DB_API = {
 
 class PydapperParseResult(dsnparse.ParseResult):
     # noinspection PyUnresolvedReferences
-    def __init__(self, dsn, **defaults):
+    def __init__(self, dsn: str, **defaults):
         super().__init__(dsn, **defaults)
         # make linters and editors happy
         self.dsn: str = self.dsn

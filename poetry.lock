@@ -787,7 +787,7 @@ pymssql = ["pymssql", "types-pymssql"]
 [metadata]
 lock-version = "1.1"
 python-versions = ">=3.7,<3.12"
-content-hash = "0101f2a459d0dd5d48c84f708c34b735083537a0e601292bf1cdc1fdb36969f3"
+content-hash = "282ed8a3ef9851b440ed24d5219f47f383482b7908827bc6e4d41d1f9d1f998b"
 
 [metadata.files]
 aiopg = []

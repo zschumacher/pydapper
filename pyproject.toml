@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pydapper"
-version = "0.5.3"
+version = "0.6.0"
 description = "A pure python lib inspired by the dotnet lib dapper"
 authors = ["Zach Schumacher <zschu15@gmail.com>"]
 license = "MIT"
@@ -14,6 +14,7 @@ classifiers = [
     'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
     'Intended Audience :: Developers',
     'Intended Audience :: Information Technology',
     'Intended Audience :: System Administrators',

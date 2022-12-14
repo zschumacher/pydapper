@@ -1,4 +1,5 @@
 import re
+import typing
 from abc import ABC
 from abc import abstractmethod
 from re import Match
@@ -6,6 +7,7 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import AsyncGenerator
 from typing import Callable
+from typing import Dict
 from typing import Generator
 from typing import List
 from typing import Literal
@@ -155,31 +157,37 @@ class Commands(BaseCommands, ABC):
                     break
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
 
-    @overload
+    # region query
+    @overload  # specify model and unbuffered
     def query(
-        self, sql: str, *, model: "Type[_T]", param: Optional["ParamType"] = None, buffered: Literal[True] = True
-    ) -> List["_T"]:
-        ...
-
-    @overload
-    def query(
-        self, sql: str, *, model: "Type[_T]", param: Optional["ParamType"] = None, buffered: Literal[False] = False
+        self, sql: str, param: ParamType = None, *, model: "_T", buffered: Literal[False]
     ) -> Generator["_T", None, None]:
         ...
 
-    @overload
-    def query(self, sql: str, *, param: Optional["ParamType"] = None, buffered: Literal[True] = True) -> List["_T"]:
+    @overload  # specify model and buffered
+    def query(
+        self, sql: str, param: ParamType = None, *, model: "_T", buffered: Literal[True]
+    ) -> List["_T", None, None]:
         ...
 
-    @overload
+    @overload  # specify model with default for buffered
     def query(
-        self, sql: str, *, param: Optional["ParamType"] = None, buffered: Literal[False] = False
+        self,
+        sql: str,
+        param: ParamType = None,
+        *,
+        model: "_T",
     ) -> Generator["_T", None, None]:
         ...
 
-    def query(self, sql, model=dict, param=None, buffered=True):
+    @overload  # unbuffered with default model
+    def query(self, sql: str, param: ParamType = None, *, buffered: Literal[False]):
+        ...
+
+    def query(self, sql: str, model=dict, param: "ParamType" = None, buffered: bool = True):
         handler = self.SqlParamHandler(sql, param)
         return self._buffered_query(handler, model) if buffered else self._unbuffered_query(handler, model)
+    # endregion
 
     def query_multiple(
         self, queries: Tuple[str, ...], models: Tuple[Any, ...] = None, param: Optional["ParamType"] = None
@@ -210,14 +218,6 @@ class Commands(BaseCommands, ABC):
 
         return tuple(results)
 
-    @overload
-    def query_first(self, sql: str, *, model: Type["_T"], param: Optional["ParamType"]) -> "_T":
-        ...
-
-    @overload
-    def query_first(self, sql: str, *, param: Optional["ParamType"]) -> dict:
-        ...
-
     def query_first(self, sql, model=dict, param=None):
         handler = self.SqlParamHandler(sql, param)
 
@@ -229,36 +229,11 @@ class Commands(BaseCommands, ABC):
                 raise NoResultException("Query returned no results")
         return serialize_dict_row(model, database_row_to_dict(headers, row))
 
-    @overload
-    def query_first_or_default(
-        self,
-        sql: str,
-        default: Union["_Default", Callable[[], "_Default"]],
-        *,
-        model: Type["_T"],
-        param: Optional["ParamType"],
-    ) -> Union["_T", "_Default"]:
-        ...
-
-    @overload
-    def query_first_or_default(
-        self, sql: str, default: Union["_Default", Callable[[], "_Default"]], *, param: Optional["ParamType"]
-    ) -> Union[dict, "_Default"]:
-        ...
-
     def query_first_or_default(self, sql, default, model=dict, param: Any = None):
         try:
             return self.query_first(sql, model=model, param=param)
         except NoResultException:
             return default() if callable(default) else default
-
-    @overload
-    def query_single(self, sql: str, *, model: Type["_T"], param: Optional["ParamType"]) -> "_T":
-        ...
-
-    @overload
-    def query_single(self, sql: str, *, param: Optional["ParamType"]) -> dict:
-        ...
 
     def query_single(self, sql, model=dict, param=None):
         handler = self.SqlParamHandler(sql, param)
@@ -275,23 +250,6 @@ class Commands(BaseCommands, ABC):
             raise MoreThanOneResultException(f"Expected exactly one record, got {num_records}")
 
         return serialize_dict_row(model, database_row_to_dict(headers, data[0]))
-
-    @overload
-    def query_single_or_default(
-        self,
-        sql: str,
-        default: Union["_Default", Callable[[], "_Default"]],
-        *,
-        model: Type["_T"],
-        param: Optional["ParamType"],
-    ) -> Union["_T", "_Default"]:
-        ...
-
-    @overload
-    def query_single_or_default(
-        self, sql: str, default: Union["_Default", Callable[[], "_Default"]], *, param: Optional["ParamType"]
-    ) -> Union[dict, "_Default"]:
-        ...
 
     def query_single_or_default(self, sql, default, model=dict, param=None):
         try:

@@ -29,7 +29,7 @@ def database_row_to_dict(col_names: List[str], row: Tuple[Any]) -> Dict[str, Any
 
 
 @typing.overload
-def serialize_dict_row(model: Type[dict], row: Dict[str, Any]) -> dict:
+def serialize_dict_row(model: Type[Dict], row: Dict[str, Any]) -> Dict[str, Any]:
     ...
 
 

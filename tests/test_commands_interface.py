@@ -1,6 +1,8 @@
+import typing
 from types import SimpleNamespace
 
 import pytest
+import typing_extensions
 
 from pydapper.exceptions import MoreThanOneResultException
 from pydapper.exceptions import NoResultException

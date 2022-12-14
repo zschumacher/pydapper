@@ -157,36 +157,34 @@ class Commands(BaseCommands, ABC):
                     break
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
 
-    # region query
-    @overload  # specify model and unbuffered
+    @overload
     def query(
-        self, sql: str, param: ParamType = None, *, model: "_T", buffered: Literal[False]
+        self, sql: str, model: Type[Dict] = dict, param: Optional["ParamType"] = ..., buffered: Literal[True] = True
+    ) -> List[Dict[str, Any]]:
+        ...
+
+    @overload
+    def query(
+        self, sql: str, model: Type[Dict] = dict, param: Optional["ParamType"] = ..., *, buffered: Literal[False]
+    ) -> typing.Generator[Dict[str, Any], None, None]:
+        ...
+
+    @overload
+    def query(
+        self, sql: str, param: Optional["ParamType"] = ..., buffered: Literal[True] = True, *, model: Type["_T"]
+    ) -> List["_T"]:
+        ...
+
+    @overload
+    def query(
+        self, sql: str, param: Optional["ParamType"] = ..., *, model: Type["_T"], buffered: Literal[False]
     ) -> Generator["_T", None, None]:
         ...
 
-    @overload  # specify model and buffered
-    def query(
-        self, sql: str, param: ParamType = None, *, model: "_T", buffered: Literal[True]
-    ) -> List["_T", None, None]:
-        ...
-
-    @overload  # specify model with default for buffered
-    def query(
-        self,
-        sql: str,
-        param: ParamType = None,
-        *,
-        model: "_T",
-    ) -> Generator["_T", None, None]:
-        ...
-
-    @overload  # unbuffered with default model
-    def query(self, sql: str, param: ParamType = None, *, buffered: Literal[False]):
-        ...
-
-    def query(self, sql: str, model=dict, param: "ParamType" = None, buffered: bool = True):
+    def query(self, sql, model=dict, param=None, buffered=True):
         handler = self.SqlParamHandler(sql, param)
         return self._buffered_query(handler, model) if buffered else self._unbuffered_query(handler, model)
+
     # endregion
 
     def query_multiple(

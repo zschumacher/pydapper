@@ -1,5 +1,4 @@
 import re
-import typing
 from abc import ABC
 from abc import abstractmethod
 from re import Match
@@ -10,16 +9,18 @@ from typing import Callable
 from typing import Generator
 from typing import List
 from typing import Literal
-from typing import Tuple
+from typing import NewType
 from typing import Optional
+from typing import Tuple
 from typing import Type
 from typing import TypeVar
 from typing import Union
 from typing import cast
-from typing_extensions import TypeVarTuple
+from typing import overload
 
 from cached_property import cached_property
 from coro_context_manager import CoroContextManager
+from typing_extensions import TypeVarTuple
 
 from .exceptions import MoreThanOneResultException
 from .exceptions import NoResultException
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
     from .types import ParamType
 
     _T = TypeVar("_T")
+    _Default = TypeVar("_Default")
 
 
 class BaseSqlParamHandler(ABC):
@@ -153,27 +155,25 @@ class Commands(BaseCommands, ABC):
                     break
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
 
-    @typing.overload
+    @overload
     def query(
-            self, sql: str, *, model: "Type[_T]", param: Optional["ParamType"], buffered: Literal[True]
+        self, sql: str, *, model: "Type[_T]", param: Optional["ParamType"] = None, buffered: Literal[True] = True
     ) -> List["_T"]:
         ...
 
-    @typing.overload
+    @overload
     def query(
-            self, sql: str, *, model: "Type[_T]", param: Optional["ParamType"], buffered: Literal[False]
+        self, sql: str, *, model: "Type[_T]", param: Optional["ParamType"] = None, buffered: Literal[False] = False
     ) -> Generator["_T", None, None]:
         ...
 
-    @typing.overload
-    def query(
-            self, sql: str, *, param: Optional["ParamType"], buffered: Literal[True]
-    ) -> List["_T"]:
+    @overload
+    def query(self, sql: str, *, param: Optional["ParamType"] = None, buffered: Literal[True] = True) -> List["_T"]:
         ...
 
-    @typing.overload
+    @overload
     def query(
-            self, sql: str, *, param: Optional["ParamType"], buffered: Literal[False]
+        self, sql: str, *, param: Optional["ParamType"] = None, buffered: Literal[False] = False
     ) -> Generator["_T", None, None]:
         ...
 
@@ -182,8 +182,12 @@ class Commands(BaseCommands, ABC):
         return self._buffered_query(handler, model) if buffered else self._unbuffered_query(handler, model)
 
     def query_multiple(
-            self, queries: Tuple[str, ...], models: Tuple[Type["_T"], ...] = None, param: "ParamType" = None
-    ) -> Tuple[List["_T"], ...]:
+        self, queries: Tuple[str, ...], models: Tuple[Any, ...] = None, param: Optional["ParamType"] = None
+    ) -> Tuple[List[Any], ...]:
+        """
+        :todo use TypeVarTuple for the variadic types of models once the mypy support is better such that type checkers
+              and hinters will be able to infer which model type you're working with.  Leaving this as is for now...
+        """
         if models is None:
             models = tuple(dict for _ in queries)
 
@@ -204,14 +208,17 @@ class Commands(BaseCommands, ABC):
                 serialized_data = [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
                 results.append(serialized_data)
 
-        return cast(Tuple[List[Any]], tuple(results))
+        return tuple(results)
 
-    def query_first(
-            self,
-            sql: str,
-            model: Type["_T"] = dict,
-            param: "ParamType" = None,
-    ) -> "_T":
+    @overload
+    def query_first(self, sql: str, *, model: Type["_T"], param: Optional["ParamType"]) -> "_T":
+        ...
+
+    @overload
+    def query_first(self, sql: str, *, param: Optional["ParamType"]) -> dict:
+        ...
+
+    def query_first(self, sql, model=dict, param=None):
         handler = self.SqlParamHandler(sql, param)
 
         with self.cursor() as cursor:
@@ -222,20 +229,38 @@ class Commands(BaseCommands, ABC):
                 raise NoResultException("Query returned no results")
         return serialize_dict_row(model, database_row_to_dict(headers, row))
 
+    @overload
     def query_first_or_default(
-            self, sql: str, default: Union["_T", Callable[[], "_T"]], model: "Type[_T]" = dict, param: Any = None
-    ) -> "_T":
+        self,
+        sql: str,
+        default: Union["_Default", Callable[[], "_Default"]],
+        *,
+        model: Type["_T"],
+        param: Optional["ParamType"],
+    ) -> Union["_T", "_Default"]:
+        ...
+
+    @overload
+    def query_first_or_default(
+        self, sql: str, default: Union["_Default", Callable[[], "_Default"]], *, param: Optional["ParamType"]
+    ) -> Union[dict, "_Default"]:
+        ...
+
+    def query_first_or_default(self, sql, default, model=dict, param: Any = None):
         try:
             return self.query_first(sql, model=model, param=param)
         except NoResultException:
             return default() if callable(default) else default
 
-    def query_single(
-            self,
-            sql: str,
-            model: "Type[_T]" = dict,
-            param: "ParamType" = None,
-    ) -> "_T":
+    @overload
+    def query_single(self, sql: str, *, model: Type["_T"], param: Optional["ParamType"]) -> "_T":
+        ...
+
+    @overload
+    def query_single(self, sql: str, *, param: Optional["ParamType"]) -> dict:
+        ...
+
+    def query_single(self, sql, model=dict, param=None):
         handler = self.SqlParamHandler(sql, param)
 
         with self.cursor() as cursor:
@@ -251,18 +276,33 @@ class Commands(BaseCommands, ABC):
 
         return serialize_dict_row(model, database_row_to_dict(headers, data[0]))
 
+    @overload
     def query_single_or_default(
-            self, sql: str, default: Union["_T", Callable[[], "_T"]], model: Type["_T"] = dict, param: Any = None
-    ) -> "_T":
+        self,
+        sql: str,
+        default: Union["_Default", Callable[[], "_Default"]],
+        *,
+        model: Type["_T"],
+        param: Optional["ParamType"],
+    ) -> Union["_T", "_Default"]:
+        ...
+
+    @overload
+    def query_single_or_default(
+        self, sql: str, default: Union["_Default", Callable[[], "_Default"]], *, param: Optional["ParamType"]
+    ) -> Union[dict, "_Default"]:
+        ...
+
+    def query_single_or_default(self, sql, default, model=dict, param=None):
         try:
             return self.query_single(sql, model=model, param=param)
         except NoResultException:
             return default() if callable(default) else default
 
     def execute_scalar(
-            self,
-            sql: str,
-            param: "ParamType" = None,
+        self,
+        sql: str,
+        param: "ParamType" = None,
     ) -> Any:
         handler = self.SqlParamHandler(sql, param)
         with self.cursor() as cursor:
@@ -314,28 +354,48 @@ class CommandsAsync(BaseCommands, ABC):
                     break
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
 
-    @typing.overload
+    @overload
     async def query_async(
-            self, sql: str, model: Type["_T"] = dict, param: "ParamType" = None, buffered: Literal[True] = True
+        self, sql: str, *, model: "Type[_T]", param: Optional["ParamType"], buffered: Literal[True]
     ) -> List["_T"]:
         ...
 
-    @typing.overload
+    @overload
     async def query_async(
-            self, sql: str, model: Type["_T"] = dict, param: "ParamType" = None, buffered: Literal[False] = False
-    ) -> AsyncGenerator["_T", None, None]:
+        self, sql: str, *, model: "Type[_T]", param: Optional["ParamType"], buffered: Literal[False]
+    ) -> Generator["_T", None, None]:
         ...
 
-    async def query_async(self, sql: str, model: "Type[_T]" = dict, param: "ParamType" = None, buffered: bool = True):
+    @overload
+    async def query_async(self, sql: str, *, param: Optional["ParamType"], buffered: Literal[True]) -> List["_T"]:
+        ...
+
+    @overload
+    async def query_async(
+        self, sql: str, *, param: Optional["ParamType"], buffered: Literal[False]
+    ) -> Generator["_T", None, None]:
+        ...
+
+    async def query_async(self, sql: str, model=dict, param=None, buffered=True):
         handler = self.SqlParamHandler(sql, param)
         if buffered:
             records = await self._buffered_query(handler, model)
             return records
         return self._unbuffered_query(handler, model)
 
+    @overload
     async def query_multiple_async(
-            self, queries: Tuple[str, ...], models: Tuple[Type["_T"], ...] = None, param: "ParamType" = None
+        self, queries: Tuple[str, ...], *, models: Tuple[Type["_T"], ...], param: Optional["ParamType"]
     ) -> Tuple[List["_T"], ...]:
+        ...
+
+    @overload
+    async def query_multiple_async(
+        self, queries: Tuple[str, ...], *, param: Optional["ParamType"]
+    ) -> Tuple[List[dict], ...]:
+        ...
+
+    async def query_multiple_async(self, queries, models=None, param=None):
         if models is None:
             models = cast(Tuple[dict], tuple(dict for _ in queries))
 
@@ -358,12 +418,15 @@ class CommandsAsync(BaseCommands, ABC):
 
         return cast(Tuple[List[Any]], tuple(results))
 
-    async def query_first_async(
-            self,
-            sql: str,
-            model: Type["_T"] = dict,
-            param: "ParamType" = None,
-    ) -> "_T":
+    @overload
+    async def query_first_async(self, sql: str, *, model: Type["_T"], param: Optional["ParamType"]) -> "_T":
+        ...
+
+    @overload
+    async def query_first_async(self, sql: str, *, param: Optional["ParamType"]) -> dict:
+        ...
+
+    async def query_first_async(self, sql, model=dict, param=None):
         handler = self.SqlParamHandler(sql, param)
 
         async with self.cursor() as cursor:
@@ -374,20 +437,38 @@ class CommandsAsync(BaseCommands, ABC):
                 raise NoResultException("Query returned no results")
         return serialize_dict_row(model, database_row_to_dict(headers, row))
 
+    @overload
     async def query_first_or_default_async(
-            self, sql: str, default: Union["_T", Callable[[], "_T"]], model: Type["_T"] = dict, param: Any = None
-    ) -> "_T":
+        self,
+        sql: str,
+        default: Union["_Default", Callable[[], "_Default"]],
+        *,
+        model: Type["_T"],
+        param: Optional["ParamType"],
+    ) -> Union["_T", "_Default"]:
+        ...
+
+    @overload
+    async def query_first_or_default_async(
+        self, sql: str, default: Union["_Default", Callable[[], "_Default"]], *, param: Optional["ParamType"]
+    ) -> Union[dict, "_Default"]:
+        ...
+
+    async def query_first_or_default_async(self, sql, default, model=dict, param=None):
         try:
             return await self.query_first_async(sql, model=model, param=param)
         except NoResultException:
             return default() if callable(default) else default
 
-    async def query_single_async(
-            self,
-            sql: str,
-            model: Type["_T"] = dict,
-            param: "ParamType" = None,
-    ) -> "_T":
+    @overload
+    async def query_single_async(self, sql: str, *, model: Type["_T"], param: Optional["ParamType"]) -> "_T":
+        ...
+
+    @overload
+    async def query_single_async(self, sql: str, *, param: Optional["ParamType"]) -> dict:
+        ...
+
+    async def query_single_async(self, sql, model=dict, param=None):
         handler = self.SqlParamHandler(sql, param)
 
         async with self.cursor() as cursor:
@@ -403,18 +484,33 @@ class CommandsAsync(BaseCommands, ABC):
 
         return serialize_dict_row(model, database_row_to_dict(headers, data[0]))
 
+    @overload
     async def query_single_or_default_async(
-            self, sql: str, default: Union["_T", Callable[[], "_T"]], model: Type["_T"] = dict, param: Any = None
-    ) -> "_T":
+        self,
+        sql: str,
+        default: Union["_Default", Callable[[], "_Default"]],
+        *,
+        model: Type["_T"],
+        param: Optional["ParamType"],
+    ) -> Union["_T", "_Default"]:
+        ...
+
+    @overload
+    async def query_single_or_default_async(
+        self, sql: str, default: Union["_Default", Callable[[], "_Default"]], *, param: Optional["ParamType"]
+    ) -> Union[dict, "_Default"]:
+        ...
+
+    async def query_single_or_default_async(self, sql, default, model=dict, param=None):
         try:
             return await self.query_single_async(sql, model=model, param=param)
         except NoResultException:
             return default() if callable(default) else default
 
     async def execute_scalar_async(
-            self,
-            sql: str,
-            param: "ParamType" = None,
+        self,
+        sql: str,
+        param: "ParamType" = None,
     ) -> Any:
         handler = self.SqlParamHandler(sql, param)
         async with self.cursor() as cursor:

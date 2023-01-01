@@ -10,9 +10,7 @@ from typing import Callable
 from typing import Dict
 from typing import Generator
 from typing import List
-from typing import Literal
 from typing import Optional
-from typing import Protocol
 from typing import Tuple
 from typing import Type
 from typing import TypeVar
@@ -37,6 +35,7 @@ if TYPE_CHECKING:
     from .types import ConnectionType
     from .types import CursorType
     from .types import ListParamType
+    from .types import Literal
     from .types import ParamType
 
     _T = TypeVar("_T")
@@ -158,25 +157,30 @@ class Commands(BaseCommands, ABC):
 
     @overload
     def query(
-        self, sql: str, model: Type[Dict] = dict, param: Optional["ParamType"] = ..., *, buffered: Literal[True] = True
+        self,
+        sql: str,
+        model: Type[Dict] = dict,
+        param: Optional["ParamType"] = ...,
+        *,
+        buffered: "Literal[True]" = True,
     ) -> List[Dict[str, Any]]:
         ...
 
     @overload
     def query(
-        self, sql: str, model: Type[Dict] = dict, param: Optional["ParamType"] = ..., *, buffered: Literal[False]
+        self, sql: str, model: Type[Dict] = dict, param: Optional["ParamType"] = ..., *, buffered: "Literal[False]"
     ) -> typing.Generator[Dict[str, Any], None, None]:
         ...
 
     @overload
     def query(
-        self, sql: str, param: Optional["ParamType"] = ..., buffered: Literal[True] = True, *, model: Type["_T"]
+        self, sql: str, param: Optional["ParamType"] = ..., buffered: "Literal[True]" = True, *, model: Type["_T"]
     ) -> List["_T"]:
         ...
 
     @overload
     def query(
-        self, sql: str, param: Optional["ParamType"] = ..., *, model: Type["_T"], buffered: Literal[False]
+        self, sql: str, param: Optional["ParamType"] = ..., *, model: Type["_T"], buffered: "Literal[False]"
     ) -> Generator["_T", None, None]:
         ...
 
@@ -395,25 +399,30 @@ class CommandsAsync(BaseCommands, ABC):
 
     @overload
     async def query_async(
-        self, sql: str, model: Type[Dict] = dict, param: Optional["ParamType"] = ..., *, buffered: Literal[True] = True
+        self,
+        sql: str,
+        model: Type[Dict] = dict,
+        param: Optional["ParamType"] = ...,
+        *,
+        buffered: "Literal[True]" = True,
     ) -> List[Dict[str, Any]]:
         ...
 
     @overload
     async def query_async(
-        self, sql: str, model: Type[Dict] = dict, param: Optional["ParamType"] = ..., *, buffered: Literal[False]
+        self, sql: str, model: Type[Dict] = dict, param: Optional["ParamType"] = ..., *, buffered: "Literal[False]"
     ) -> AsyncGenerator[Dict[str, Any], None]:
         ...
 
     @overload
     async def query_async(
-        self, sql: str, param: Optional["ParamType"] = ..., buffered: Literal[True] = True, *, model: Type["_T"]
+        self, sql: str, param: Optional["ParamType"] = ..., buffered: "Literal[True]" = True, *, model: Type["_T"]
     ) -> List["_T"]:
         ...
 
     @overload
     async def query_async(
-        self, sql: str, param: Optional["ParamType"] = ..., *, model: Type["_T"], buffered: Literal[False]
+        self, sql: str, param: Optional["ParamType"] = ..., *, model: Type["_T"], buffered: "Literal[False]"
     ) -> AsyncGenerator["_T", None]:
         ...
 

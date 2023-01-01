@@ -126,7 +126,8 @@ exclude_lines = [
     "raise NotImplementedError",
     "Protocol",
     "except ImportError",
-    "@abstractmethod"
+    "@abstractmethod",
+    "@overload"
 ]
 [build-system]
 requires = ["poetry-core>=1.0.0"]

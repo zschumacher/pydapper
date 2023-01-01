@@ -524,7 +524,7 @@ class CommandsAsync(BaseCommands, ABC):
     async def query_single_async(self, sql: str, param: Optional["ParamType"] = ..., *, model: Type["_T"]) -> "_T":
         ...
 
-    def query_single_async(self, sql, model=dict, param=None):
+    async def query_single_async(self, sql, model=dict, param=None):
         handler = self.SqlParamHandler(sql, param)
 
         async with self.cursor() as cursor:

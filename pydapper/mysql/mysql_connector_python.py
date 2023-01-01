@@ -32,10 +32,10 @@ class MySqlConnectorPythonCommands(Commands):
 
     def query_first(
         self,
-        sql: str,
-        model: Any = dict,
-        param: "ParamType" = None,
-    ) -> Any:
+        sql,
+        model=dict,
+        param=None,
+    ):
         """
         the mysql connector throws an exception if you only read one row from a cursor.  Unfortunately, we have to
         fetchall to make the lib happy.

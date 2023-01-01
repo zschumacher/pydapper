@@ -268,7 +268,7 @@ class Commands(BaseCommands, ABC):
     ) -> Union["_Default", "_T"]:
         ...
 
-    def query_first_or_default(self, sql, default, model=dict, param: Any = None):
+    def query_first_or_default(self, sql, default, model=dict, param=None):
         try:
             return self.query_first(sql, model=model, param=param)
         except NoResultException:
@@ -417,7 +417,7 @@ class CommandsAsync(BaseCommands, ABC):
     ) -> AsyncGenerator["_T", None]:
         ...
 
-    async def query_async(self, sql: str, model=dict, param=None, buffered=True):
+    async def query_async(self, sql, model=dict, param=None, buffered=True):
         handler = self.SqlParamHandler(sql, param)
         if buffered:
             records = await self._buffered_query(handler, model)

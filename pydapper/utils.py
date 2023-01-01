@@ -1,8 +1,15 @@
 import importlib
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import Dict
 from typing import List
 from typing import Tuple
+from typing import Type
+from typing import TypeVar
+from typing import overload
+
+if TYPE_CHECKING:
+    _T = TypeVar("_T")
 
 
 def safe_getattr(obj: Any, key: str) -> Any:
@@ -20,7 +27,17 @@ def database_row_to_dict(col_names: List[str], row: Tuple[Any]) -> Dict[str, Any
     return dict(zip(col_names, row))
 
 
-def serialize_dict_row(model: Any, row: Dict[str, Any]):
+@overload
+def serialize_dict_row(model: Type[Dict], row: Dict[str, Any]) -> Dict[str, Any]:
+    ...
+
+
+@overload
+def serialize_dict_row(model: Type["_T"], row: Dict[str, Any]) -> "_T":
+    ...
+
+
+def serialize_dict_row(model, row):
     if model == dict:
         return row
     return model(**row)

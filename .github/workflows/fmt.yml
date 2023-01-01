@@ -19,7 +19,7 @@ jobs:
       - name: set up python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.9.9'
+          python-version: '3.9'
 
       - name: Install poetry
         env:
@@ -41,6 +41,9 @@ jobs:
 
       - name: mypy
         run: poetry run mypy --config-file mypy.ini .
+
+      - name: test annotations
+        run: poetry run mypy --config-file mypy.ini tests/annotation_tests.py
 
       - name: black
         run: poetry run isort --check .

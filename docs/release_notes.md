@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* 🔧 Improve typing. PR [#101](https://github.com/zschumacher/pydapper/pull/101) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.6.0
 ### Features

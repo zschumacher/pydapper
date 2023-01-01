@@ -1,5 +1,4 @@
 import importlib
-import typing
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Dict
@@ -28,12 +27,12 @@ def database_row_to_dict(col_names: List[str], row: Tuple[Any]) -> Dict[str, Any
     return dict(zip(col_names, row))
 
 
-@typing.overload
+@overload
 def serialize_dict_row(model: Type[Dict], row: Dict[str, Any]) -> Dict[str, Any]:
     ...
 
 
-@typing.overload
+@overload
 def serialize_dict_row(model: Type["_T"], row: Dict[str, Any]) -> "_T":
     ...
 

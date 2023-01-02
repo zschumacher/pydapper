@@ -1,8 +1,12 @@
 
 ## Latest Changes
 
-* 🔧 Dependabot updates 2023-01-01. PR [#106](https://github.com/zschumacher/pydapper/pull/106) by [@zschumacher](https://github.com/zschumacher).
+## 0.7.0
+### Features
 * 🔧 Improve typing. PR [#101](https://github.com/zschumacher/pydapper/pull/101) by [@zschumacher](https://github.com/zschumacher).
+
+### Internal
+* 🔧 Dependabot updates 2023-01-01. PR [#106](https://github.com/zschumacher/pydapper/pull/106) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.6.0
 ### Features

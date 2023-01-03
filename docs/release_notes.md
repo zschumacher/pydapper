@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* 📋 Add `aiopg` to table in PostgreSQL docs section. PR [#107](https://github.com/zschumacher/pydapper/pull/107) by [@zschumacher](https://github.com/zschumacher).
 ## 0.7.0
 ### Features
 * 🔧 Improve typing. PR [#101](https://github.com/zschumacher/pydapper/pull/101) by [@zschumacher](https://github.com/zschumacher).

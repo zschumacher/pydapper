@@ -1,9 +1,10 @@
 # [PostgreSQL](https://www.postgresql.org)
 Supported drivers:
 
-| dbapi                                               | default    | driver                | connection class                 |
-|-----------------------------------------------------|------------|-----------------------|----------------------------------|
-| [psycopg2](https://www.psycopg.org/docs/usage.html) | :thumbsup: | `postgresql+psycopg2` | `psycopg2.extensions.connection` |
+| dbapi                                               | default      | driver                | connection class                 |
+|-----------------------------------------------------|--------------|-----------------------|----------------------------------|
+| [psycopg2](https://www.psycopg.org/docs/usage.html) | :thumbsup:   | `postgresql+psycopg2` | `psycopg2.extensions.connection` |
+| [aiopg](https://aiopg.readthedocs.io/en/stable/)    | :thumbsdown: | `postgresql+aiopg`    | `aiopg.connection.Connection` |
 
 ## psycopg2
 `psycopg2` is the default dbapi driver for PostgreSQL in *pydapper*.

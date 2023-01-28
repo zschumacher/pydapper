@@ -21,6 +21,7 @@ from typing import overload
 from cached_property import cached_property
 from coro_context_manager import CoroContextManager
 
+from .exceptions import InvalidParamsException
 from .exceptions import MoreThanOneResultException
 from .exceptions import NoResultException
 from .utils import database_row_to_dict
@@ -48,10 +49,23 @@ class BaseSqlParamHandler(ABC):
     def __init__(self, sql: str, param: Union["ParamType", "ListParamType"] = None):
         self._sql = sql
         self._param = param
-        if isinstance(self._param, list):
-            all_params_are_same_type = all(isinstance(param, type(self._param[0])) for param in self._param[1:])
+
+        # validate that params are all of the same type if passing a list of params
+        first_param = None
+        if isinstance(self._param, list) and len(self._param) > 1:
+            first_param = self._param[0]
+            first_param_type = type(first_param)
+            all_params_are_same_type = all(isinstance(param, first_param_type) for param in self._param[1:])
             if not all_params_are_same_type:
                 raise ValueError(f"All objects in params must be of type {type(self._param[0])}")
+
+        # validate every query param is available on the passed param
+        test_param = first_param if first_param else self._param
+        for value in self.ordered_param_names:
+            try:
+                safe_getattr(test_param, value)
+            except (KeyError, AttributeError) as e:
+                raise InvalidParamsException(query_params=self.ordered_param_names, param=param) from e
 
     @abstractmethod
     def get_param_placeholder(self, param_name: str) -> str:
@@ -82,7 +96,9 @@ class BaseSqlParamHandler(ABC):
                 matched_param_name = matched_placeholder.strip("?")
                 return self.get_param_placeholder(matched_param_name)
 
-            return pattern.sub(sub_param_with_placeholder, self._sql)  # type: ignore
+            result = pattern.sub(sub_param_with_placeholder, self._sql)  # type: ignore
+
+            return result
         return self._sql
 
     def execute(self, cursor: "CursorType") -> int:

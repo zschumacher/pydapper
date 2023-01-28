@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 import typing_extensions
 
+from pydapper.exceptions import InvalidParamsException
 from pydapper.exceptions import MoreThanOneResultException
 from pydapper.exceptions import NoResultException
 from tests.mocks import MockAsyncCommands
@@ -38,6 +39,21 @@ class TestParamHandler:
     def test_prepared_sql(self):
         handler = MockParamHandler("select * from table where id = ?id? and name = ?name?", {"id": 1, "name": "Zach"})
         assert handler.prepared_sql == "select * from table where id = %s and name = %s"
+
+    @pytest.mark.parametrize(
+        "query_str, params",
+        [
+            ("?id? ?name?", {"id": 1}),  # more query params than passed
+            ("?id? ?name?", {"id": 1, "a_name": "foo"}),  # same length, but don't match
+            (
+                "?id ?name",
+                {"id": 1, "a_name": "foo"},
+            ),  # bonus smoke test to ensure our regex doesn't match a single `?`
+        ],
+    )
+    def test_prepared_sql_exceptions(self, query_str, params):
+        with pytest.raises(InvalidParamsException):
+            MockParamHandler(query_str, params)
 
     @pytest.mark.parametrize(
         "sql, param, expected",

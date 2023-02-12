@@ -102,7 +102,6 @@ class BaseSqlParamHandler(ABC):
         return self._sql
 
     def execute(self, cursor: "CursorType") -> int:
-
         if isinstance(self.ordered_param_values, list):
             cursor.executemany(self.prepared_sql, self.ordered_param_values)
         else:
@@ -111,7 +110,6 @@ class BaseSqlParamHandler(ABC):
         return cursor.rowcount
 
     async def execute_async(self, cursor: "AsyncCursorType") -> int:
-
         if isinstance(self.ordered_param_values, list):
             await cursor.executemany(self.prepared_sql, self.ordered_param_values)
         else:

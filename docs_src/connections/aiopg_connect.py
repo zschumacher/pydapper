@@ -4,7 +4,6 @@ import pydapper
 
 
 async def main():
-
     async with pydapper.connect_async("postgresql+aiopg://pydapper:pydapper@localhost/pydapper") as commands:
         print(type(commands))
         # <class 'pydapper.postgresql.aiopg.AiopgCommands'>

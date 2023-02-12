@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* :wrench: Remove irrelevant make command. PR [#125](https://github.com/zschumacher/pydapper/pull/125) by [@zschumacher](https://github.com/zschumacher).
 * 🔧 Dependabot 2023-02-12. PR [#124](https://github.com/zschumacher/pydapper/pull/124) by [@zschumacher](https://github.com/zschumacher).
 * 📋 Add `aiopg` to table in PostgreSQL docs section. PR [#107](https://github.com/zschumacher/pydapper/pull/107) by [@zschumacher](https://github.com/zschumacher).
 ## 0.7.0

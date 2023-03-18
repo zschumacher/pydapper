@@ -20,7 +20,7 @@ class MockCursor:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def execute(self, sql, parameters):
+    def execute(self, sql, parameters=None):
         if "insert" in sql or "update" in sql:
             self.rowcount = 1
 
@@ -52,7 +52,7 @@ class MockAsyncCursor:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
 
-    async def execute(self, sql, parameters):
+    async def execute(self, sql, parameters=None):
         if "insert" in sql or "update" in sql:
             self.rowcount = 1
 
@@ -62,7 +62,7 @@ class MockAsyncCursor:
     async def fetchall(self):
         return (1, self.faker.name()), (2, self.faker.name())
 
-    async def executemany(self, sql, params):
+    async def executemany(self, sql, params=None):
         self.rowcount = len(params)
 
     async def close(self):

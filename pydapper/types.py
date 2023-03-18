@@ -1,18 +1,10 @@
-import sys
-
-if sys.version_info < (3, 8):
-    from typing_extensions import Literal
-    from typing_extensions import Protocol
-else:
-    from typing import Protocol
-    from typing import Literal
-
 from abc import abstractmethod
 from typing import Any
 from typing import List
 from typing import Mapping
 from typing import MutableMapping
 from typing import Optional
+from typing import Protocol
 from typing import Union
 
 

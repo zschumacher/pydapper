@@ -73,7 +73,7 @@ class CursorType(Protocol):
         ...
 
     @abstractmethod
-    def executemany(self, sql, params = None):
+    def executemany(self, sql, params=None):
         ...
 
 
@@ -93,5 +93,5 @@ class AsyncCursorType(Protocol):
         ...
 
     @abstractmethod
-    async def executemany(self, sql, params = None):
+    async def executemany(self, sql, params=None):
         ...

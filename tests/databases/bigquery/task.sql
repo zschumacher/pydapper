@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS pydapper.task (
+CREATE TABLE IF NOT EXISTS {task_table_name} (
     id          integer,
     description string NOT NULL,
     due_date    date NOT NULL,

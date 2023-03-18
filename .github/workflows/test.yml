@@ -120,6 +120,7 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
           GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+          PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
           poetry run pytest --cov=. --cov-branch -v --durations=25
           poetry run coverage report -m

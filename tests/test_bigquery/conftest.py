@@ -4,12 +4,15 @@ import pytest
 from google.cloud.bigquery.dbapi import connect
 
 from pydapper.bigquery import GoogleBigqueryClientCommands
+from tests.test_bigquery.utils import write_auth_file
+
 
 AUTH_FILE_PATH = Path(__file__).parent / Path("auth") / "key.json"
 
 
 @pytest.fixture(scope="function")
 def creds_as_env_var(monkeypatch):
+    write_auth_file()
     monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", str(AUTH_FILE_PATH))
 
 
@@ -20,7 +23,7 @@ def commands() -> GoogleBigqueryClientCommands:
 
 
 @pytest.fixture(scope="function", autouse=True)
-def oracle_setup(database_name, setup_sql_dir, creds_as_env_var):
+def bigquery_setup(database_name, setup_sql_dir, creds_as_env_var):
     """We have to tear down after each test, which will unfortunately be slow but it is what it is"""
     conn = connect()
     cursor = conn.cursor()

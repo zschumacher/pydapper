@@ -1,3 +1,5 @@
+import json
+import os
 from pathlib import Path
 
 import pytest
@@ -5,11 +7,7 @@ from google.cloud.bigquery.dbapi import connect
 
 from pydapper.bigquery import GoogleBigqueryClientCommands
 
-AUTH_FILE_PATH = Path(__file__).parent / Path("auth") / "key.json"
-
-import json
-import os
-import pathlib
+AUTH_FILE_PATH = Path(__file__).parent / "auth" / "key.json"
 
 AUTH = {
     "type": "service_account",

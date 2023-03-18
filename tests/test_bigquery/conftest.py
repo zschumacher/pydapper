@@ -7,7 +7,8 @@ from google.cloud.bigquery.dbapi import connect
 
 from pydapper.bigquery import GoogleBigqueryClientCommands
 
-AUTH_FILE_PATH = Path(__file__).parent / "auth" / "key.json"
+AUTH_DIR = Path(__file__).parent / "auth"
+AUTH_FILE_PATH = AUTH_DIR / "key.json"
 
 AUTH = {
     "type": "service_account",
@@ -25,6 +26,7 @@ AUTH = {
 
 @pytest.fixture(autouse=True, scope="session")
 def write_auth_file():
+    AUTH_DIR.mkdir(exist_ok=True)
     with open(AUTH_FILE_PATH, "w") as auth_file:
         json.dump(AUTH, auth_file)
 

@@ -23,8 +23,6 @@ AUTH = {
     "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/pydapper%40pydapper.iam.gserviceaccount.com",
 }
 
-print(AUTH["private_key"])
-
 @pytest.fixture(autouse=True, scope="session")
 def write_auth_file():
     AUTH_DIR.mkdir(exist_ok=True)

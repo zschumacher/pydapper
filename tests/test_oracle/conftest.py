@@ -1,8 +1,6 @@
 import cx_Oracle
 import pytest
 
-from pydapper.oracle import CxOracleCommands
-
 
 @pytest.fixture(scope="session", autouse=True)
 def oracle_setup(database_name, setup_sql_dir, server):

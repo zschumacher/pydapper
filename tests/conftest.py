@@ -16,3 +16,13 @@ def database_name():
 @pytest.fixture(scope="session")
 def server():
     return "localhost"
+
+
+@pytest.fixture()
+def task_table_name():
+    return "task"
+
+
+@pytest.fixture()
+def owner_table_name():
+    return "owner"

@@ -38,18 +38,6 @@ class ConnectionType(Protocol):
     def cursor(self, *args: Optional[Any], **kwargs: Optional[Any]) -> "CursorType":
         ...
 
-    @abstractmethod
-    def commit(self):
-        ...
-
-    @abstractmethod
-    def rollback(self):
-        ...
-
-    @abstractmethod
-    def close(self):
-        ...
-
 
 class AsyncConnectionType(Protocol):
     @abstractmethod
@@ -68,24 +56,12 @@ class AsyncConnectionType(Protocol):
     async def cursor(self, *args: Optional[Any], **kwargs: Optional[Any]) -> "AsyncCursorType":
         ...
 
-    @abstractmethod
-    async def close(self):
-        ...
-
 
 class CursorType(Protocol):
     rowcount: int
 
     @abstractmethod
-    def __enter__(self) -> "CursorType":
-        ...
-
-    @abstractmethod
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        ...
-
-    @abstractmethod
-    def execute(self, sql: str, parameters: Any):
+    def execute(self, sql: str, parameters: Any = None):
         ...
 
     @abstractmethod
@@ -97,11 +73,7 @@ class CursorType(Protocol):
         ...
 
     @abstractmethod
-    def executemany(self, sql, params):
-        ...
-
-    @abstractmethod
-    def close(self):
+    def executemany(self, sql, params = None):
         ...
 
 
@@ -109,15 +81,7 @@ class AsyncCursorType(Protocol):
     rowcount: int
 
     @abstractmethod
-    async def __aenter__(self) -> "AsyncCursorType":
-        ...
-
-    @abstractmethod
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        ...
-
-    @abstractmethod
-    async def execute(self, sql: str, parameters: Any):
+    async def execute(self, sql: str, parameters: Any = None):
         ...
 
     @abstractmethod
@@ -129,9 +93,5 @@ class AsyncCursorType(Protocol):
         ...
 
     @abstractmethod
-    async def executemany(self, sql, params):
-        ...
-
-    @abstractmethod
-    async def close(self):
+    async def executemany(self, sql, params = None):
         ...

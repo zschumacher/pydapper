@@ -2,6 +2,8 @@ import re
 import typing
 from abc import ABC
 from abc import abstractmethod
+from contextlib import ExitStack
+from contextlib import contextmanager
 from re import Match
 from typing import TYPE_CHECKING
 from typing import Any
@@ -86,16 +88,16 @@ class BaseSqlParamHandler(ABC):
         return self._sql
 
     def execute(self, cursor: "CursorType") -> int:
-
         if isinstance(self.ordered_param_values, list):
             cursor.executemany(self.prepared_sql, self.ordered_param_values)
-        else:
+        elif self.ordered_param_values:
             cursor.execute(self.prepared_sql, self.ordered_param_values)
+        else:
+            cursor.execute(self.prepared_sql)
 
         return cursor.rowcount
 
     async def execute_async(self, cursor: "AsyncCursorType") -> int:
-
         if isinstance(self.ordered_param_values, list):
             await cursor.executemany(self.prepared_sql, self.ordered_param_values)
         else:
@@ -118,35 +120,46 @@ class Commands(BaseCommands, ABC):
         self.connection = connection
 
     def __enter__(self) -> "Commands":
-        self.connection.__enter__()
+        if hasattr(self.connection, "__enter__"):
+            self.connection.__enter__()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        return self.connection.__exit__(exc_type, exc_val, exc_tb)
+        if hasattr(self.connection, "__exit__"):
+            return self.connection.__exit__(exc_type, exc_val, exc_tb)
 
     @classmethod
     @abstractmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands":
         ...
 
+    @contextmanager
+    def _cursor_context_proxy(self):
+        """Not all dbapis implement the cursor as a context manager.  This function handles that polymorphism."""
+        with ExitStack() as stack:
+            try:
+                yield stack.enter_context(self.cursor())  # type: ignore
+            except AttributeError:
+                yield self.cursor()
+
     def cursor(self, *args, **kwargs) -> "CursorType":
         return self.connection.cursor(*args, **kwargs)
 
     def execute(self, sql: str, param: Union["ParamType", "ListParamType"] = None) -> int:
         handler = self.SqlParamHandler(sql, param)
-        with self.cursor() as cursor:
+        with self._cursor_context_proxy() as cursor:
             rowcount = handler.execute(cursor)
         return rowcount
 
     def _buffered_query(self, handler: BaseSqlParamHandler, model: Type["_T"]) -> List["_T"]:
-        with self.cursor() as cursor:
+        with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
             data = cursor.fetchall()
             return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
 
     def _unbuffered_query(self, handler: BaseSqlParamHandler, model: "Type[_T]") -> Generator["_T", None, None]:
-        with self.cursor() as cursor:
+        with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
             while True:
@@ -204,7 +217,7 @@ class Commands(BaseCommands, ABC):
             raise ValueError("Number of queries must equal number of models")
 
         results = list()
-        with self.cursor() as cursor:
+        with self._cursor_context_proxy() as cursor:
             for query, model in zip(queries, models):
                 handler = self.SqlParamHandler(query, param)
                 handler.execute(cursor)
@@ -230,7 +243,7 @@ class Commands(BaseCommands, ABC):
     def query_first(self, sql, model=dict, param=None):
         handler = self.SqlParamHandler(sql, param)
 
-        with self.cursor() as cursor:
+        with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
             row = cursor.fetchone()
@@ -289,7 +302,7 @@ class Commands(BaseCommands, ABC):
     def query_single(self, sql, model=dict, param=None):
         handler = self.SqlParamHandler(sql, param)
 
-        with self.cursor() as cursor:
+        with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
             data = cursor.fetchall()
@@ -348,7 +361,7 @@ class Commands(BaseCommands, ABC):
         param: "ParamType" = None,
     ) -> Any:
         handler = self.SqlParamHandler(sql, param)
-        with self.cursor() as cursor:
+        with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             first_row = cursor.fetchone()
         if not first_row:

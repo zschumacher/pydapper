@@ -6,7 +6,6 @@ from google.cloud.bigquery.dbapi import connect
 from pydapper.bigquery import GoogleBigqueryClientCommands
 from tests.test_bigquery.utils import write_auth_file
 
-
 AUTH_FILE_PATH = Path(__file__).parent / Path("auth") / "key.json"
 
 

@@ -10,6 +10,7 @@ from typing import Callable
 from typing import Dict
 from typing import Generator
 from typing import List
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 from typing import Type
@@ -35,7 +36,6 @@ if TYPE_CHECKING:
     from .types import ConnectionType
     from .types import CursorType
     from .types import ListParamType
-    from .types import Literal
     from .types import ParamType
 
     _T = TypeVar("_T")

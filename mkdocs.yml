@@ -3,6 +3,7 @@ nav:
   - Overview: index.md
   - Database Support:
       - Intro - Database Support: database_support/intro.md
+      - Google BigQuery: database_support/bigquery.md
       - Microsoft SQL Server: database_support/mssql.md
       - MySQL: database_support/mysql.md
       - Oracle: database_support/oracle.md

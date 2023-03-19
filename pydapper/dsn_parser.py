@@ -9,6 +9,7 @@ _DEFAULT_DB_API = {
     "mssql": "pymssql",
     "mysql": "mysql",
     "oracle": "cx_Oracle",
+    "bigquery": "google",
 }
 
 

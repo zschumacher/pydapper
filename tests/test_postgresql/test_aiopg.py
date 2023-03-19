@@ -9,14 +9,14 @@ from pydapper import connect_async
 from pydapper import using_async
 from pydapper.commands import CommandsAsync
 from pydapper.postgresql import AiopgCommands
-from tests.suites.commands import ExecuteAsyncTestSuite
-from tests.suites.commands import ExecuteScalarAsyncTestSuite
-from tests.suites.commands import QueryAsyncTestSuite
-from tests.suites.commands import QueryFirstAsyncTestSuite
-from tests.suites.commands import QueryFirstOrDefaultAsyncTestSuite
-from tests.suites.commands import QueryMultipleAsyncTestSuite
-from tests.suites.commands import QuerySingleAsyncTestSuite
-from tests.suites.commands import QuerySingleOrDefaultAsyncTestSuite
+from tests.test_suites.commands import ExecuteAsyncTestSuite
+from tests.test_suites.commands import ExecuteScalarAsyncTestSuite
+from tests.test_suites.commands import QueryAsyncTestSuite
+from tests.test_suites.commands import QueryFirstAsyncTestSuite
+from tests.test_suites.commands import QueryFirstOrDefaultAsyncTestSuite
+from tests.test_suites.commands import QueryMultipleAsyncTestSuite
+from tests.test_suites.commands import QuerySingleAsyncTestSuite
+from tests.test_suites.commands import QuerySingleOrDefaultAsyncTestSuite
 
 
 @pytest.fixture(scope="function")

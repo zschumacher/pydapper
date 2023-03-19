@@ -85,3 +85,4 @@ ENV/
 # Google auth
 tests/test_bigquery/auth/key.json
 
+**/.DS_Store

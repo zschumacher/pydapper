@@ -1,10 +1,8 @@
-import sqlite3
-
 import pytest
+from google.cloud.bigquery.dbapi import connect
 
-from pydapper import connect
-from pydapper import using
-from pydapper.sqlite import Sqlite3Commands
+import pydapper
+from pydapper.bigquery import GoogleBigqueryClientCommands
 from tests.test_suites.commands import ExecuteScalarTestSuite
 from tests.test_suites.commands import ExecuteTestSuite
 from tests.test_suites.commands import QueryFirstOrDefaultTestSuite
@@ -15,15 +13,15 @@ from tests.test_suites.commands import QuerySingleTestSuite
 from tests.test_suites.commands import QueryTestSuite
 
 
-def test_using(database_name):
-    with using(sqlite3.connect(f"{database_name}.db")) as commands:
-        assert isinstance(commands, Sqlite3Commands)
+def test_using(creds_as_env_var):
+    with pydapper.using(connect()) as commands:
+        assert isinstance(commands, GoogleBigqueryClientCommands)
 
 
-@pytest.mark.parametrize("driver", ["sqlite", "sqlite+sqlite3"])
-def test_connect(driver, database_name):
-    with connect(f"{driver}://{database_name}.db") as commands:
-        assert isinstance(commands, Sqlite3Commands)
+@pytest.mark.parametrize("driver", ["bigquery", "bigquery+google"])
+def test_connect_from_env(creds_as_env_var, driver):
+    with pydapper.connect(f"{driver}:////") as commands:
+        assert isinstance(commands, GoogleBigqueryClientCommands)
 
 
 class TestExecute(ExecuteTestSuite):

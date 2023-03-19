@@ -85,5 +85,6 @@ ENV/
 # Google auth
 tests/test_bigquery/auth/key.json
 
+# MacOS junk
 .DS_Store
 **/.DS_Store

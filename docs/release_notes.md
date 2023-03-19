@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* ✨ Add support for `bigquery`. PR [#142](https://github.com/zschumacher/pydapper/pull/142) by [@zschumacher](https://github.com/zschumacher).
 * 🔧 Remove python 3.7 support. PR [#145](https://github.com/zschumacher/pydapper/pull/145) by [@zschumacher](https://github.com/zschumacher).
 * 🔧 update `poetry` to `1.4.0`. PR [#143](https://github.com/zschumacher/pydapper/pull/143) by [@zschumacher](https://github.com/zschumacher).
 * :wrench: Remove irrelevant make command. PR [#125](https://github.com/zschumacher/pydapper/pull/125) by [@zschumacher](https://github.com/zschumacher).

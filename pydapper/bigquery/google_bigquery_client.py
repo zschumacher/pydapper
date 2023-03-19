@@ -8,6 +8,7 @@ from ..utils import import_dbapi_module
 if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
 
+
 @register("google")
 class GoogleBigqueryClientCommands(Commands):
     @classmethod

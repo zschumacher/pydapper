@@ -1,12 +1,14 @@
-import pydapper
+import json
 import pathlib
+
 from google.cloud.bigquery import Client
 from google.cloud.bigquery.dbapi import connect
-import json
 
-credentials = pathlib.Path(
-    "~", "src", "pydapper", "tests", "test_bigquery", "auth", "key.json"
-).expanduser().read_text()
+import pydapper
+
+credentials = (
+    pathlib.Path("~", "src", "pydapper", "tests", "test_bigquery", "auth", "key.json").expanduser().read_text()
+)
 
 client = Client.from_service_account_info(json.loads(credentials))
 dbapi_connection = connect(client=client)

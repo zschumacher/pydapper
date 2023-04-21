@@ -39,6 +39,10 @@ class TestParamHandler:
         handler = MockParamHandler("select * from table where id = ?id? and name = ?name?", {"id": 1, "name": "Zach"})
         assert handler.prepared_sql == "select * from table where id = %s and name = %s"
 
+    def test_prepared_sql_no_matching_param(self):
+        handler = MockParamHandler("select * from table", {"id": 1, "name": "Zach"})
+        assert handler.prepared_sql == "select * from table"
+
     @pytest.mark.parametrize(
         "sql, param, expected",
         [

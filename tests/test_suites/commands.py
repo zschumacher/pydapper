@@ -36,7 +36,7 @@ class ExecuteAsyncTestSuite:
     async def test_single(self, commands: CommandsAsync, owner_table_name):
         assert (
             await commands.execute_async(
-                "UPDATE {owner_table_name} SET name = ?new_name? WHERE id = ?id?", {"new_name": "Zachary", "id": "1"}
+                f"UPDATE {owner_table_name} SET name = ?new_name? WHERE id = ?id?", {"new_name": "Zachary", "id": "1"}
             )
             == 1
         )

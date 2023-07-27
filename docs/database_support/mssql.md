@@ -1,9 +1,10 @@
 # [Microsoft SQL Server](https://www.microsoft.com/en-us/sql-server/sql-server-2019)
 Supported drivers:
 
-| dbapi                              | default    | driver          | connection class              |
-|------------------------------------|------------|-----------------|-------------------------------|
-| [pymssql](https://www.pymssql.org) | :thumbsup: | `mssql+pymssql` | `pymssql._pymssql.Connection` |
+| dbapi                                          | default      | driver          | connection class                |
+| ---------------------------------------------- | ------------ | --------------- | ------------------------------- |
+| [pymssql](https://www.pymssql.org)             | :thumbsup:   | `mssql+pymssql` | `pymssql._pymssql.Connection`   |
+| [aioodbc](https://github.com/aio-libs/aioodbc) | :thumbsdown: | `mssql+aioodbc` | `aioodbc.connection.Connection` |
 
 ## pymssql
 `pymssql` is the default dbapi driver for Microsoft SQL Server in *pydapper*.
@@ -48,4 +49,31 @@ a full description of the context manager behavior.
 Use *pydapper* with a custom connection pool.
 ```python
 {!docs/../docs_src/connections/pymssql_using.py!}
+```
+
+## aioodbc
+`aioodbc` supports async methods for Microsoft SQL Server and other ODBC-compatible databases.
+
+### Installation
+=== "pip"
+    ```console
+    pip install pydapper[aioodbc]
+    ```
+
+=== "poetry"
+    ```console
+    poetry add pydapper -E aioodbc
+    ```
+
+### Example - `connect_async`
+To use async with MSSQL you need to use `aioodbc` driver. Aioodbc is based on [pyodbc](https://github.com/mkleehammer/pyodbc)
+Please see the [pyodbc docs](https://github.com/mkleehammer/pyodbc/wiki) for a full description about connecting.
+```python
+{!docs/../docs_src/connections/aioodbc_connect.py!}
+```
+
+### Example - `using_async`
+Use *pydapper* with a `aioodbc` connection pool.
+```python
+{!docs/../docs_src/connections/aioodbc_using.py!}
 ```

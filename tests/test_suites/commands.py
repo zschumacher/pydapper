@@ -85,7 +85,6 @@ class QueryAsyncTestSuite:
     @pytest.mark.asyncio
     async def test(self, commands: CommandsAsync, task_table_name):
         data = await commands.query_async(f"select * from {task_table_name}")
-        print(len(data), data)
         assert len(data) == 3
         assert all(isinstance(record, dict) for record in data)
 

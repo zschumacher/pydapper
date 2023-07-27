@@ -4,7 +4,7 @@ import pydapper
 
 
 async def main():
-    async with pydapper.connect_async("mssql+aioodbc://pydapper:pydapper@localhost/pydapper") as commands:
+    async with pydapper.connect_async("mssql+aioodbc://sa:pydapper@localhost/pydapper") as commands:
         print(type(commands))
         # <class 'pydapper.odbc.aioodbc.AioodbcCommands'>
 

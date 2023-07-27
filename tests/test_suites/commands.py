@@ -36,7 +36,7 @@ class ExecuteAsyncTestSuite:
     async def test_single(self, commands: CommandsAsync, owner_table_name):
         assert (
             await commands.execute_async(
-                "UPDATE {owner_table_name} SET name = ?new_name? WHERE id = ?id?", {"new_name": "Zachary", "id": "1"}
+                f"UPDATE {owner_table_name} SET name = ?new_name? WHERE id = ?id?", {"new_name": "Zachary", "id": "1"}
             )
             == 1
         )
@@ -85,6 +85,7 @@ class QueryAsyncTestSuite:
     @pytest.mark.asyncio
     async def test(self, commands: CommandsAsync, task_table_name):
         data = await commands.query_async(f"select * from {task_table_name}")
+        print(len(data), data)
         assert len(data) == 3
         assert all(isinstance(record, dict) for record in data)
 

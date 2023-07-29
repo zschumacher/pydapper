@@ -1,4 +1,4 @@
-name: test
+name: test-slow
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 
 jobs:
 
-  test:
+  test-slow:
     runs-on: ubuntu-latest
     strategy:
       matrix:

@@ -3,7 +3,7 @@ import os
 import sys
 import uuid
 from pathlib import Path
-from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from google.cloud.bigquery.dbapi import connect
@@ -67,7 +67,7 @@ def commands() -> GoogleBigqueryClientCommands:
         yield commands
 
 
-@pytest.fixture(scope="function", autouse=True)
+@pytest.fixture(scope="function")
 def bigquery_setup(setup_sql_dir, creds_as_env_var, python_version, owner_table_name, task_table_name):
     conn = connect()
     cursor = conn.cursor()

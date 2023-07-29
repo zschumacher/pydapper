@@ -24,33 +24,49 @@ def test_connect_from_env(creds_as_env_var, driver):
         assert isinstance(commands, GoogleBigqueryClientCommands)
 
 
+@pytest.mark.usefixtures("bigquery_setup")
+@pytest.mark.slow
 class TestExecute(ExecuteTestSuite):
     ...
 
 
+@pytest.mark.usefixtures("bigquery_setup")
+@pytest.mark.slow
 class TestQuery(QueryTestSuite):
     ...
 
 
+@pytest.mark.usefixtures("bigquery_setup")
+@pytest.mark.slow
 class TestQueryMultiple(QueryMultipleTestSuite):
     ...
 
 
+@pytest.mark.usefixtures("bigquery_setup")
+@pytest.mark.slow
 class TestQueryFirst(QueryFirstTestSuite):
     ...
 
 
+@pytest.mark.usefixtures("bigquery_setup")
+@pytest.mark.slow
 class TestQueryFirstOrDefault(QueryFirstOrDefaultTestSuite):
     ...
 
 
+@pytest.mark.usefixtures("bigquery_setup")
+@pytest.mark.slow
 class TestQuerySingle(QuerySingleTestSuite):
     ...
 
 
+@pytest.mark.usefixtures("bigquery_setup")
+@pytest.mark.slow
 class TestQuerySingleOrDefault(QuerySingleOrDefaultTestSuite):
     ...
 
 
+@pytest.mark.usefixtures("bigquery_setup")
+@pytest.mark.slow
 class TestExecuteScalar(ExecuteScalarTestSuite):
     ...

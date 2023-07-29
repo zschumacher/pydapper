@@ -23,7 +23,7 @@ jobs:
 
       - name: Install poetry
         env:
-          POETRY_VERSION: "1.4.0"
+          POETRY_VERSION: "1.4.2"
         run: |
           curl -sSL https://install.python-poetry.org | python -
           poetry config virtualenvs.create false

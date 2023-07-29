@@ -2336,4 +2336,4 @@ pymssql = ["pymssql", "types-pymssql"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.8,<3.12"
-content-hash = "41773cfb99f2c129ca8a8cea298df87f62d34d81cbc52b0970bd55bdfb2460e2"
+content-hash = "995ac9082ca43c6d29198cdce793ca3cec832c1826f4e9270514cd0f8dc40b1b"

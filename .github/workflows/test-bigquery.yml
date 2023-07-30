@@ -16,6 +16,13 @@ jobs:
       matrix:
         python-version: [ '3.8', '3.9', '3.10', '3.11' ]
 
+    services:
+      bigquery:
+        image: ghcr.io/goccy/bigquery-emulator:latest
+        options: >-
+          --dataset=pydapper
+          --project=pydapper
+
     steps:
       - name: checkout
         uses: actions/checkout@v1

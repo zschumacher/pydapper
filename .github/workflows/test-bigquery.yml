@@ -16,17 +16,13 @@ jobs:
       matrix:
         python-version: [ '3.8', '3.9', '3.10', '3.11' ]
 
-    services:
-      bigquery:
-        image: ghcr.io/goccy/bigquery-emulator:latest
-        ports:
-          - 9050:9050
-          - 9060:9060
-        options: --entrypoint "/bin/bigquery-emulator --project=pydapper --dataset=pydapper"
-
     steps:
       - name: checkout
         uses: actions/checkout@v1
+
+      - name: start bq emulator
+        run: |
+          docker run -p 9050:9050 -p 9060:9060 ghcr.io/goccy/bigquery-emulator:latest --project pydapper --dataset pydapper
 
       - name: set up python
         uses: actions/setup-python@v2

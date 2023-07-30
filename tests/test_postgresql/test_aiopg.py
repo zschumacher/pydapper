@@ -1,7 +1,6 @@
 import asyncio
 import datetime
 
-import aiopg
 import pytest
 import pytest_asyncio
 
@@ -9,14 +8,16 @@ from pydapper import connect_async
 from pydapper import using_async
 from pydapper.commands import CommandsAsync
 from pydapper.postgresql import AiopgCommands
-from tests.suites.commands import ExecuteAsyncTestSuite
-from tests.suites.commands import ExecuteScalarAsyncTestSuite
-from tests.suites.commands import QueryAsyncTestSuite
-from tests.suites.commands import QueryFirstAsyncTestSuite
-from tests.suites.commands import QueryFirstOrDefaultAsyncTestSuite
-from tests.suites.commands import QueryMultipleAsyncTestSuite
-from tests.suites.commands import QuerySingleAsyncTestSuite
-from tests.suites.commands import QuerySingleOrDefaultAsyncTestSuite
+from tests.test_suites.commands import ExecuteAsyncTestSuite
+from tests.test_suites.commands import ExecuteScalarAsyncTestSuite
+from tests.test_suites.commands import QueryAsyncTestSuite
+from tests.test_suites.commands import QueryFirstAsyncTestSuite
+from tests.test_suites.commands import QueryFirstOrDefaultAsyncTestSuite
+from tests.test_suites.commands import QueryMultipleAsyncTestSuite
+from tests.test_suites.commands import QuerySingleAsyncTestSuite
+from tests.test_suites.commands import QuerySingleOrDefaultAsyncTestSuite
+
+pytestmark = pytest.mark.postgresql
 
 
 @pytest.fixture(scope="function")
@@ -28,6 +29,8 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="function")
 async def commands(server, database_name) -> AiopgCommands:
+    import aiopg
+
     async with aiopg.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}") as conn:
         c = AiopgCommands(conn)
         yield c
@@ -35,6 +38,8 @@ async def commands(server, database_name) -> AiopgCommands:
 
 @pytest.mark.asyncio
 async def test_using_async(server, database_name):
+    import aiopg
+
     conn = await aiopg.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")
     async with using_async(conn) as commands:
         assert isinstance(commands, AiopgCommands)

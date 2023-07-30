@@ -1,21 +1,24 @@
-import mysql.connector
 import pytest
 
 from pydapper import connect
 from pydapper import using
 from pydapper.mysql import MySqlConnectorPythonCommands
-from tests.suites.commands import ExecuteScalarTestSuite
-from tests.suites.commands import ExecuteTestSuite
-from tests.suites.commands import QueryFirstOrDefaultTestSuite
-from tests.suites.commands import QueryFirstTestSuite
-from tests.suites.commands import QueryMultipleTestSuite
-from tests.suites.commands import QuerySingleOrDefaultTestSuite
-from tests.suites.commands import QuerySingleTestSuite
-from tests.suites.commands import QueryTestSuite
+from tests.test_suites.commands import ExecuteScalarTestSuite
+from tests.test_suites.commands import ExecuteTestSuite
+from tests.test_suites.commands import QueryFirstOrDefaultTestSuite
+from tests.test_suites.commands import QueryFirstTestSuite
+from tests.test_suites.commands import QueryMultipleTestSuite
+from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
+from tests.test_suites.commands import QuerySingleTestSuite
+from tests.test_suites.commands import QueryTestSuite
+
+pytestmark = pytest.mark.mysql
 
 
 @pytest.fixture(scope="function")
 def commands(server, database_name) -> MySqlConnectorPythonCommands:
+    import mysql.connector
+
     with MySqlConnectorPythonCommands(
         mysql.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)
     ) as commands:
@@ -23,6 +26,8 @@ def commands(server, database_name) -> MySqlConnectorPythonCommands:
 
 
 def test_using(server, database_name):
+    import mysql.connector
+
     with using(
         mysql.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)
     ) as commands:

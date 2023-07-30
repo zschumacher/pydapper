@@ -14,6 +14,8 @@ from tests.mocks import MockConnection
 
 DSN = "some_db+tests://localhost"
 
+pytestmark = pytest.mark.core
+
 
 class TestCommandFactory:
     @pytest.fixture

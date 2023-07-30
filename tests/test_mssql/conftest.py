@@ -1,13 +1,14 @@
 from contextlib import suppress
 
 import pytest
-from pymssql import _pymssql
 
-from pydapper.mssql import PymssqlCommands
+pytestmark = pytest.mark.mssql
 
 
 @pytest.fixture(scope="session", autouse=True)
 def mssql_setup(database_name, setup_sql_dir, server):
+    from pymssql import _pymssql
+
     with _pymssql.connect(server=server, port=1434, password="pydapper!PYDAPPER", user="sa", database="master") as conn:
         conn.autocommit(True)
         with conn.cursor() as cursor:

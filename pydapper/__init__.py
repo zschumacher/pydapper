@@ -1,3 +1,4 @@
+from .bigquery import GoogleBigqueryClientCommands as _GoogleBigqueryClientCommands
 from .main import connect
 from .main import connect_async
 from .main import register

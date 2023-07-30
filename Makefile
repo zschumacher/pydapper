@@ -39,9 +39,6 @@ install: clean ## install the package to the active Python's site-packages
 mypy: ## run type hinting check
 	poetry run mypy --config-file mypy.ini .
 
-validate-cci: ## validate circleci config (requires circleci executable to be configured)
-	circleci config validate
-
 test-cov: ## run the tests with coverage turned on
 	poetry run pytest --cov=. --cov-branch -v --durations=25
 

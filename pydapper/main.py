@@ -63,7 +63,7 @@ class CommandFactory:
         return CoroContextManager(cls.async_registry[parsed_dsn.dbapi].connect_async(parsed_dsn, **connect_kwargs))
 
     @classmethod
-    def from_connection(cls, connection: ConnectionType) -> "Commands":
+    def from_connection(cls, connection: "ConnectionType") -> "Commands":
         commands_class = cast(
             Type["Commands"], find_command_class_in_registry_by_connection(connection, cls.sync_registry)
         )

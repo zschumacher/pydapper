@@ -5,14 +5,16 @@ import pytest
 from pydapper import connect
 from pydapper import using
 from pydapper.sqlite import Sqlite3Commands
-from tests.suites.commands import ExecuteScalarTestSuite
-from tests.suites.commands import ExecuteTestSuite
-from tests.suites.commands import QueryFirstOrDefaultTestSuite
-from tests.suites.commands import QueryFirstTestSuite
-from tests.suites.commands import QueryMultipleTestSuite
-from tests.suites.commands import QuerySingleOrDefaultTestSuite
-from tests.suites.commands import QuerySingleTestSuite
-from tests.suites.commands import QueryTestSuite
+from tests.test_suites.commands import ExecuteScalarTestSuite
+from tests.test_suites.commands import ExecuteTestSuite
+from tests.test_suites.commands import QueryFirstOrDefaultTestSuite
+from tests.test_suites.commands import QueryFirstTestSuite
+from tests.test_suites.commands import QueryMultipleTestSuite
+from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
+from tests.test_suites.commands import QuerySingleTestSuite
+from tests.test_suites.commands import QueryTestSuite
+
+pytestmark = pytest.mark.sqlite
 
 
 def test_using(database_name):

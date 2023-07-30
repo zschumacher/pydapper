@@ -2,23 +2,26 @@ import datetime
 from decimal import Decimal
 
 import pytest
-from pymssql import _pymssql
 
 from pydapper import connect
 from pydapper import using
 from pydapper.mssql.pymssql import PymssqlCommands
-from tests.suites.commands import ExecuteScalarTestSuite
-from tests.suites.commands import ExecuteTestSuite
-from tests.suites.commands import QueryFirstOrDefaultTestSuite
-from tests.suites.commands import QueryFirstTestSuite
-from tests.suites.commands import QueryMultipleTestSuite
-from tests.suites.commands import QuerySingleOrDefaultTestSuite
-from tests.suites.commands import QuerySingleTestSuite
-from tests.suites.commands import QueryTestSuite
+from tests.test_suites.commands import ExecuteScalarTestSuite
+from tests.test_suites.commands import ExecuteTestSuite
+from tests.test_suites.commands import QueryFirstOrDefaultTestSuite
+from tests.test_suites.commands import QueryFirstTestSuite
+from tests.test_suites.commands import QueryMultipleTestSuite
+from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
+from tests.test_suites.commands import QuerySingleTestSuite
+from tests.test_suites.commands import QueryTestSuite
+
+pytestmark = pytest.mark.mssql
 
 
 @pytest.fixture(scope="function")
 def commands(server, database_name) -> PymssqlCommands:
+    from pymssql import _pymssql
+
     with PymssqlCommands(
         _pymssql.connect(server=server, port=1434, password="pydapper!PYDAPPER", user="sa", database=database_name)
     ) as commands:
@@ -26,6 +29,8 @@ def commands(server, database_name) -> PymssqlCommands:
 
 
 def test_using(server, database_name):
+    from pymssql import _pymssql
+
     with using(
         _pymssql.connect(server=server, port=1434, password="pydapper!PYDAPPER", user="sa", database=database_name)
     ) as commands:

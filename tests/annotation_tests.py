@@ -7,11 +7,14 @@ from typing import Generator
 from typing import List
 from typing import Union
 
+import pytest
 from typing_extensions import assert_type
 
 import pydapper
 
 """This file tests some of the more complex type annotations on the Commands and AsyncCommands classes"""
+
+pytestmark = pytest.mark.core
 
 
 @dataclass

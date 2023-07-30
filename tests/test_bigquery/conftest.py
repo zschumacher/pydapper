@@ -3,10 +3,8 @@ import os
 import sys
 import uuid
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
-from google.cloud.bigquery.dbapi import connect
 
 from pydapper.bigquery import GoogleBigqueryClientCommands
 
@@ -63,12 +61,16 @@ def creds_as_env_var(monkeypatch):
 
 @pytest.fixture(scope="function")
 def commands() -> GoogleBigqueryClientCommands:
+    from google.cloud.bigquery.dbapi import connect
+
     with GoogleBigqueryClientCommands(connect()) as commands:
         yield commands
 
 
-@pytest.fixture(scope="function", autouse=True)
+@pytest.fixture(scope="function")
 def bigquery_setup(setup_sql_dir, creds_as_env_var, python_version, owner_table_name, task_table_name):
+    from google.cloud.bigquery.dbapi import connect
+
     conn = connect()
     cursor = conn.cursor()
     owner = (setup_sql_dir / "bigquery" / "owner.sql").read_text().format(owner_table_name=owner_table_name)

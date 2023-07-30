@@ -149,7 +149,6 @@ class Commands(BaseCommands, ABC):
         handler = self.SqlParamHandler(sql, param)
         with self._cursor_context_proxy() as cursor:
             rowcount = handler.execute(cursor)
-
         return rowcount
 
     def _buffered_query(self, handler: BaseSqlParamHandler, model: Type["_T"]) -> List["_T"]:

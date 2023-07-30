@@ -1,4 +1,3 @@
-[![test](https://github.com/zschumacher/pydapper/actions/workflows/test.yml/badge.svg)](https://github.com/zschumacher/pydapper/actions/workflows/test.yml)
 [![PyPI version](https://badge.fury.io/py/pydapper.svg)](https://badge.fury.io/py/pydapper)
 [![Documentation Status](https://readthedocs.org/projects/pydapper/badge/?version=latest)](https://pydapper.readthedocs.io/en/latest/?badge=latest)
 [![codecov](https://codecov.io/gh/zschumacher/pydapper/branch/main/graph/badge.svg?token=3X1IR81HL2)](https://codecov.io/gh/zschumacher/pydapper)

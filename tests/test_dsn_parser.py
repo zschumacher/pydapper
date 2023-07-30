@@ -32,6 +32,8 @@ ALL_DSNS = [
     ORACLE_DEFAULT_DSN,
 ]
 
+pytestmark = pytest.mark.core
+
 
 class TestPydapperParseResult:
     @pytest.mark.parametrize("dsn", ALL_DSNS)

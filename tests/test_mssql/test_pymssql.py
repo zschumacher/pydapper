@@ -2,7 +2,6 @@ import datetime
 from decimal import Decimal
 
 import pytest
-from pymssql import _pymssql
 
 from pydapper import connect
 from pydapper import using
@@ -16,9 +15,13 @@ from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
 from tests.test_suites.commands import QuerySingleTestSuite
 from tests.test_suites.commands import QueryTestSuite
 
+pytestmark = pytest.mark.mssql
+
 
 @pytest.fixture(scope="function")
 def commands(server, database_name) -> PymssqlCommands:
+    from pymssql import _pymssql
+
     with PymssqlCommands(
         _pymssql.connect(server=server, port=1434, password="pydapper!PYDAPPER", user="sa", database=database_name)
     ) as commands:
@@ -26,6 +29,8 @@ def commands(server, database_name) -> PymssqlCommands:
 
 
 def test_using(server, database_name):
+    from pymssql import _pymssql
+
     with using(
         _pymssql.connect(server=server, port=1434, password="pydapper!PYDAPPER", user="sa", database=database_name)
     ) as commands:

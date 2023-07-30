@@ -1,6 +1,5 @@
 import datetime
 
-import psycopg2
 import pytest
 
 from pydapper import connect
@@ -15,9 +14,13 @@ from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
 from tests.test_suites.commands import QuerySingleTestSuite
 from tests.test_suites.commands import QueryTestSuite
 
+pytestmark = pytest.mark.postgresql
+
 
 @pytest.fixture(scope="function")
 def commands(server, database_name) -> Psycopg2Commands:
+    import psycopg2
+
     with Psycopg2Commands(
         psycopg2.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")
     ) as commands:
@@ -26,6 +29,8 @@ def commands(server, database_name) -> Psycopg2Commands:
 
 
 def test_using(server, database_name):
+    import psycopg2
+
     with using(psycopg2.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")) as commands:
         assert isinstance(commands, Psycopg2Commands)
 

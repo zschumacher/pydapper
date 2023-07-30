@@ -1,8 +1,6 @@
-import typing
 from types import SimpleNamespace
 
 import pytest
-import typing_extensions
 
 from pydapper.exceptions import MoreThanOneResultException
 from pydapper.exceptions import NoResultException
@@ -13,6 +11,8 @@ from tests.mocks import MockCommands
 from tests.mocks import MockConnection
 from tests.mocks import MockCursor
 from tests.mocks import MockParamHandler
+
+pytestmark = pytest.mark.core
 
 
 class TestParamHandler:

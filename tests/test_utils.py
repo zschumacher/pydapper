@@ -10,6 +10,8 @@ from pydapper.utils import import_module_obj_path
 from pydapper.utils import safe_getattr
 from tests.mocks import MockCursor
 
+pytestmark = pytest.mark.core
+
 
 @pytest.mark.parametrize(
     "obj, key, expected",
@@ -36,9 +38,8 @@ def test_get_col_names():
     assert get_col_names(cursor) == ["id", "name"]
 
 
-@pytest.mark.parametrize("name", ["psycopg2", "sqlite3", "pymssql"])
-def test_import_db_api_module(name: str):
-    assert import_dbapi_module(name)
+def test_import_db_api_module():
+    assert import_dbapi_module("sqlite3")
 
 
 def test_import_db_api_module_missing_package_raises():

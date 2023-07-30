@@ -1,7 +1,6 @@
 import asyncio
 import datetime
 
-import aiopg
 import pytest
 import pytest_asyncio
 
@@ -18,6 +17,8 @@ from tests.test_suites.commands import QueryMultipleAsyncTestSuite
 from tests.test_suites.commands import QuerySingleAsyncTestSuite
 from tests.test_suites.commands import QuerySingleOrDefaultAsyncTestSuite
 
+pytestmark = pytest.mark.postgresql
+
 
 @pytest.fixture(scope="function")
 def event_loop():
@@ -28,6 +29,8 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="function")
 async def commands(server, database_name) -> AiopgCommands:
+    import aiopg
+
     async with aiopg.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}") as conn:
         c = AiopgCommands(conn)
         yield c
@@ -35,6 +38,8 @@ async def commands(server, database_name) -> AiopgCommands:
 
 @pytest.mark.asyncio
 async def test_using_async(server, database_name):
+    import aiopg
+
     conn = await aiopg.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")
     async with using_async(conn) as commands:
         assert isinstance(commands, AiopgCommands)

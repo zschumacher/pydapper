@@ -31,6 +31,7 @@ services:
   oracle:
     # view the ref for running on ARM chips https://github.com/gvenzl/oci-oracle-xe#oracle-xe-on-apple-m-chips
     image: gvenzl/oracle-xe:slim
+    platform: "linux/amd64"
     ports:
       - "1522:1521"
     environment:

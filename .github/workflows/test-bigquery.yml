@@ -23,8 +23,6 @@ jobs:
           - 9050:9050
           - 9060:9060
         options: --entrypoint "/bin/bigquery-emulator --project=pydapper --dataset=pydapper"
-          
-
 
     steps:
       - name: checkout

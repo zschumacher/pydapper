@@ -1,5 +1,4 @@
 import pytest
-from google.cloud.bigquery.dbapi import connect
 
 import pydapper
 from pydapper.bigquery import GoogleBigqueryClientCommands
@@ -12,8 +11,12 @@ from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
 from tests.test_suites.commands import QuerySingleTestSuite
 from tests.test_suites.commands import QueryTestSuite
 
+pytestmark = pytest.mark.bigquery
+
 
 def test_using(creds_as_env_var):
+    from google.cloud.bigquery.dbapi import connect
+
     with pydapper.using(connect()) as commands:
         assert isinstance(commands, GoogleBigqueryClientCommands)
 
@@ -25,48 +28,40 @@ def test_connect_from_env(creds_as_env_var, driver):
 
 
 @pytest.mark.usefixtures("bigquery_setup")
-@pytest.mark.slow
 class TestExecute(ExecuteTestSuite):
     ...
 
 
 @pytest.mark.usefixtures("bigquery_setup")
-@pytest.mark.slow
 class TestQuery(QueryTestSuite):
     ...
 
 
 @pytest.mark.usefixtures("bigquery_setup")
-@pytest.mark.slow
 class TestQueryMultiple(QueryMultipleTestSuite):
     ...
 
 
 @pytest.mark.usefixtures("bigquery_setup")
-@pytest.mark.slow
 class TestQueryFirst(QueryFirstTestSuite):
     ...
 
 
 @pytest.mark.usefixtures("bigquery_setup")
-@pytest.mark.slow
 class TestQueryFirstOrDefault(QueryFirstOrDefaultTestSuite):
     ...
 
 
 @pytest.mark.usefixtures("bigquery_setup")
-@pytest.mark.slow
 class TestQuerySingle(QuerySingleTestSuite):
     ...
 
 
 @pytest.mark.usefixtures("bigquery_setup")
-@pytest.mark.slow
 class TestQuerySingleOrDefault(QuerySingleOrDefaultTestSuite):
     ...
 
 
 @pytest.mark.usefixtures("bigquery_setup")
-@pytest.mark.slow
 class TestExecuteScalar(ExecuteScalarTestSuite):
     ...

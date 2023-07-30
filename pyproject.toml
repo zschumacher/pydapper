@@ -148,5 +148,11 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest.ini_options]
 norecursedirs = ["venv", ".venv"]
 markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')"
+    "bigquery: marks tests that require bigquery (deselect with '-m \"not bigquery\"')",
+    "core: marks core tests (deselect with '-m \"not core\"')",
+    "mysql: marks tests that require mysql (deselect with '-m \"not mysql\"')",
+    "oracle: marks tests that require oracle (deselect with '-m \"not oracle\"')",
+    "postgresql: marks tests that require postgres (deselect with '-m \"not postgres\"')",
+    "sqlite: marks tests that require sqlite (deselect with '-m \"not sqlite\"')",
+    "mssql: marks tests that require mssql (deselect with '-m \"not mssql\")"
 ]

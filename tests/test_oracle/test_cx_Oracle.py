@@ -1,7 +1,6 @@
 import datetime
 from dataclasses import dataclass
 
-import cx_Oracle
 import pytest
 
 from pydapper import connect
@@ -16,9 +15,13 @@ from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
 from tests.test_suites.commands import QuerySingleTestSuite
 from tests.test_suites.commands import QueryTestSuite
 
+pytestmark = pytest.mark.oracle
+
 
 @pytest.fixture(scope="function")
 def commands(server, database_name) -> CxOracleCommands:
+    import cx_Oracle
+
     with CxOracleCommands(
         cx_Oracle.connect(password="pydapper", user="pydapper", dsn=f"{server}:1522/{database_name}")
     ) as commands:
@@ -26,6 +29,8 @@ def commands(server, database_name) -> CxOracleCommands:
 
 
 def test_using(server, database_name):
+    import cx_Oracle
+
     with using(
         cx_Oracle.connect(password="pydapper", user="pydapper", dsn=f"{server}:1522/{database_name}")
     ) as commands:

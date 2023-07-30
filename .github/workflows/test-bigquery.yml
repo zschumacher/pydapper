@@ -19,7 +19,12 @@ jobs:
     services:
       bigquery:
         image: ghcr.io/goccy/bigquery-emulator:latest
-        options: --entrypoint --project=pydapper --dataset=pydapper
+        ports:
+          - 9050:9050
+          - 9060:9060
+        options: --entrypoint "./bigquery-emulator --project=pydapper --dataset=pydapper"
+          
+
 
     steps:
       - name: checkout

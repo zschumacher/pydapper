@@ -1,16 +1,16 @@
+import datetime
+
 import pytest
 
 import pydapper
 from pydapper.bigquery import GoogleBigqueryClientCommands
 from tests.test_suites.commands import ExecuteScalarTestSuite
-
 from tests.test_suites.commands import QueryFirstOrDefaultTestSuite
 from tests.test_suites.commands import QueryFirstTestSuite
 from tests.test_suites.commands import QueryMultipleTestSuite
 from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
 from tests.test_suites.commands import QuerySingleTestSuite
 from tests.test_suites.commands import QueryTestSuite
-import datetime
 
 pytestmark = pytest.mark.bigquery
 
@@ -31,12 +31,8 @@ def test_connect_from_env(creds_as_env_var, driver):
 
 @pytest.mark.usefixtures("bigquery_setup")
 class TestExecute:
-
     def test_single(self, commands, owner_table_name):
-        commands.execute(
-            f"UPDATE {owner_table_name} SET name = ?new_name? WHERE id = 1",
-            {"new_name": "Zachary"}
-        )
+        commands.execute(f"UPDATE {owner_table_name} SET name = ?new_name? WHERE id = 1", {"new_name": "Zachary"})
         assert commands.execute_scalar(f"select name from {owner_table_name} where id = 1") == "Zachary"
 
     def test_multiple(self, commands, task_table_name):

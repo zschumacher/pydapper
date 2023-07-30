@@ -1,9 +1,7 @@
-import json
 import os
 import sys
 import uuid
 from pathlib import Path
-from google.cloud import environment_vars
 
 import pytest
 
@@ -50,16 +48,13 @@ def owner_table_name(python_version, func_uuid):
 
 @pytest.fixture
 def client(monkeypatch):
-
     from google.api_core.client_options import ClientOptions
     from google.auth.credentials import AnonymousCredentials
     from google.cloud.bigquery import Client
 
     options = ClientOptions(api_endpoint="http://localhost:9050")
 
-    client = Client(
-         client_options=options, credentials=AnonymousCredentials(), project="pydapper"
-    )
+    client = Client(client_options=options, credentials=AnonymousCredentials(), project="pydapper")
     yield client
 
 

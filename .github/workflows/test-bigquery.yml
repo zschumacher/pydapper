@@ -22,7 +22,7 @@ jobs:
 
       - name: start bq emulator
         run: |
-          docker run -p 9050:9050 -p 9060:9060 ghcr.io/goccy/bigquery-emulator:latest --project pydapper --dataset pydapper
+          docker run -d -p 9050:9050 -p 9060:9060 ghcr.io/goccy/bigquery-emulator:latest --project pydapper --dataset pydapper
 
       - name: set up python
         uses: actions/setup-python@v2

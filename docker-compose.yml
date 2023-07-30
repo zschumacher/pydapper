@@ -39,3 +39,11 @@ services:
       APP_USER: "pydapper"
       APP_USER_PASSWORD: "pydapper"
       ORACLE_DATABASE: "pydapper"
+
+  bigquery:
+    image:  ghcr.io/goccy/bigquery-emulator:latest
+    platform: "linux/amd64"
+    command: "--project=pydapper --dataset=pydapper"
+    ports:
+      - "9050:9050"
+      - "9060:9060"

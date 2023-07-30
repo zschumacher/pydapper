@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* 🔧 use bigquery emulator for tests. PR [#166](https://github.com/zschumacher/pydapper/pull/166) by [@zschumacher](https://github.com/zschumacher).
 * 🔧 bump deps and use markers for tests. PR [#164](https://github.com/zschumacher/pydapper/pull/164) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.8.0

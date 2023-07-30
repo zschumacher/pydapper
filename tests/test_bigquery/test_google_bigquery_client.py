@@ -23,9 +23,8 @@ def test_using(client):
 
 
 @pytest.mark.parametrize("driver", ["bigquery", "bigquery+google"])
-@pytest.mark.skip(reason="do not run in ci")
-def test_connect_from_env(creds_as_env_var, driver):
-    with pydapper.connect(f"{driver}:////") as commands:
+def test_connect(driver, client):
+    with pydapper.connect(f"{driver}:////", client=client) as commands:
         assert isinstance(commands, GoogleBigqueryClientCommands)
 
 

@@ -22,7 +22,7 @@ jobs:
         ports:
           - 9050:9050
           - 9060:9060
-        options: --entrypoint "./bigquery-emulator --project=pydapper --dataset=pydapper"
+        options: --entrypoint "/bin/bigquery-emulator --project=pydapper --dataset=pydapper"
           
 
 

@@ -19,7 +19,9 @@ jobs:
     services:
       bigquery:
         image: ghcr.io/goccy/bigquery-emulator:latest
-        options: --dataset=pydapper --project=pydapper
+        options: >-
+          --project=pydapper
+          --dataset=pydapper
 
     steps:
       - name: checkout

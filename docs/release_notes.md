@@ -1,9 +1,14 @@
 
 ## Latest Changes
 
+## 0.9.1
+### Internal
 * ⬆️ Support python 3.12. PR [#199](https://github.com/zschumacher/pydapper/pull/199) by [@zschumacher](https://github.com/zschumacher).
+
+### Docs
 * 📝 Remove broken badge in docs index. PR [#198](https://github.com/zschumacher/pydapper/pull/198) by [@zschumacher](https://github.com/zschumacher).
 * 🔧 add readthedoc config file. PR [#197](https://github.com/zschumacher/pydapper/pull/197) by [@zschumacher](https://github.com/zschumacher).
+
 ## 0.9.0
 ### Bug fixes
 * Fix unmatched param bug. PR [#162](https://github.com/zschumacher/pydapper/pull/162) by [@bowiec](https://github.com/bowiec).

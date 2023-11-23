@@ -60,6 +60,7 @@ files = [
 
 [package.dependencies]
 pytz = {version = ">=2015.7", markers = "python_version < \"3.9\""}
+setuptools = {version = "*", markers = "python_version >= \"3.12\""}
 
 [package.extras]
 dev = ["freezegun (>=1.0,<2.0)", "pytest (>=6.0)", "pytest-cov"]
@@ -344,13 +345,13 @@ files = [
 
 [[package]]
 name = "coro-context-manager"
-version = "0.1.3"
+version = "0.2.0"
 description = "A simple object to wrap coroutines to make them awaitable or used via an asyn context manager"
 optional = false
-python-versions = ">=3.7,<3.12"
+python-versions = ">=3.8,<3.13"
 files = [
-    {file = "coro-context-manager-0.1.3.tar.gz", hash = "sha256:2cf29851376ee6669f6d6d6e1cf95e7093c7543eb737e76a1989b4f596d347d8"},
-    {file = "coro_context_manager-0.1.3-py3-none-any.whl", hash = "sha256:da5f6fc8a75c9b07518dbecc57fae62143413fa86ef5a92649476ababd47dd14"},
+    {file = "coro_context_manager-0.2.0-py3-none-any.whl", hash = "sha256:838d1a41d55a6fefaaaf5086d9c99c73b582bdc20047438a87451c9c58ecbccf"},
+    {file = "coro_context_manager-0.2.0.tar.gz", hash = "sha256:9cd1c25109555726d5a620ca8d5f731f8d8f580e5748b0fd67bd25e1f33ab99d"},
 ]
 
 [[package]]
@@ -2103,6 +2104,22 @@ files = [
 pyasn1 = ">=0.1.3"
 
 [[package]]
+name = "setuptools"
+version = "69.0.2"
+description = "Easily download, build, install, upgrade, and uninstall Python packages"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "setuptools-69.0.2-py3-none-any.whl", hash = "sha256:1e8fdff6797d3865f37397be788a4e3cba233608e9b509382a2777d25ebde7f2"},
+    {file = "setuptools-69.0.2.tar.gz", hash = "sha256:735896e78a4742605974de002ac60562d286fa8051a7e2299445e8e8fbb01aa6"},
+]
+
+[package.extras]
+docs = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "pygments-github-lexers (==0.0.5)", "rst.linker (>=1.9)", "sphinx (<7.2.5)", "sphinx (>=3.5)", "sphinx-favicon", "sphinx-inline-tabs", "sphinx-lint", "sphinx-notfound-page (>=1,<2)", "sphinx-reredirects", "sphinxcontrib-towncrier"]
+testing = ["build[virtualenv]", "filelock (>=3.4.0)", "flake8-2020", "ini2toml[lite] (>=0.9)", "jaraco.develop (>=7.21)", "jaraco.envs (>=2.2)", "jaraco.path (>=3.2.0)", "pip (>=19.1)", "pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-mypy (>=0.9.1)", "pytest-perf", "pytest-ruff", "pytest-timeout", "pytest-xdist", "tomli-w (>=1.0.0)", "virtualenv (>=13.0.0)", "wheel"]
+testing-integration = ["build[virtualenv] (>=1.0.3)", "filelock (>=3.4.0)", "jaraco.envs (>=2.2)", "jaraco.path (>=3.2.0)", "packaging (>=23.1)", "pytest", "pytest-enabler", "pytest-xdist", "tomli", "virtualenv (>=13.0.0)", "wheel"]
+
+[[package]]
 name = "six"
 version = "1.16.0"
 description = "Python 2 and 3 compatibility utilities"
@@ -2439,5 +2456,5 @@ pymssql = ["pymssql", "types-pymssql"]
 
 [metadata]
 lock-version = "2.0"
-python-versions = ">=3.8,<3.12"
-content-hash = "481325769dc9abd25f33a6535b4fb93a8e196ac5b0ef2a6d294a5403f82b3b3a"
+python-versions = ">=3.8,<3.13"
+content-hash = "ae277926efbb27dde922d462321410501857c6bf1016e9689d50d6b10b605b41"

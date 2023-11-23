@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* 🔧 add readthedoc config file. PR [#197](https://github.com/zschumacher/pydapper/pull/197) by [@zschumacher](https://github.com/zschumacher).
 ## 0.9.0
 ### Bug fixes
 * Fix unmatched param bug. PR [#162](https://github.com/zschumacher/pydapper/pull/162) by [@bowiec](https://github.com/bowiec).

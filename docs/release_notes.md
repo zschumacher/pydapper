@@ -1,8 +1,12 @@
 
 ## Latest Changes
 
-* 🔧 update poetry to 1.7.1 and bump deps. PR [#195](https://github.com/zschumacher/pydapper/pull/195) by [@zschumacher](https://github.com/zschumacher).
+## 0.9.0
+### Bug fixes
 * Fix unmatched param bug. PR [#162](https://github.com/zschumacher/pydapper/pull/162) by [@bowiec](https://github.com/bowiec).
+
+### Internal
+* 🔧 update poetry to 1.7.1 and bump deps. PR [#195](https://github.com/zschumacher/pydapper/pull/195) by [@zschumacher](https://github.com/zschumacher).
 * 🔧 use bigquery emulator for tests. PR [#166](https://github.com/zschumacher/pydapper/pull/166) by [@zschumacher](https://github.com/zschumacher).
 * 🔧 bump deps and use markers for tests. PR [#164](https://github.com/zschumacher/pydapper/pull/164) by [@zschumacher](https://github.com/zschumacher).
 

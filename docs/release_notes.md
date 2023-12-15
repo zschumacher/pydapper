@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* ✨ add support for `psycopg3`. PR [#214](https://github.com/zschumacher/pydapper/pull/214) by [@idumancic](https://github.com/idumancic).
 ## 0.9.1
 ### Internal
 * ⬆️ Support python 3.12. PR [#199](https://github.com/zschumacher/pydapper/pull/199) by [@zschumacher](https://github.com/zschumacher).

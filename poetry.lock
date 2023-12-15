@@ -1563,6 +1563,7 @@ files = [
 
 [package.dependencies]
 "backports.zoneinfo" = {version = ">=0.2.0", markers = "python_version < \"3.9\""}
+psycopg-binary = {version = "3.1.15", optional = true, markers = "implementation_name != \"pypy\" and extra == \"binary\""}
 typing-extensions = ">=4.1"
 tzdata = {version = "*", markers = "sys_platform == \"win32\""}
 
@@ -2588,11 +2589,11 @@ google-cloud-bigquery = ["google-cloud-bigquery"]
 google-cloud-bigquery-storage = ["google-cloud-bigquery-storage", "numpy", "pyarrow"]
 mysql-connector-python = ["mysql-connector-python"]
 oracledb = ["oracledb"]
-psycopg = ["psycopg", "psycopg-binary"]
+psycopg = ["psycopg"]
 psycopg2 = ["psycopg2-binary", "types-psycopg2"]
 pymssql = ["pymssql", "types-pymssql"]
 
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.8,<3.13"
-content-hash = "e46f72b8d3df2b7a535e89eca54ba958829c6081ec8fe97060416cf95f0ad5e6"
+content-hash = "b2eaf25e54a8de3325143edb931d0cab5e7acb3d1d13faa79eb0b535599c1c09"

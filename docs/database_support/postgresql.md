@@ -4,7 +4,8 @@ Supported drivers:
 | dbapi                                               | default      | driver                | connection class                 |
 |-----------------------------------------------------|--------------|-----------------------|----------------------------------|
 | [psycopg2](https://www.psycopg.org/docs/usage.html) | :thumbsup:   | `postgresql+psycopg2` | `psycopg2.extensions.connection` |
-| [aiopg](https://aiopg.readthedocs.io/en/stable/)    | :thumbsdown: | `postgresql+aiopg`    | `aiopg.connection.Connection` |
+| [psycopg3](https://www.psycopg.org/psycopg3/docs/)  | :thumbsdown: | `postgresql+psycopg`  | `psycopg.Connection`             |
+| [aiopg](https://aiopg.readthedocs.io/en/stable/)    | :thumbsdown: | `postgresql+aiopg`    | `aiopg.connection.Connection`    |
 
 ## psycopg2
 `psycopg2` is the default dbapi driver for PostgreSQL in *pydapper*.
@@ -61,6 +62,56 @@ commands.connection.close()
 Use *pydapper* with a `psycopg2` connection pool.
 ```python
 {!docs/../docs_src/connections/psycopg2_using.py!}
+```
+
+## psycopg3
+
+### Installation
+=== "pip"
+    ```console
+    pip install pydapper[psycopg]
+    ```
+
+=== "poetry"
+    ```console
+    poetry add pydapper -E psycopg
+    ```
+
+### DSN format
+=== "Template"
+    ```python
+    dsn = f"postgresql+psycopg://{user}:{password}@{host}:{port}/{dbname}"
+    ```
+
+=== "Example"
+    ```python
+    dsn = "postgresql+psycopg://myuser:mypassword:1521@localhost/mydb"
+    ```
+
+### Example - `connect`
+Please see the [psycopg docs](https://www.psycopg.org/psycopg3/docs/basic/from_pg2.html#with-connection) for a full description of the
+context manager behavior.  
+```python
+{!docs/../docs_src/connections/psycopg3_connect.py!}
+```
+
+</details>
+
+### Example - `using`
+Use *pydapper* with a `psycopg` connection pool. Package that handles [connection pools](https://www.psycopg.org/psycopg3/docs/advanced/pool.html#connection-pools) is distributed separately from the main package.
+
+=== "pip"
+    ```console
+    pip install psycopg_pool
+    ```
+
+=== "poetry"
+    ```console
+    poetry add psycopg_pool
+    ```
+
+```python
+{!docs/../docs_src/connections/psycopg3_using.py!}
 ```
 
 ## aiopg

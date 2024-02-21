@@ -1,6 +1,7 @@
 
 ## Latest Changes
 
+* 🔧  fix step names in fmt.yml. PR [#256](https://github.com/zschumacher/pydapper/pull/256) by [@otosky](https://github.com/otosky).
 * ✨ add support for `psycopg3`. PR [#214](https://github.com/zschumacher/pydapper/pull/214) by [@idumancic](https://github.com/idumancic).
 ## 0.9.1
 ### Internal

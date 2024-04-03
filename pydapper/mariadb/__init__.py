@@ -1,1 +1,1 @@
-from .mariadb_connector_python import MariaDbConnectorPythonCommands
+from .mariadb import MariaDbCommands

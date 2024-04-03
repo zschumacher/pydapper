@@ -2,7 +2,7 @@ import pytest
 
 from pydapper import connect
 from pydapper import using
-from pydapper.mariadb import MariaDbConnectorPythonCommands
+from pydapper.mariadb import MariaDbCommands
 from tests.test_suites.commands import ExecuteScalarTestSuite
 from tests.test_suites.commands import ExecuteTestSuite
 from tests.test_suites.commands import QueryFirstOrDefaultTestSuite
@@ -16,10 +16,10 @@ pytestmark = pytest.mark.mysql
 
 
 @pytest.fixture(scope="function")
-def commands(server, database_name) -> MariaDbConnectorPythonCommands:
+def commands(server, database_name) -> MariaDbCommands:
     import mariadb
 
-    with MariaDbConnectorPythonCommands(
+    with MariaDbCommands(
         mariadb.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)
     ) as commands:
         yield commands
@@ -31,13 +31,13 @@ def test_using(server, database_name):
     with using(
         mariadb.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)
     ) as commands:
-        assert isinstance(commands, MariaDbConnectorPythonCommands)
+        assert isinstance(commands, MariaDbCommands)
 
 
 @pytest.mark.parametrize("driver", ["mariadb", "mariadb+mariadb"])
 def test_connect(driver, database_name, server):
     with connect(f"{driver}://pydapper:pydapper@{server}:3307/{database_name}") as commands:
-        assert isinstance(commands, MariaDbConnectorPythonCommands)
+        assert isinstance(commands, MariaDbCommands)
 
 
 class TestExecute(ExecuteTestSuite):

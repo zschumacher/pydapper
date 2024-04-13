@@ -45,8 +45,8 @@ jobs:
       - name: test annotations
         run: poetry run mypy --config-file mypy.ini tests/annotation_tests.py
 
-      - name: black
+      - name: isort
         run: poetry run isort --check .
 
-      - name: isort
+      - name: black
         run: poetry run black --check .

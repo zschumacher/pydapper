@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* Bump idna from 3.4 to 3.7. PR [#262](https://github.com/zschumacher/pydapper/pull/262) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump cryptography from 41.0.5 to 42.0.4. PR [#255](https://github.com/zschumacher/pydapper/pull/255) by [@dependabot[bot]](https://github.com/apps/dependabot).
 
 ## 0.10.0

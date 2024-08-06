@@ -18,7 +18,9 @@ pytestmark = pytest.mark.sqlite
 
 
 def test_using(database_name):
-    with using(sqlite3.connect(f"{database_name}.db")) as commands:
+    if database_name is not ":memory:":
+        database_name = f'{database_name}.db'
+    with using(sqlite3.connect(f"{database_name}")) as commands:
         assert isinstance(commands, Sqlite3Commands)
 
 

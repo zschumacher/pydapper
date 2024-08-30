@@ -19,17 +19,29 @@ _DRIVERS = {
 
 
 def pydapper_dsn_to_odbc(parsed_dsn: "PydapperParseResult") -> str:
+    chunks = {}
+
     server = parsed_dsn.host
     if parsed_dsn.port:
         server += f",{parsed_dsn.port}"
-    chunks = {
-        "server": server,
-        "uid": parsed_dsn.username,
-        "pwd": parsed_dsn.password,
-        "database": parsed_dsn.dbname,
-        "driver": _DRIVERS.get(parsed_dsn.dbms, ""),
-        **parsed_dsn.query,
-    }
+
+    if server:
+        chunks["server"] = server
+
+    if parsed_dsn.username:
+        chunks["uid"] = parsed_dsn.username
+
+    if parsed_dsn.password:
+        chunks["pwd"] = parsed_dsn.password
+
+    if parsed_dsn.dbname:
+        chunks["database"] = parsed_dsn.dbname
+
+    if parsed_dsn.dbms:
+        chunks["driver"] = _DRIVERS.get(parsed_dsn.dbms, "")
+
+    chunks = {**chunks, **parsed_dsn.query}
+
     return ";".join([f"{k.upper()}={v}" for k, v in chunks.items()])
 
 

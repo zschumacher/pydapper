@@ -52,7 +52,8 @@ Use *pydapper* with a custom connection pool.
 ```
 
 ## aioodbc
-`aioodbc` supports async methods for Microsoft SQL Server and other ODBC-compatible databases.
+`aioodbc` supports async methods for Microsoft SQL Server and other ODBC-compatible databases. 
+It is based on [pyodbc](https://github.com/mkleehammer/pyodbc).
 
 ### Installation
 === "pip"
@@ -66,14 +67,14 @@ Use *pydapper* with a custom connection pool.
     ```
 
 ### Example - `connect_async`
-To use async with MSSQL you need to use `aioodbc` driver. Aioodbc is based on [pyodbc](https://github.com/mkleehammer/pyodbc)
+To use async with MSSQL you need to use `aioodbc` driver.
 Please see the [pyodbc docs](https://github.com/mkleehammer/pyodbc/wiki) for a full description about connecting.
 ```python
-{!docs/../docs_src/connections/aioodbc_connect.py!}
+{!docs/../docs_src/connections/aioodbc_mssql_connect.py!}
 ```
 
 ### Example - `using_async`
 Use *pydapper* with a `aioodbc` connection pool.
 ```python
-{!docs/../docs_src/connections/aioodbc_using.py!}
+{!docs/../docs_src/connections/aioodbc_mssql_using.py!}
 ```

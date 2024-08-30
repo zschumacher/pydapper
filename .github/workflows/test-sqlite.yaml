@@ -26,8 +26,8 @@ jobs:
 
       - name: install SQLite3 ODBC Driver
         run: |
-          apt-get update
-          apt-get install -y unixodbc unixodbc-dev
+          sudo apt-get update
+          sudo apt-get install -y unixodbc unixodbc-dev
 
       - name: install poetry
         env:

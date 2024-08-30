@@ -2,7 +2,7 @@
 Supported drivers:
 
 | dbapi                                                     | default    | driver           | connection class     |
-|-----------------------------------------------------------|------------|------------------|----------------------|
+| --------------------------------------------------------- | ---------- | ---------------- | -------------------- |
 | [sqlite3](https://docs.python.org/3/library/sqlite3.html) | :thumbsup: | `sqlite+sqlite3` | `sqlite3.Connection` |
 
 ## sqlite3
@@ -48,4 +48,32 @@ a full description of the context manager behavior.
 Use *pydapper* with a custom connection pool.
 ```python
 {!docs/../docs_src/connections/sqlite3_using.py!}
+```
+
+## aioodbc
+`aioodbc` supports async methods for ODBC-compatible databases. It is based on [pyodbc](https://github.com/mkleehammer/pyodbc).
+You may need to install [SQLite3 ODBC Driver](http://www.ch-werner.de/sqliteodbc/).
+
+### Installation
+=== "pip"
+    ```console
+    pip install pydapper[aioodbc]
+    ```
+
+=== "poetry"
+    ```console
+    poetry add pydapper -E aioodbc
+    ```
+
+### Example - `connect_async`
+To use async with SQLite you can use `aioodbc` driver.
+Please see the [pyodbc docs](https://github.com/mkleehammer/pyodbc/wiki) for a full description about connecting.
+```python
+{!docs/../docs_src/connections/aioodbc_sqlite_connect.py!}
+```
+
+### Example - `using_async`
+Use *pydapper* with a `aioodbc` connection pool.
+```python
+{!docs/../docs_src/connections/aioodbc_sqlite_using.py!}
 ```

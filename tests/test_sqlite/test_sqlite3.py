@@ -17,6 +17,13 @@ from tests.test_suites.commands import QueryTestSuite
 pytestmark = pytest.mark.sqlite
 
 
+@pytest.fixture(scope="function")
+def commands(database_name) -> Sqlite3Commands:
+    with Sqlite3Commands(sqlite3.connect(f"{database_name}.db")) as commands:
+        yield commands
+        commands.connection.rollback()
+
+
 def test_using(database_name):
     with using(sqlite3.connect(f"{database_name}.db")) as commands:
         assert isinstance(commands, Sqlite3Commands)
@@ -28,33 +35,25 @@ def test_connect(driver, database_name):
         assert isinstance(commands, Sqlite3Commands)
 
 
-class TestExecute(ExecuteTestSuite):
-    ...
+class TestExecute(ExecuteTestSuite): ...
 
 
-class TestQuery(QueryTestSuite):
-    ...
+class TestQuery(QueryTestSuite): ...
 
 
-class TestQueryMultiple(QueryMultipleTestSuite):
-    ...
+class TestQueryMultiple(QueryMultipleTestSuite): ...
 
 
-class TestQueryFirst(QueryFirstTestSuite):
-    ...
+class TestQueryFirst(QueryFirstTestSuite): ...
 
 
-class TestQueryFirstOrDefault(QueryFirstOrDefaultTestSuite):
-    ...
+class TestQueryFirstOrDefault(QueryFirstOrDefaultTestSuite): ...
 
 
-class TestQuerySingle(QuerySingleTestSuite):
-    ...
+class TestQuerySingle(QuerySingleTestSuite): ...
 
 
-class TestQuerySingleOrDefault(QuerySingleOrDefaultTestSuite):
-    ...
+class TestQuerySingleOrDefault(QuerySingleOrDefaultTestSuite): ...
 
 
-class TestExecuteScalar(ExecuteScalarTestSuite):
-    ...
+class TestExecuteScalar(ExecuteScalarTestSuite): ...

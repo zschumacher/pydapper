@@ -17,6 +17,13 @@ from tests.test_suites.commands import QueryTestSuite
 pytestmark = pytest.mark.sqlite
 
 
+@pytest.fixture(scope="function")
+def commands(database_name) -> Sqlite3Commands:
+    with Sqlite3Commands(sqlite3.connect(f"{database_name}.db")) as commands:
+        yield commands
+        commands.connection.rollback()
+
+
 def test_using(database_name):
     with using(sqlite3.connect(f"{database_name}.db")) as commands:
         assert isinstance(commands, Sqlite3Commands)

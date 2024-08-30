@@ -22,7 +22,7 @@ jobs:
 
       - name: install poetry
         env:
-          POETRY_VERSION: "1.4.0"
+          POETRY_VERSION: "1.7.1"
         run: curl -sSL https://install.python-poetry.org | python -
 
       - name: publish

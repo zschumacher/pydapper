@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pydapper"
-version = "0.8.0"
+version = "0.10.0"
 description = "A pure python lib inspired by the dotnet lib dapper"
 authors = ["Zach Schumacher <zschu15@gmail.com>"]
 license = "MIT"
@@ -14,6 +14,7 @@ classifiers = [
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
     'Intended Audience :: Developers',
     'Intended Audience :: Information Technology',
     'Intended Audience :: System Administrators',
@@ -29,9 +30,9 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.12"
+python = ">=3.8,<3.13"
 dsnparse = "^0.1.15"
-psycopg2-binary = { version = "^2.9.2", optional = true }
+psycopg2-binary = { version = "^2.9.9", optional = true }
 pymssql = { version = "^2.2.6", optional = true }
 types-psycopg2 = { version = "^2.9.4", optional = true }
 types-pymssql = { version = "^2.1.0", optional = true }
@@ -40,12 +41,15 @@ mysql-connector-python = { version = "^8.0.28", optional = true }
 cx-Oracle = { version = "^8.3.0", optional = true }
 oracledb = { version = "^1.1.1", optional = true }
 aiopg = { version = "^1.3.3", optional = true }
-coro-context-manager = "^0.1.1"
-google-cloud-bigquery = { version = "^3.4.1", optional = true }
-google-cloud-bigquery-storage = { version = "^2.17.0", optional = true }
-pyarrow = { version = "^10.0.1", optional = true }
+coro-context-manager = "0.2.0"
+google-cloud-bigquery = { version = "^3.11.4", optional = true }
+google-cloud-bigquery-storage = { version = "^2.22.0", optional = true }
+pyarrow = { version = "^13.0.0", optional = true }
 numpy = { version = "^1.24.2", optional = true }
-aioodbc = "^0.4.0"
+psycopg = { extras = ["binary"], version = "^3.1.15", optional = true }
+# aioodbc = "^0.4.0"
+aioodbc = "^0.5.0"
+
 
 [tool.poetry.dev-dependencies]
 black = "*"
@@ -55,16 +59,17 @@ Faker = "*"
 isort = "*"
 mypy = "*"
 pytest = "7.*.*"
-pytest-cov = "3.*.*"
+pytest-cov = "4.*.*"
 mkdocs = "1.*.*"
-mkdocs-material = "8.*.*"
+mkdocs-material = "9.*.*"
 markdown-include = "*"
 codecov = "*"
-pytest-asyncio = "^0.19.0"
+pytest-asyncio = "0.21.*"
 pytest-mock = "*"
 pytest-vcr = "^1.0.2"
 
 [tool.poetry.extras]
+psycopg = ["psycopg"]
 psycopg2 = ["psycopg2-binary", "types-psycopg2"]
 pymssql = ["pymssql", "types-pymssql"]
 mysql-connector-python = ["mysql-connector-python"]
@@ -80,6 +85,7 @@ google-cloud-bigquery-storage = [
 ]
 aioodbc = ["aioodbc"]
 all = [
+    "psycopg",
     "psycopg2",
     "pymssql",
     "mysql-connector-python",
@@ -144,6 +150,19 @@ exclude_lines = [
     "@abstractmethod",
     "@overload",
 ]
+
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+norecursedirs = ["venv", ".venv"]
+markers = [
+    "bigquery: marks tests that require bigquery (deselect with '-m \"not bigquery\"')",
+    "core: marks core tests (deselect with '-m \"not core\"')",
+    "mysql: marks tests that require mysql (deselect with '-m \"not mysql\"')",
+    "oracle: marks tests that require oracle (deselect with '-m \"not oracle\"')",
+    "postgresql: marks tests that require postgres (deselect with '-m \"not postgres\"')",
+    "sqlite: marks tests that require sqlite (deselect with '-m \"not sqlite\"')",
+    "mssql: marks tests that require mssql (deselect with '-m \"not mssql\")",
+]

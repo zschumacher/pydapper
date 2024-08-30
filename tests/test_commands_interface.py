@@ -1,8 +1,6 @@
-import typing
 from types import SimpleNamespace
 
 import pytest
-import typing_extensions
 
 from pydapper.exceptions import MoreThanOneResultException
 from pydapper.exceptions import NoResultException
@@ -13,6 +11,8 @@ from tests.mocks import MockCommands
 from tests.mocks import MockConnection
 from tests.mocks import MockCursor
 from tests.mocks import MockParamHandler
+
+pytestmark = pytest.mark.core
 
 
 class TestParamHandler:
@@ -38,6 +38,10 @@ class TestParamHandler:
     def test_prepared_sql(self):
         handler = MockParamHandler("select * from table where id = ?id? and name = ?name?", {"id": 1, "name": "Zach"})
         assert handler.prepared_sql == "select * from table where id = %s and name = %s"
+
+    def test_prepared_sql_no_matching_param(self):
+        handler = MockParamHandler("select * from table", {"id": 1, "name": "Zach"})
+        assert handler.prepared_sql == "select * from table"
 
     @pytest.mark.parametrize(
         "sql, param, expected",

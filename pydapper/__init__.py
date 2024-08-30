@@ -11,4 +11,5 @@ from .odbc import AioodbcCommands as _AioodbcCommands
 from .oracle import CxOracleCommands as _CxOracleCommands
 from .postgresql import AiopgCommands as _AioPgCommand
 from .postgresql import Psycopg2Commands as _Psycopg2Commands
+from .postgresql import Psycopg3Commands as _Psycopg3Commands
 from .sqlite import Sqlite3Commands as _Sqlite3Commands

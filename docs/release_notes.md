@@ -1,6 +1,28 @@
-
 ## Latest Changes
 
+* Bump idna from 3.4 to 3.7. PR [#262](https://github.com/zschumacher/pydapper/pull/262) by [@dependabot[bot]](https://github.com/apps/dependabot).
+* Bump cryptography from 41.0.5 to 42.0.4. PR [#255](https://github.com/zschumacher/pydapper/pull/255) by [@dependabot[bot]](https://github.com/apps/dependabot).
+
+## 0.10.0
+## Features
+* * ✨ add support for `psycopg3`. PR [#214](https://github.com/zschumacher/pydapper/pull/214) by [@idumancic](https://github.com/idumancic).
+
+### Internal
+* 🔧  fix step names in fmt.yml. PR [#256](https://github.com/zschumacher/pydapper/pull/256) by [@otosky](https://github.com/otosky).
+* ⬆️ Support python 3.12. PR [#199](https://github.com/zschumacher/pydapper/pull/199) by [@zschumacher](https://github.com/zschumacher).
+
+### Docs
+* 📝 Remove broken badge in docs index. PR [#198](https://github.com/zschumacher/pydapper/pull/198) by [@zschumacher](https://github.com/zschumacher).
+* 🔧 add readthedoc config file. PR [#197](https://github.com/zschumacher/pydapper/pull/197) by [@zschumacher](https://github.com/zschumacher).
+
+## 0.9.0
+### Bug fixes
+* Fix unmatched param bug. PR [#162](https://github.com/zschumacher/pydapper/pull/162) by [@bowiec](https://github.com/bowiec).
+
+### Internal
+* 🔧 update poetry to 1.7.1 and bump deps. PR [#195](https://github.com/zschumacher/pydapper/pull/195) by [@zschumacher](https://github.com/zschumacher).
+* 🔧 use bigquery emulator for tests. PR [#166](https://github.com/zschumacher/pydapper/pull/166) by [@zschumacher](https://github.com/zschumacher).
+* 🔧 bump deps and use markers for tests. PR [#164](https://github.com/zschumacher/pydapper/pull/164) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.8.0
 ### Features

@@ -23,7 +23,7 @@ jobs:
 
       - name: Install poetry
         env:
-          POETRY_VERSION: "1.4.0"
+          POETRY_VERSION: "1.7.1"
         run: |
           curl -sSL https://install.python-poetry.org | python -
           poetry config virtualenvs.create false
@@ -45,8 +45,8 @@ jobs:
       - name: test annotations
         run: poetry run mypy --config-file mypy.ini tests/annotation_tests.py
 
-      - name: black
+      - name: isort
         run: poetry run isort --check .
 
-      - name: isort
+      - name: black
         run: poetry run black --check .

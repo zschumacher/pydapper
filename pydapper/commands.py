@@ -76,7 +76,7 @@ class BaseSqlParamHandler(ABC):
 
     @cached_property
     def prepared_sql(self) -> str:
-        if self._param:
+        if self._param and len(self.ordered_param_names) > 0:
             pattern = re.compile("|".join(re.escape(f"?{name}?") for name in self.ordered_param_names))
 
             def sub_param_with_placeholder(m: Match) -> str:

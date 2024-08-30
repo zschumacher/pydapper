@@ -14,6 +14,8 @@ from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
 from tests.test_suites.commands import QuerySingleTestSuite
 from tests.test_suites.commands import QueryTestSuite
 
+pytestmark = pytest.mark.sqlite
+
 
 def test_using(database_name):
     with using(sqlite3.connect(f"{database_name}.db")) as commands:

@@ -1,7 +1,6 @@
 import datetime
 from dataclasses import dataclass
 
-import oracledb
 import pytest
 
 from pydapper import connect
@@ -16,9 +15,13 @@ from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
 from tests.test_suites.commands import QuerySingleTestSuite
 from tests.test_suites.commands import QueryTestSuite
 
+pytestmark = pytest.mark.oracle
+
 
 @pytest.fixture(scope="function")
 def commands(server, database_name) -> OracledbCommands:
+    import oracledb
+
     with OracledbCommands(
         oracledb.connect(password="pydapper", user="pydapper", dsn=f"{server}:1522/{database_name}")
     ) as commands:
@@ -26,6 +29,8 @@ def commands(server, database_name) -> OracledbCommands:
 
 
 def test_using(server, database_name):
+    import oracledb
+
     with using(
         oracledb.connect(password="pydapper", user="pydapper", dsn=f"{server}:1522/{database_name}")
     ) as commands:
@@ -35,6 +40,8 @@ def test_using(server, database_name):
 
 @pytest.mark.parametrize("driver", ["oracle+oracledb"])
 def test_connect(driver, database_name, server):
+    import oracledb
+
     with connect(f"{driver}://pydapper:pydapper@{server}:1522/{database_name}") as commands:
         assert isinstance(commands, OracledbCommands)
         assert isinstance(commands.connection, oracledb.Connection)

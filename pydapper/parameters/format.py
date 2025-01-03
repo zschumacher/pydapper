@@ -28,4 +28,3 @@ class FormatAdapter(ParamAdapter[tuple]):
     def _convert_from_pyformat(self) -> tuple[str, tuple]:
         normalized_query = re.sub(ParamStyle.PYFORMAT.pattern, "%s", self.query)
         return normalized_query, tuple(self.params.values())
-

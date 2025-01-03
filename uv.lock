@@ -11,6 +11,12 @@ wheels = [
 ]
 
 [[package]]
+name = "dsnparse"
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e4/87/f01ae16fab0e55253750cd77f225d6dcadbf33332985620fa653356553a3/dsnparse-0.2.1.tar.gz", hash = "sha256:90956235967569c875994adbad0928c347a1592b5fc8ecd9c1b1a20397dae697", size = 9438 }
+
+[[package]]
 name = "exceptiongroup"
 version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -50,6 +56,9 @@ wheels = [
 name = "pydapper"
 version = "0.1.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "dsnparse" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -57,6 +66,7 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "dsnparse", specifier = ">=0.2.1" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.3.4" }]

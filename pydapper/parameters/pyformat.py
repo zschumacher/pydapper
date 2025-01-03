@@ -11,7 +11,9 @@ class PyformatAdapter(ParamAdapter[dict]):
 
         for idx, placeholder in enumerate(placeholders):
             param_name = f"param_{idx}"
-            normalized_query = normalized_query.replace(placeholder, f"%({param_name})s", 1)
+            normalized_query = normalized_query.replace(
+                placeholder, f"%({param_name})s", 1
+            )
             normalized_params[param_name] = self.params[idx]
 
         return normalized_query, normalized_params
@@ -31,7 +33,9 @@ class PyformatAdapter(ParamAdapter[dict]):
 
         for idx, placeholder in enumerate(placeholders):
             param_name = f"param_{idx}"
-            normalized_query = normalized_query.replace(placeholder, f"%({param_name})s", 1)
+            normalized_query = normalized_query.replace(
+                placeholder, f"%({param_name})s", 1
+            )
             normalized_params[param_name] = self.params[idx]
 
         return normalized_query, normalized_params
@@ -43,7 +47,9 @@ class PyformatAdapter(ParamAdapter[dict]):
 
         for idx, placeholder in enumerate(placeholders):
             param_name = f"param_{idx}"
-            normalized_query = normalized_query.replace(placeholder, f"%({param_name})s", 1)
+            normalized_query = normalized_query.replace(
+                placeholder, f"%({param_name})s", 1
+            )
             normalized_params[param_name] = self.params[idx]
 
         return normalized_query, normalized_params

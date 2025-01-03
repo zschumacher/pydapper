@@ -40,4 +40,3 @@ class ParamAdapter(Generic[ParamType]):
             return self._convert_from_pyformat()
         else:
             raise ValueError(f"Unsupported parameter style: {self.query_style}")
-

@@ -193,6 +193,12 @@ class Commands(BaseCommands, ABC):
 
     @overload
     def query(
+        self, sql: str, param: Optional["ParamType"] = ..., buffered: "Literal[True]" = True, *, model: Callable[..., "_T"]
+    ) -> List["_T"]:
+        ...
+    
+    @overload
+    def query(
         self, sql: str, param: Optional["ParamType"] = ..., *, model: Type["_T"], buffered: "Literal[False]"
     ) -> Generator["_T", None, None]:
         ...
@@ -238,6 +244,10 @@ class Commands(BaseCommands, ABC):
 
     @overload
     def query_first(self, sql: str, param: Optional["ParamType"] = ..., *, model: Type["_T"]) -> "_T":
+        ...
+
+    @overload
+    def query_first(self, sql: str, param: Optional["ParamType"] = ..., *, model: Callable[..., "_T"]) -> "_T":
         ...
 
     def query_first(self, sql, model=dict, param=None):

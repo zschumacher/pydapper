@@ -3,9 +3,9 @@ import pytest
 
 @pytest.fixture(scope="session", autouse=True)
 def oracle_setup(database_name, setup_sql_dir, server):
-    import cx_Oracle
+    import oracledb
 
-    conn = cx_Oracle.connect(password="pydapper", user="pydapper", dsn=f"{server}:1522/{database_name}")
+    conn = oracledb.connect(password="pydapper", user="pydapper", dsn=f"{server}:1522/{database_name}")
     cursor = conn.cursor()
     owner_table = (setup_sql_dir / "oracle" / "owner.sql").read_text()
     cursor.execute(owner_table)

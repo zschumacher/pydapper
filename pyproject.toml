@@ -38,7 +38,6 @@ types-psycopg2 = { version = "^2.9.4", optional = true }
 types-pymssql = { version = "^2.1.0", optional = true }
 cached-property = "^2.0.1"
 mysql-connector-python = {version = "^9.2.0", optional = true}
-cx-Oracle = { version = "^8.3.0", optional = true }
 oracledb = { version = "^2.5.1", optional = true }
 aiopg = { version = "^1.4.0", optional = true }
 coro-context-manager = "0.2.1"
@@ -70,7 +69,6 @@ psycopg = ["psycopg"]
 psycopg2 = ["psycopg2-binary", "types-psycopg2"]
 pymssql = ["pymssql", "types-pymssql"]
 mysql-connector-python = ["mysql-connector-python"]
-cx_Oracle = ["cx-Oracle"]
 oracledb = ["oracledb"]
 aiopg = ["aiopg"]
 google-cloud-bigquery = ["google-cloud-bigquery"]
@@ -81,7 +79,6 @@ all = [
     "psycopg2",
     "pymssql",
     "mysql-connector-python",
-    "cx_Oracle",
     "oracledb",
     "aiopg",
     "types-psycopg2",

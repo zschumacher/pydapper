@@ -1,6 +1,7 @@
 import importlib
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Tuple
@@ -32,7 +33,7 @@ def serialize_dict_row(model: Type[Dict], row: Dict[str, Any]) -> Dict[str, Any]
 
 
 @overload
-def serialize_dict_row(model: Type["_T"], row: Dict[str, Any]) -> "_T": ...
+def serialize_dict_row(model: Type["_T"] | Callable[..., "_T"], row: Dict[str, Any]) -> "_T": ...
 
 
 def serialize_dict_row(model, row):

@@ -36,7 +36,10 @@ class Commands:
             assert_type(commands.query(query, buffered=True), List[Dict[str, Any]])
             assert_type(commands.query(query, buffered=False), Generator[Dict[str, Any], None, None])
             assert_type(commands.query(query, model=Task, buffered=True), List[Task])
+            assert_type(commands.query(query, model=lambda **kwargs: Task(**kwargs)), List[Task])
+            assert_type(commands.query(query, model=lambda **kwargs: Task(**kwargs), buffered=False), Generator[Task, None, None])
             assert_type(commands.query(query, model=Task, buffered=False), Generator[Task, None, None])
+
 
     @staticmethod
     def query_first(query: str) -> None:

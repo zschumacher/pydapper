@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* :wrench: update to latest dsnparse. PR [#332](https://github.com/zschumacher/pydapper/pull/332) by [@zschumacher](https://github.com/zschumacher).
 * :wrench: support python 3.13; update deps; deprecate Cx_Oracle in favor or Oracledb. PR [#331](https://github.com/zschumacher/pydapper/pull/331) by [@zschumacher](https://github.com/zschumacher).
 * Bump idna from 3.4 to 3.7. PR [#262](https://github.com/zschumacher/pydapper/pull/262) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump cryptography from 41.0.5 to 42.0.4. PR [#255](https://github.com/zschumacher/pydapper/pull/255) by [@dependabot[bot]](https://github.com/apps/dependabot).

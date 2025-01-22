@@ -31,7 +31,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.14"
-dsnparse = "^0.1.15"
+dsnparse = "^0.2.1"
 psycopg2-binary = { version = "^2.9.10", optional = true }
 pymssql = { version = "^2.3.2", optional = true }
 types-psycopg2 = { version = "^2.9.4", optional = true }

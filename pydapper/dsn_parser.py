@@ -18,14 +18,14 @@ class PydapperParseResult(dsnparse.ParseResult):
     def __init__(self, dsn: str, **defaults):
         super().__init__(dsn, **defaults)
         # make linters and editors happy
-        self.dsn: str = self.dsn
+        self.dsn: str = dsn
         self.scheme: str = self.scheme
         self.path: str = self.path
         self.hostname: str = self.hostname
         self.username: str = self.username
         self.password: str = self.password
-        self.query: Dict[str, str] = self.query  # dict of query string
-        self.query_str: str = self.query_str  # raw query string
+        self.query_str: str = self.query
+        self.query_params: Dict[str, str] = self.query_params
         self.port: str = self.port
         self.fragment: str = self.fragment
 

@@ -515,12 +515,12 @@ pygments = ">=2.15.0"
 
 [[package]]
 name = "dsnparse"
-version = "0.1.15"
+version = "0.2.1"
 description = "parse dsn urls"
 optional = false
 python-versions = "*"
 files = [
-    {file = "dsnparse-0.1.15.tar.gz", hash = "sha256:2ac5705b17cb28e8b115053c2d51cf3321dc2041b1d75e2db6157e05146d0fba"},
+    {file = "dsnparse-0.2.1.tar.gz", hash = "sha256:90956235967569c875994adbad0928c347a1592b5fc8ecd9c1b1a20397dae697"},
 ]
 
 [[package]]
@@ -2757,4 +2757,4 @@ pymssql = ["pymssql", "types-pymssql"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.14"
-content-hash = "c3bac3bd5ee106db95ba98bf54f62deb41124cf3d26cb3e1340f61d40111dc00"
+content-hash = "00802b621ee6ef46a63f89b802b8c6d759642b7de30d78202eb709ea26fea948"

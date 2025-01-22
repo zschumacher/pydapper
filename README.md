@@ -10,7 +10,8 @@
 A pure python library inspired by the NuGet library [dapper](https://dapper-tutorial.net).
 
 *pydapper* is built on top of the [dbapi 2.0 spec](https://www.python.org/dev/peps/pep-0249/)
-to provide more convenient methods for working with databases in python.
+to provide more convenient methods for working with databases in python, with both sync
+and async dbapi support.
 
 ## Help
 See the [documentation](https://pydapper.readthedocs.io/en/latest/) for more details and examples for configuring all

@@ -1,6 +1,7 @@
 ## Latest Changes
 
 ## 0.11.1
+### Features
 * :sparkles: Add callable that returns a model as a supported model type. PR [#333](https://github.com/zschumacher/pydapper/pull/333) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.11.0

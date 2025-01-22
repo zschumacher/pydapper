@@ -7,6 +7,7 @@ from typing import List
 from typing import Tuple
 from typing import Type
 from typing import TypeVar
+from typing import Union
 from typing import overload
 
 if TYPE_CHECKING:
@@ -33,7 +34,7 @@ def serialize_dict_row(model: Type[Dict], row: Dict[str, Any]) -> Dict[str, Any]
 
 
 @overload
-def serialize_dict_row(model: Type["_T"] | Callable[..., "_T"], row: Dict[str, Any]) -> "_T": ...
+def serialize_dict_row(model: Union[Type["_T"], Callable[..., "_T"]], row: Dict[str, Any]) -> "_T": ...
 
 
 def serialize_dict_row(model, row):

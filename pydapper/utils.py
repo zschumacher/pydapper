@@ -28,13 +28,11 @@ def database_row_to_dict(col_names: List[str], row: Tuple[Any]) -> Dict[str, Any
 
 
 @overload
-def serialize_dict_row(model: Type[Dict], row: Dict[str, Any]) -> Dict[str, Any]:
-    ...
+def serialize_dict_row(model: Type[Dict], row: Dict[str, Any]) -> Dict[str, Any]: ...
 
 
 @overload
-def serialize_dict_row(model: Type["_T"], row: Dict[str, Any]) -> "_T":
-    ...
+def serialize_dict_row(model: Type["_T"], row: Dict[str, Any]) -> "_T": ...
 
 
 def serialize_dict_row(model, row):

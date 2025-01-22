@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [ '3.8', '3.9', '3.10', '3.11', '3.12' ]
+        python-version: [ '3.9', '3.10', '3.11', '3.12', '3.13' ]
 
     services:
 
@@ -48,25 +48,6 @@ jobs:
         run: |
           curl -sSL https://install.python-poetry.org | python -
           poetry config virtualenvs.create false
-
-      - name: cache oracle instantclient download
-        id: cache-oracle-instantclient-download
-        uses: actions/cache@v2
-        with:
-          path: oracle-instantclient-basiclite_21.5.0.0.0-2_amd64.deb
-          key: oracle-instantclient-basiclite_21.5.0.0.0-2_amd64
-
-      - name: download oracle instantclient
-        if: steps.cache-oracle-instantclient-download.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install wget alien libaio1 -y
-          wget https://download.oracle.com/otn_software/linux/instantclient/215000/oracle-instantclient-basiclite-21.5.0.0.0-1.x86_64.rpm
-          sudo alien oracle-instantclient-basiclite-21.5.0.0.0-1.x86_64.rpm
-
-      - name: install oracle instantclient
-        run: |
-          sudo apt install ./oracle-instantclient-basiclite_21.5.0.0.0-2_amd64.deb
 
       - name: cache poetry.lock dependencies
         id: cache-poetry-deps

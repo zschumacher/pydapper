@@ -28,7 +28,7 @@ pip install pydapper[psycopg2]
 poetry add pydapper -E psycopg2
 ```
 
-In addition to pscyopg2, pydapper also supports
+In addition to psycopg2, pydapper also supports
 * pymssql
 * mysql-connector-python
 * oracledb

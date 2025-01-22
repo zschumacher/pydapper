@@ -8,7 +8,7 @@ _DEFAULT_DB_API = {
     "sqlite": "sqlite3",
     "mssql": "pymssql",
     "mysql": "mysql",
-    "oracle": "cx_Oracle",
+    "oracle": "oracledb",
     "bigquery": "google",
 }
 

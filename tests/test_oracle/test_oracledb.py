@@ -38,7 +38,7 @@ def test_using(server, database_name):
         assert isinstance(commands.connection, oracledb.Connection)
 
 
-@pytest.mark.parametrize("driver", ["oracle+oracledb"])
+@pytest.mark.parametrize("driver", ["oracle+oracledb", "oracle"])
 def test_connect(driver, database_name, server):
     import oracledb
 

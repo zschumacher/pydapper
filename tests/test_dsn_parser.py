@@ -10,7 +10,7 @@ PSYCOPG2_DSN = "postgresql+psycopg2://pydapper:password@localhost:5433/postgres"
 PSYCOPG3_DSN = "postgresql+psycopg://pydapper:password@localhost:5433/postgres"
 PYMSSQL_DSN = "mssql+pymssql://sa:pydapper!PYDAPPER@localhost:1433/master"
 MYSQL_CONNECTOR_PYTHON_DSN = "mysql+mysql://pydapper:pydapper@localhost:3307/pydapper"
-CX_ORACLE_DSN = "oracle+cx_Oracle://pydapper:pydapper@localhost:1522/pydapper"
+ORACLEDB_DSN = "oracle+oracledb://pydapper:pydapper@localhost:1522/pydapper"
 AIOPG_DSN = "postgresql+aiopg://pydapper:pydapper@localhost:5433/postgres"
 SQLITE_DEFAULT_DSN = "sqlite://some.db"
 POSTGRES_DEFAULT_DSN = "postgresql://pydapper:password@localhost:5433/postgres"
@@ -25,7 +25,7 @@ ALL_DSNS = [
     PSYCOPG3_DSN,
     PYMSSQL_DSN,
     MYSQL_CONNECTOR_PYTHON_DSN,
-    CX_ORACLE_DSN,
+    ORACLEDB_DSN,
     AIOPG_DSN,
     SQLITE_DEFAULT_DSN,
     POSTGRES_DEFAULT_DSN,
@@ -51,7 +51,7 @@ class TestPydapperParseResult:
             (PSYCOPG3_DSN, "postgresql"),
             (PYMSSQL_DSN, "mssql"),
             (MYSQL_CONNECTOR_PYTHON_DSN, "mysql"),
-            (CX_ORACLE_DSN, "oracle"),
+            (ORACLEDB_DSN, "oracle"),
             (AIOPG_DSN, "postgresql"),
             (SQLITE_DEFAULT_DSN, "sqlite"),
             (POSTGRES_DEFAULT_DSN, "postgresql"),
@@ -72,13 +72,13 @@ class TestPydapperParseResult:
             (PSYCOPG3_DSN, "psycopg"),
             (PYMSSQL_DSN, "pymssql"),
             (MYSQL_CONNECTOR_PYTHON_DSN, "mysql"),
-            (CX_ORACLE_DSN, "cx_Oracle"),
+            (ORACLEDB_DSN, "oracledb"),
             (AIOPG_DSN, "aiopg"),
             (SQLITE_DEFAULT_DSN, "sqlite3"),
             (POSTGRES_DEFAULT_DSN, "psycopg2"),
             (MSSQL_DEFAULT_DSN, "pymssql"),
             (MYSQL_DEFAULT_DSN, "mysql"),
-            (ORACLE_DEFAULT_DSN, "cx_Oracle"),
+            (ORACLE_DEFAULT_DSN, "oracledb"),
             ("postgresql+://locahost:5432/postgres", ValueError),
         ],
     )

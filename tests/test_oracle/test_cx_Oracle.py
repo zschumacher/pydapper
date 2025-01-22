@@ -63,8 +63,7 @@ class TestExecute(ExecuteTestSuite):
         )
 
 
-class TestQuery(QueryTestSuite):
-    ...
+class TestQuery(QueryTestSuite): ...
 
 
 class TestQueryMultiple(QueryMultipleTestSuite):
@@ -101,8 +100,7 @@ class TestQueryFirst(QueryFirstTestSuite):
         assert task["ID"] == 1
 
 
-class TestQueryFirstOrDefault(QueryFirstOrDefaultTestSuite):
-    ...
+class TestQueryFirstOrDefault(QueryFirstOrDefaultTestSuite): ...
 
 
 class TestQuerySingle(QuerySingleTestSuite):
@@ -115,9 +113,7 @@ class TestQuerySingle(QuerySingleTestSuite):
         assert task["ID"] == 1
 
 
-class TestQuerySingleOrDefault(QuerySingleOrDefaultTestSuite):
-    ...
+class TestQuerySingleOrDefault(QuerySingleOrDefaultTestSuite): ...
 
 
-class TestExecuteScalar(ExecuteScalarTestSuite):
-    ...
+class TestExecuteScalar(ExecuteScalarTestSuite): ...

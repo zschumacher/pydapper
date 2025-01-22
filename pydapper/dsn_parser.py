@@ -24,8 +24,8 @@ class PydapperParseResult(dsnparse.ParseResult):
         self.hostname: str = self.hostname
         self.username: str = self.username
         self.password: str = self.password
-        self.query: Dict[str, str] = self.query_params  # dict of query string
-        self.query_str: str = self.query  # raw query string
+        self.query_str: str = self.query
+        self.query_params: Dict[str, str] = self.query_params
         self.port: str = self.port
         self.fragment: str = self.fragment
 

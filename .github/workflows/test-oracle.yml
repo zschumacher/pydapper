@@ -19,7 +19,7 @@ jobs:
     services:
 
       oracle:
-        image: gvenzl/oracle-free:23-slim-quickstart
+        image: gvenzl/oracle-free:slim
         ports:
           - 1522:1521
         env:

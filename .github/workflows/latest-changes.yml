@@ -6,7 +6,6 @@ on:
       - main
     types:
       - closed
-  # For manually triggering it
   workflow_dispatch:
     inputs:
       number:
@@ -17,11 +16,11 @@ jobs:
   latest-changes:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           # To allow latest-changes to commit to main
           token: ${{ secrets.ACTIONS_TOKEN }}
-      - uses: docker://tiangolo/latest-changes:0.0.3
+      - uses: docker://tiangolo/latest-changes:0.3.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           latest_changes_file: docs/release_notes.md

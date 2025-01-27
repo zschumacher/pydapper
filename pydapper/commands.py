@@ -4,6 +4,7 @@ from abc import ABC
 from abc import abstractmethod
 from contextlib import ExitStack
 from contextlib import contextmanager
+from functools import cached_property
 from re import Match
 from typing import TYPE_CHECKING
 from typing import Any
@@ -21,7 +22,6 @@ from typing import Union
 from typing import cast
 from typing import overload
 
-from cached_property import cached_property
 from coro_context_manager import CoroContextManager
 
 from .exceptions import MoreThanOneResultException

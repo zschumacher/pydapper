@@ -29,7 +29,7 @@ services:
       MYSQL_PASSWORD: "pydapper"
 
   oracle:
-    image: gvenzl/oracle-free:23-slim-fastart
+    image: gvenzl/oracle-free:slim
     platform: "linux/amd64"
     ports:
       - "1522:1521"

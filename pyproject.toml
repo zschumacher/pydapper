@@ -163,3 +163,10 @@ markers = [
     "sqlite: marks tests that require sqlite (deselect with '-m \"not sqlite\"')",
     "mssql: marks tests that require mssql (deselect with '-m \"not mssql\")"
 ]
+
+[tool.mypy]
+no_implicit_optional = false
+
+[[tool.mypy.overrides]]
+module = "dsnparse.*"
+ignore_missing_imports = true

@@ -40,10 +40,10 @@ jobs:
         run: poetry install --extras "psycopg2 pymssql" # install mypy extras
 
       - name: mypy
-        run: poetry run mypy --config-file mypy.ini .
+        run: poetry run mypy pydapper
 
       - name: test annotations
-        run: poetry run mypy --config-file mypy.ini tests/annotation_tests.py
+        run: poetry run mypy tests/annotation_tests.py
 
       - name: isort
         run: poetry run isort --check .

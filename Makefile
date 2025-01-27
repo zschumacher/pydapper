@@ -38,6 +38,7 @@ install: clean ## install the package to the active Python's site-packages
 
 mypy: ## run type hinting check
 	poetry run mypy pydapper
+	poetry run mypy tests/type_tests.py
 
 test-cov: ## run the tests with coverage turned on
 	poetry run pytest --cov=. --cov-branch -v --durations=25

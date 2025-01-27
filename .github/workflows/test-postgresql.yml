@@ -58,12 +58,14 @@ jobs:
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
         run: poetry install -E psycopg2 -E psycopg -E aiopg
 
-      - name: test and coverage
+      - name: test
         env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          poetry run pytest -m "postgresql" --cov=. --cov-branch -v --durations=25
-          poetry run coverage report -m
-          poetry run codecov -F ${{ matrix.python-version }}-postgresql
+          poetry run pytest -m "core"  --cov=. --cov-branch -v --durations=25 --cov-report=xml
+
+      - uses: codecov/codecov-action@v5
+        with:
+          fail_ci_if_error: true
+          flags: ${{ matrix.python-version}}-postgresql
+          token: ${{ secrets.CODECOV_TOKEN }}

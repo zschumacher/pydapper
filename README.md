@@ -13,10 +13,12 @@ A pure python library inspired by the NuGet library [dapper](https://dapper-tuto
 to provide more convenient methods for working with databases in python, with both sync
 and async dbapi support.
 
+---
 ## Help
 See the [documentation](https://pydapper.readthedocs.io/en/latest/) for more details and examples for configuring all
 of the connectors pydapper supports.
 
+---
 ## Installation
 It is recommended to only install the database apis you need for your use case.  Example below is for psycopg2!
 ### pip
@@ -29,15 +31,25 @@ pip install pydapper[psycopg2]
 poetry add pydapper -E psycopg2
 ```
 
-In addition to psycopg2, pydapper also supports
-* pymssql
-* mysql-connector-python
-* oracledb
-* aiopg
-* google-cloud-bigquery
-* sqlite3
-* psycopg (just the sync api, for now..)
+---
+## Supported drivers
+The [database support docs](https://pydapper.readthedocs.io/en/latest/database_support/intro/)
+go into further detail about how to connect to the different drivers pydapper supports.
+  
+In addition to `psycopg2`, *pydapper* also supports. 
 
+### Sync dbapis
+* `pymssql`
+* `mysql-connector-python`
+* `oracledb`
+* `google-cloud-bigquery`
+* `sqlite3`
+* `psycopg`
+### Async dbapis
+* `aiopg`
+* `psycopg`
+
+---
 ## Never write this again...
 ```python
 from psycopg2 import connect

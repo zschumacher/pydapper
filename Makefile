@@ -37,7 +37,8 @@ install: clean ## install the package to the active Python's site-packages
 	poetry install
 
 mypy: ## run type hinting check
-	poetry run mypy --config-file mypy.ini .
+	poetry run mypy pydapper
+	poetry run mypy tests/type_tests.py
 
 test-cov: ## run the tests with coverage turned on
 	poetry run pytest --cov=. --cov-branch -v --durations=25
@@ -70,6 +71,3 @@ resetlock: ## reset the poetry lock file from main
 	rm poetry.lock
 	git checkout main poetry.lock
 	poetry lock --no-update
-
-colima: ## start up colima to run oracle images on ARM chips
-	colima start --arch x86_64 --memory 4

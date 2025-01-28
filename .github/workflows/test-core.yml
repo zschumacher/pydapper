@@ -18,23 +18,23 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
       - name: set up python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: install poetry
         env:
-          POETRY_VERSION: "1.7.1"
+          POETRY_VERSION: "2.0.1"
         run: |
           curl -sSL https://install.python-poetry.org | python -
           poetry config virtualenvs.create false
 
       - name: cache poetry.lock dependencies
         id: cache-poetry-deps
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ${{ env.pythonLocation }}
           key: ${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-test-core
@@ -43,12 +43,15 @@ jobs:
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
         run: poetry install
 
-      - name: test and coverage
+      - name: test
         env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          poetry run pytest -m "core"  --cov=. --cov-branch -v --durations=25
-          poetry run coverage report -m
-          poetry run codecov -F ${{ matrix.python-version }}-core
+          poetry run pytest -m "core"  --cov=. --cov-branch -v --durations=25 --cov-report=xml
+
+      - uses: codecov/codecov-action@v5
+        with:
+          fail_ci_if_error: true
+          flags: ${{ matrix.python-version}}-core
+          token: ${{ secrets.CODECOV_TOKEN }}
+

@@ -13,16 +13,16 @@ jobs:
         env:
           GITHUB_CONTEXT: ${{ toJson(github) }}
         run: echo "$GITHUB_CONTEXT"
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: set up python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: "3.9"
 
       - name: install poetry
         env:
-          POETRY_VERSION: "1.7.1"
+          POETRY_VERSION: "2.0.1"
         run: curl -sSL https://install.python-poetry.org | python -
 
       - name: publish

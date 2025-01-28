@@ -29,8 +29,7 @@ services:
       MYSQL_PASSWORD: "pydapper"
 
   oracle:
-    # view the ref for running on ARM chips https://github.com/gvenzl/oci-oracle-xe#oracle-xe-on-apple-m-chips
-    image: gvenzl/oracle-xe:slim
+    image: gvenzl/oracle-free:slim
     platform: "linux/amd64"
     ports:
       - "1522:1521"

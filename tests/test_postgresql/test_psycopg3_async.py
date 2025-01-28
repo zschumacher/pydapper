@@ -3,56 +3,29 @@ import datetime
 import pytest
 import pytest_asyncio
 
-from pydapper import connect
 from pydapper import connect_async
-from pydapper import using
 from pydapper import using_async
-from pydapper.postgresql.psycopg3 import Psycopg3Commands
 from pydapper.postgresql.psycopg3 import Psycopg3CommandsAsync
 from tests.test_suites.commands import ExecuteAsyncTestSuite
 from tests.test_suites.commands import ExecuteScalarAsyncTestSuite
-from tests.test_suites.commands import ExecuteScalarTestSuite
-from tests.test_suites.commands import ExecuteTestSuite
 from tests.test_suites.commands import QueryAsyncTestSuite
 from tests.test_suites.commands import QueryFirstAsyncTestSuite
 from tests.test_suites.commands import QueryFirstOrDefaultAsyncTestSuite
-from tests.test_suites.commands import QueryFirstOrDefaultTestSuite
-from tests.test_suites.commands import QueryFirstTestSuite
 from tests.test_suites.commands import QueryMultipleAsyncTestSuite
-from tests.test_suites.commands import QueryMultipleTestSuite
 from tests.test_suites.commands import QuerySingleAsyncTestSuite
 from tests.test_suites.commands import QuerySingleOrDefaultAsyncTestSuite
-from tests.test_suites.commands import QuerySingleOrDefaultTestSuite
-from tests.test_suites.commands import QuerySingleTestSuite
-from tests.test_suites.commands import QueryTestSuite
 
 pytestmark = pytest.mark.postgresql
 
 
-@pytest.fixture(scope="function")
-def commands(server, database_name) -> Psycopg3Commands:
-    import psycopg
-
-    with Psycopg3Commands(psycopg.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")) as commands:
-        yield commands
-        commands.connection.rollback()
-
-
 @pytest_asyncio.fixture(scope="function")
-async def commands_async(server, database_name) -> Psycopg3CommandsAsync:
+async def commands(server, database_name) -> Psycopg3CommandsAsync:
     import psycopg
 
     conn = await psycopg.AsyncConnection.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")
-    with Psycopg3CommandsAsync(conn) as commands_async:
+    async with Psycopg3CommandsAsync(conn) as commands_async:
         yield commands_async
         await commands_async.connection.rollback()
-
-
-def test_using(server, database_name):
-    import psycopg
-
-    with using(psycopg.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")) as commands:
-        assert isinstance(commands, Psycopg3Commands)
 
 
 @pytest.mark.asyncio
@@ -65,22 +38,17 @@ async def test_using_async(server, database_name):
 
 
 @pytest.mark.parametrize("driver", ["postgresql+psycopg"])
-def test_connect(driver, server, database_name):
-    with connect(f"{driver}://pydapper:pydapper@{server}:5433/{database_name}") as commands:
-        assert isinstance(commands, Psycopg3Commands)
-
-
-@pytest.mark.parametrize("driver", ["postgresql+psycopg"])
 @pytest.mark.asyncio
 async def test_connect_async(driver, server, database_name):
     async with connect_async(f"{driver}://pydapper:pydapper@{server}:5433/{database_name}") as commands_async:
         assert isinstance(commands_async, Psycopg3CommandsAsync)
 
 
-class TestExecute(ExecuteTestSuite):
-    def test_multiple(self, commands):
+@pytest.mark.asyncio
+class TestExecuteAsync(ExecuteAsyncTestSuite):
+    async def test_multiple(self, commands):
         assert (
-            commands.execute(
+            await commands.execute_async(
                 "INSERT INTO task (id, description, due_date, owner_id) "
                 "VALUES (?id?, ?description?, ?due_date?, ?owner_id?)",
                 [
@@ -92,22 +60,22 @@ class TestExecute(ExecuteTestSuite):
         )
 
 
-class TestQuery(QueryTestSuite): ...
+class TestQueryAsync(QueryAsyncTestSuite): ...
 
 
-class TestQueryMultiple(QueryMultipleTestSuite): ...
+class TestQueryMultipleAsync(QueryMultipleAsyncTestSuite): ...
 
 
-class TestQueryFirst(QueryFirstTestSuite): ...
+class TestQueryFirstAsync(QueryFirstAsyncTestSuite): ...
 
 
-class TestQueryFirstOrDefault(QueryFirstOrDefaultTestSuite): ...
+class TestQueryFirstOrDefaultAsync(QueryFirstOrDefaultAsyncTestSuite): ...
 
 
-class TestQuerySingle(QuerySingleTestSuite): ...
+class TestQuerySingleAsync(QuerySingleAsyncTestSuite): ...
 
 
-class TestQuerySingleOrDefault(QuerySingleOrDefaultTestSuite): ...
+class TestQuerySingleOrDefaultAsync(QuerySingleOrDefaultAsyncTestSuite): ...
 
 
-class TestExecuteScalar(ExecuteScalarTestSuite): ...
+class TestExecuteScalarAsync(ExecuteScalarAsyncTestSuite): ...

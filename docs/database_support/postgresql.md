@@ -1,11 +1,11 @@
 # [PostgreSQL](https://www.postgresql.org)
 Supported drivers:
 
-| dbapi                                               | default      | driver                | connection class                 |
-|-----------------------------------------------------|--------------|-----------------------|----------------------------------|
-| [psycopg2](https://www.psycopg.org/docs/usage.html) | :thumbsup:   | `postgresql+psycopg2` | `psycopg2.extensions.connection` |
-| [psycopg3](https://www.psycopg.org/psycopg3/docs/)  | :thumbsdown: | `postgresql+psycopg`  | `psycopg.Connection`             |
-| [aiopg](https://aiopg.readthedocs.io/en/stable/)    | :thumbsdown: | `postgresql+aiopg`    | `aiopg.connection.Connection`    |
+| dbapi                                               | default      | driver                | connection class                                   |
+|-----------------------------------------------------|--------------|-----------------------|----------------------------------------------------|
+| [psycopg2](https://www.psycopg.org/docs/usage.html) | :thumbsup:   | `postgresql+psycopg2` | `psycopg2.extensions.connection`                   |
+| [psycopg3](https://www.psycopg.org/psycopg3/docs/)  | :thumbsdown: | `postgresql+psycopg`  | `psycopg.Connection` \| `psycopg2.ConnectionAsync` |
+| [aiopg](https://aiopg.readthedocs.io/en/stable/)    | :thumbsdown: | `postgresql+aiopg`    | `aiopg.connection.Connection`                      |
 
 ## psycopg2
 `psycopg2` is the default dbapi driver for PostgreSQL in *pydapper*.
@@ -55,8 +55,8 @@ with connect("postgresql://pydapper:pydapper@localhost/pydapper") as commands:
 # connection is still open, lets close it
 commands.connection.close()
 ```
-
 </details>
+
 
 ### Example - `using`
 Use *pydapper* with a `psycopg2` connection pool.
@@ -65,6 +65,9 @@ Use *pydapper* with a `psycopg2` connection pool.
 ```
 
 ## psycopg3
+`psycopg3` is special because the driver supports both sync and async apis.  Connecting with both is listed below,
+but note that the difference will be getting an `CommandsAsync` object instead of a `Commands` object when connecting in
+async mode.
 
 ### Installation
 === "pip"
@@ -95,11 +98,18 @@ context manager behavior.
 {!docs/../docs_src/connections/psycopg3_connect.py!}
 ```
 
-</details>
+### Example - `connect_async`
+Please see the [psycopg docs](https://www.psycopg.org/psycopg3/docs/advanced/async.html#with-async-connections) for a full description of the
+context manager behavior.  
+```python
+{!docs/../docs_src/connections/psycopg3_connect_async.py!}
+```
 
-### Example - `using`
-Use *pydapper* with a `psycopg` connection pool. Package that handles [connection pools](https://www.psycopg.org/psycopg3/docs/advanced/pool.html#connection-pools) is distributed separately from the main package.
+### `using`, `using_async` and connection pools
+Use *pydapper* with a `psycopg` connection pool. The package that handles [connection pools](https://www.psycopg.org/psycopg3/docs/advanced/pool.html#connection-pools) is distributed 
+separately from the `psycopg`, and is called `psycopg_pool`; it supports both sync and async connection pools.
 
+#### `psycopg_pool` installation
 === "pip"
     ```console
     pip install psycopg_pool
@@ -110,8 +120,14 @@ Use *pydapper* with a `psycopg` connection pool. Package that handles [connectio
     poetry add psycopg_pool
     ```
 
+#### Example `using`
 ```python
 {!docs/../docs_src/connections/psycopg3_using.py!}
+```
+
+#### Example `using_async`
+```python
+{!docs/../docs_src/connections/psycopg3_using_async.py!}
 ```
 
 ## aiopg

@@ -1,5 +1,7 @@
 ## Latest Changes
 
+* :wrench: upgrade poetry, actions, and use newer oracle image. PR [#335](https://github.com/zschumacher/pydapper/pull/335) by [@zschumacher](https://github.com/zschumacher).
+
 ## 0.11.1
 ### Features
 * :sparkles: Add callable that returns a model as a supported model type. PR [#333](https://github.com/zschumacher/pydapper/pull/333) by [@zschumacher](https://github.com/zschumacher).

@@ -51,7 +51,7 @@ jobs:
         env:
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          poetry run pytest -m "core"  --cov=. --cov-branch -v --durations=25 --cov-report=xml
+          poetry run pytest -m "bigquery"  --cov=. --cov-branch -v --durations=25 --cov-report=xml
 
       - uses: codecov/codecov-action@v5
         with:

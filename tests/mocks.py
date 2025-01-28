@@ -134,5 +134,3 @@ class MockAsyncCommands(CommandsAsync):
     @classmethod
     async def connect_async(cls, parsed_dsn, **connect_kwargs):
         return cls(MockAsyncConnection())
-
-MockAsyncConnection()

@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* :sparkles: Support psycopg async apis. PR [#336](https://github.com/zschumacher/pydapper/pull/336) by [@zschumacher](https://github.com/zschumacher).
 * :wrench: upgrade poetry, actions, and use newer oracle image. PR [#335](https://github.com/zschumacher/pydapper/pull/335) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.11.1

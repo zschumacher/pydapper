@@ -71,3 +71,45 @@ resetlock: ## reset the poetry lock file from main
 	rm poetry.lock
 	git checkout main poetry.lock
 	poetry lock --no-update
+
+waitforpinot:
+	@echo "Waiting for Pinot container to be healthy..."
+	@timeout=60; \
+	while [ $$timeout -gt 0 ]; do \
+	    status=$$(docker inspect -f '{{.State.Health.Status}}' pinot-quickstart); \
+	    if [ "$$status" = "healthy" ]; then \
+	        echo "Pinot container is healthy and ready!"; \
+	        exit 0; \
+	    elif [ "$$status" = "unhealthy" ]; then \
+	        echo "ERROR: Pinot container became unhealthy."; \
+	        exit 1; \
+	    fi; \
+	    echo "Waiting for container to be healthy... ($$timeout seconds left)"; \
+	    sleep 2; \
+	    timeout=$$((timeout - 2)); \
+	done; \
+	echo "ERROR: Pinot container did not become healthy within the timeout period."; \
+	exit 1
+
+pinottables:
+	@poetry run python scripts/seed_pinot.py
+	echo "Pinot successfully started and seeded!"
+
+startpinot:  # starts apache pinot batch processing quick start
+	@echo "Staring apache pinot"
+	@docker run -d --name pinot-quickstart -p 9000:9000 \
+      -p 8099:8000 \
+      --health-cmd="curl -f http://localhost:9000/health || exit 1" \
+	  --health-interval=10s \
+	  --health-timeout=5s \
+	  --health-retries=3 \
+	  --health-start-period=5s \
+	  apachepinot/pinot:latest QuickStart -type empty
+
+stoppinot:
+	@docker stop pinot-quickstart
+	@docker rm pinot-quickstart
+
+pinot: startpinot waitforpinot pinottables
+
+resetpinot: stoppinot pinot

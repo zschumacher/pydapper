@@ -1,0 +1,15 @@
+{
+  "schemaName": "owner",
+  "enableColumnBasedNullHandling": false,
+  "dimensionFieldSpecs": [
+    {
+      "name": "id",
+      "dataType": "INT"
+    },
+    {
+      "name": "name",
+      "dataType": "STRING"
+    }
+  ],
+  "primaryKeyColumns": ["id"]
+}

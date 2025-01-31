@@ -1,0 +1,23 @@
+{
+  "schemaName": "task",
+  "enableColumnBasedNullHandling": false,
+  "dimensionFieldSpecs": [
+    {
+      "name": "id",
+      "dataType": "INT"
+    },
+    {
+      "name": "description",
+      "dataType": "STRING"
+    },
+    {
+      "name": "owner_id",
+      "dataType": "INT"
+    },
+    {
+      "name": "due_date",
+      "dataType": "STRING"
+    }
+  ],
+  "primaryKeyColumns": ["id"]
+}

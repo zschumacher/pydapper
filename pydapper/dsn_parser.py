@@ -10,6 +10,7 @@ _DEFAULT_DB_API = {
     "mysql": "mysql",
     "oracle": "oracledb",
     "bigquery": "google",
+    "pinot": "pinotdb",
 }
 
 

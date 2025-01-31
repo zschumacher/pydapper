@@ -1,0 +1,20 @@
+{
+  "tableName": "task",
+  "tableType": "OFFLINE",
+  "segmentsConfig": {
+    "schemaName": "task",
+    "segmentPushType": "REFRESH",
+    "replication": 1
+  },
+  "tenants": {},
+  "tableIndexConfig": {
+  },
+  "metadata": {},
+  "quota": {
+    "storage": "200M"
+  },
+  "isDimTable": true,
+  "dimensionTableConfig": {
+    "disablePreload": true
+  }
+}

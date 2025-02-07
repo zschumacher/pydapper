@@ -15,6 +15,7 @@ def sqlite_setup(database_name, setup_sql_dir):
         conn.executescript(sql)
     yield
     os.remove(db_name)
+    os.remove(os.path.join(setup_sql_dir, db_name))
 
 
 @pytest.fixture(scope="function")

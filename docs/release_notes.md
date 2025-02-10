@@ -1,6 +1,13 @@
 ## Latest Changes
 
+## 0.12.0
+### Features
 * :sparkles: Support psycopg async apis. PR [#336](https://github.com/zschumacher/pydapper/pull/336) by [@zschumacher](https://github.com/zschumacher).
+
+### Bug Fixes
+* 🔧 fix sqlite not opening in subdirectories. PR [#344](https://github.com/zschumacher/pydapper/pull/344) by [@arieroos](https://github.com/arieroos).
+
+### Internal
 * :wrench: upgrade poetry, actions, and use newer oracle image. PR [#335](https://github.com/zschumacher/pydapper/pull/335) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.11.1

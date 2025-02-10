@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* 🔧 fix sqlite not opening in subdirectories. PR [#344](https://github.com/zschumacher/pydapper/pull/344) by [@arieroos](https://github.com/arieroos).
 * :sparkles: Support psycopg async apis. PR [#336](https://github.com/zschumacher/pydapper/pull/336) by [@zschumacher](https://github.com/zschumacher).
 * :wrench: upgrade poetry, actions, and use newer oracle image. PR [#335](https://github.com/zschumacher/pydapper/pull/335) by [@zschumacher](https://github.com/zschumacher).
 

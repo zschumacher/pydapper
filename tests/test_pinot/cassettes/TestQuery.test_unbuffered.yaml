@@ -1,0 +1,36 @@
+interactions:
+- request:
+    body: '{"sql": "select * from task"}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      content-length:
+      - '29'
+      content-type:
+      - application/json
+      host:
+      - localhost:8099
+      user-agent:
+      - python-httpx/0.27.2
+    method: POST
+    uri: http://localhost:8099/query/sql
+  response:
+    body:
+      string: '{"resultTable":{"dataSchema":{"columnNames":["description","due_date","id","owner_id"],"columnDataTypes":["STRING","STRING","INT","INT"]},"rows":[["Set
+        up a test database","2021-12-31",1,1],["Seed the test database","2021-12-31",2,1],["Run
+        the test suite","2022-01-01",3,1]]},"numRowsResultSet":3,"partialResult":false,"exceptions":[],"numGroupsLimitReached":false,"timeUsedMs":3,"requestId":"93259971000000003","brokerId":"Broker_172.17.0.2_8000","numDocsScanned":3,"totalDocs":3,"numEntriesScannedInFilter":0,"numEntriesScannedPostFilter":12,"numServersQueried":1,"numServersResponded":1,"numSegmentsQueried":1,"numSegmentsProcessed":1,"numSegmentsMatched":1,"numConsumingSegmentsQueried":0,"numConsumingSegmentsProcessed":0,"numConsumingSegmentsMatched":0,"minConsumingFreshnessTimeMs":0,"numSegmentsPrunedByBroker":0,"numSegmentsPrunedByServer":0,"numSegmentsPrunedInvalid":0,"numSegmentsPrunedByLimit":0,"numSegmentsPrunedByValue":0,"brokerReduceTimeMs":0,"offlineThreadCpuTimeNs":0,"realtimeThreadCpuTimeNs":0,"offlineSystemActivitiesCpuTimeNs":0,"realtimeSystemActivitiesCpuTimeNs":0,"offlineResponseSerializationCpuTimeNs":0,"realtimeResponseSerializationCpuTimeNs":0,"offlineTotalCpuTimeNs":0,"realtimeTotalCpuTimeNs":0,"explainPlanNumEmptyFilterSegments":0,"explainPlanNumMatchAllFilterSegments":0,"traceInfo":{},"tablesQueried":["task"]}'
+    headers:
+      Content-Length:
+      - '1348'
+      Content-Type:
+      - application/json
+      X-Pinot-Error-Code:
+      - '-1'
+    status:
+      code: 200
+      message: OK
+version: 1

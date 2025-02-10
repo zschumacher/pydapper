@@ -21,6 +21,30 @@ psycopg2-binary = ">=2.9.5"
 sa = ["sqlalchemy[postgresql-psycopg2binary] (>=1.3,<1.5)"]
 
 [[package]]
+name = "anyio"
+version = "4.8.0"
+description = "High level compatibility layer for multiple asynchronous event loop implementations"
+optional = true
+python-versions = ">=3.9"
+groups = ["main"]
+markers = "extra == \"pinotdb\""
+files = [
+    {file = "anyio-4.8.0-py3-none-any.whl", hash = "sha256:b5011f270ab5eb0abf13385f851315585cc37ef330dd88e27ec3d34d651fd47a"},
+    {file = "anyio-4.8.0.tar.gz", hash = "sha256:1d9fe889df5212298c0c0723fa20479d1b94883a2df44bd3897aa91083316f7a"},
+]
+
+[package.dependencies]
+exceptiongroup = {version = ">=1.0.2", markers = "python_version < \"3.11\""}
+idna = ">=2.8"
+sniffio = ">=1.1"
+typing_extensions = {version = ">=4.5", markers = "python_version < \"3.13\""}
+
+[package.extras]
+doc = ["Sphinx (>=7.4,<8.0)", "packaging", "sphinx-autodoc-typehints (>=1.2.0)", "sphinx_rtd_theme"]
+test = ["anyio[trio]", "coverage[toml] (>=7)", "exceptiongroup (>=1.2.0)", "hypothesis (>=4.0)", "psutil (>=5.9)", "pytest (>=7.0)", "trustme", "truststore (>=0.9.1)", "uvloop (>=0.21)"]
+trio = ["trio (>=0.26.1)"]
+
+[[package]]
 name = "asttokens"
 version = "2.4.1"
 description = "Annotate AST trees with source code positions"
@@ -138,7 +162,7 @@ files = [
     {file = "certifi-2024.12.14-py3-none-any.whl", hash = "sha256:1275f7a45be9464efc1173084eaa30f866fe2e47d389406136d332ed4967ec56"},
     {file = "certifi-2024.12.14.tar.gz", hash = "sha256:b650d30f370c2b724812bee08008be0c4163b163ddaec3f2546c1caf65f191db"},
 ]
-markers = {main = "extra == \"google-cloud-bigquery\" or extra == \"google-cloud-bigquery-storage\""}
+markers = {main = "extra == \"google-cloud-bigquery\" or extra == \"google-cloud-bigquery-storage\" or extra == \"pinotdb\""}
 
 [[package]]
 name = "cffi"
@@ -323,6 +347,64 @@ files = [
     {file = "charset_normalizer-3.4.1.tar.gz", hash = "sha256:44251f18cd68a75b56585dd00dae26183e102cd5e0f9f1466e6df5da2ed64ea3"},
 ]
 markers = {main = "extra == \"google-cloud-bigquery\" or extra == \"google-cloud-bigquery-storage\""}
+
+[[package]]
+name = "ciso8601"
+version = "2.3.2"
+description = "Fast ISO8601 date time parser for Python written in C"
+optional = true
+python-versions = "*"
+groups = ["main"]
+markers = "extra == \"pinotdb\""
+files = [
+    {file = "ciso8601-2.3.2-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:1bb2d4d20d7ed65fcc7137652d7d980c6eb2aa19c935579309170137d33064ce"},
+    {file = "ciso8601-2.3.2-cp310-cp310-macosx_11_0_universal2.whl", hash = "sha256:3039f11ced0bc971341ab63be222860eb2cc942d51a7aa101b1809b633ad2288"},
+    {file = "ciso8601-2.3.2-cp310-cp310-macosx_11_0_x86_64.whl", hash = "sha256:d64634b02cfb194e54569d8de3ace89cec745644cab38157aea0b03d32031eda"},
+    {file = "ciso8601-2.3.2-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b0dcb8dc5998bc50346cec9d3b8b5deda8ddabeda70a923c110efb5100cd9754"},
+    {file = "ciso8601-2.3.2-cp310-cp310-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:13a3ca99eadbee4a9bb7dfb2bcf266a21828033853cd99803a9893d3473ac0e9"},
+    {file = "ciso8601-2.3.2-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:d61daee5e8daee87eba34151b9952ec8c3327ad9e54686b6247dcb9b2b135312"},
+    {file = "ciso8601-2.3.2-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:2f20654de6b0374eade96d8dcb0642196632067b6dd2e24068c563ac6b8551c6"},
+    {file = "ciso8601-2.3.2-cp310-cp310-win_amd64.whl", hash = "sha256:0283884c33dbe0555f9a24749ac947f93eac7b131fdfeeee110ad999947d1680"},
+    {file = "ciso8601-2.3.2-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:f0e856903cb6019ab26849af7270ef183b2314f87fd17686a8c98315eff794df"},
+    {file = "ciso8601-2.3.2-cp311-cp311-macosx_11_0_universal2.whl", hash = "sha256:d99297a5925ef3c9ac316cab082c1b1623d976acdb5056fbb8cb12a854116351"},
+    {file = "ciso8601-2.3.2-cp311-cp311-macosx_11_0_x86_64.whl", hash = "sha256:2e740d2dcac81b5adb0cff641706d5a9e54ff4f3bb7e24437cdacdab3937c0a3"},
+    {file = "ciso8601-2.3.2-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e883a08b294694313bd3a85c1a136f4326ca26050552742c489159c52e296060"},
+    {file = "ciso8601-2.3.2-cp311-cp311-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6994b393b1e1147dbc2f13d6d508f6e95b96d7f770299a4af70b7c1d380242c1"},
+    {file = "ciso8601-2.3.2-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:2d31a04bea97f21b797fd414b465c00283b70d9523e8e51bc303bec04195a278"},
+    {file = "ciso8601-2.3.2-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:ce014a3559592320a2a7a7205257e57dd1277580038a30f153627c5d30ed7a07"},
+    {file = "ciso8601-2.3.2-cp311-cp311-win_amd64.whl", hash = "sha256:b069800ea5613eea7d323716133a74bd0fba4a781286167a20639b6628a7e068"},
+    {file = "ciso8601-2.3.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:75870a1e496a17e9e8d2ac90125600e1bafe51679d2836b2f6cb66908fef7ad6"},
+    {file = "ciso8601-2.3.2-cp312-cp312-macosx_11_0_universal2.whl", hash = "sha256:c117c415c43aa3db68ee16a2446cb85c5e88459650421d773f6f6444ce5e5819"},
+    {file = "ciso8601-2.3.2-cp312-cp312-macosx_11_0_x86_64.whl", hash = "sha256:ce5f76297b6138dc5c085d4c5a0a631afded99f250233fe583dc365f67fe8a8d"},
+    {file = "ciso8601-2.3.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8e3205e4cfd63100f454ea67100c7c6123af32da0022bdc6e81058e95476a8ad"},
+    {file = "ciso8601-2.3.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5308a14ac72898f91332ccfded2f18a6c558ccd184ccff84c4fb36c7e4c2a0e6"},
+    {file = "ciso8601-2.3.2-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:e825cb5ecd232775a94ef3c456ab19752ee8e66eaeb20562ea45472eaa8614ec"},
+    {file = "ciso8601-2.3.2-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:7a8f96f91bdeabee7ebca2c6e48185bea45e195f406ff748c87a3c9ecefb25cc"},
+    {file = "ciso8601-2.3.2-cp312-cp312-win_amd64.whl", hash = "sha256:3fe497819e50a245253a3b2d62ec4c68f8cf337d79dc18e2f3b0a74d24dc5e93"},
+    {file = "ciso8601-2.3.2-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:361a49da3e53811ddc371ff2183d32ee673321899e4653c4d55ed06d0a81ef3d"},
+    {file = "ciso8601-2.3.2-cp38-cp38-macosx_11_0_universal2.whl", hash = "sha256:af26301e0e0cfc6cda225fd2a8b1888bf3828a7d24756774325bda7d29ab2468"},
+    {file = "ciso8601-2.3.2-cp38-cp38-macosx_11_0_x86_64.whl", hash = "sha256:af399c2671dfe8fead4f34908a6e6ef3689db9606f2028269b578afd2326b96e"},
+    {file = "ciso8601-2.3.2-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:fa8978a69a6061380b352442160d468915d102c18b0b805a950311e6e0f3b821"},
+    {file = "ciso8601-2.3.2-cp38-cp38-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:347db58040ad1cb3d2175f5699f0fb1abcb9e894ad744e3460b01bd101bb78a1"},
+    {file = "ciso8601-2.3.2-cp38-cp38-musllinux_1_2_aarch64.whl", hash = "sha256:d7860ad2b52007becfd604cfe596f0b7ffa8ffe4f7336b58ef1a2234dc53fa10"},
+    {file = "ciso8601-2.3.2-cp38-cp38-musllinux_1_2_x86_64.whl", hash = "sha256:91dab638ffaff1da12e0a6de4cfca520430426a1c0eaba5841b1311f45516d49"},
+    {file = "ciso8601-2.3.2-cp38-cp38-win_amd64.whl", hash = "sha256:2e9a072465ecdbaa3bd2b17e26cc7a0376f9729021c8000656dd97a9343f8723"},
+    {file = "ciso8601-2.3.2-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:0fbbe659093d4aef1e66de0ee9a10487439527be4b2f6a6710960f98a41e2cc5"},
+    {file = "ciso8601-2.3.2-cp39-cp39-macosx_11_0_universal2.whl", hash = "sha256:8ccb16db7ca83cc39df3c73285e9ab4920a90f0dbef566f60f0c6cca44becaba"},
+    {file = "ciso8601-2.3.2-cp39-cp39-macosx_11_0_x86_64.whl", hash = "sha256:dac06a1bd3c12ab699c29024c5f052e7016cb904e085a5e2b26e6b92fd2dd1dc"},
+    {file = "ciso8601-2.3.2-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a323aa0143ad8e99d7a0b0ac3005419c505e073e6f850f0443b5994b31a52d14"},
+    {file = "ciso8601-2.3.2-cp39-cp39-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5e9290e7e1b1c3a6df3967e3f1b22c334c980e841f5a1967ab6ef92b30a540d8"},
+    {file = "ciso8601-2.3.2-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:fc2a6bb31030b875c7706554b99e1d724250e0fc8160aa2f3ae32520b8dccbc5"},
+    {file = "ciso8601-2.3.2-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:69e137cf862c724a9477b62d89fb8190f141ed6d036f6c4cf824be6d9a7b819e"},
+    {file = "ciso8601-2.3.2-cp39-cp39-win_amd64.whl", hash = "sha256:6591d8f191b0a12fa5ac53e1bc0e799f6f2068d0fa5684815706c59a4831f412"},
+    {file = "ciso8601-2.3.2-pp310-pypy310_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ecc2f7090e7b8427288b9528fa9571682426f2c7d45d39cf940321192d8796c8"},
+    {file = "ciso8601-2.3.2-pp310-pypy310_pp73-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c585a05d745c36f974030d1831ed899f8b00afd760f6eff6b8de7eef72cb1336"},
+    {file = "ciso8601-2.3.2-pp38-pypy38_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:fbbe0af7ef440d679ce546f926fc441e31025c6a96c1bb54087df0e5e6c8e021"},
+    {file = "ciso8601-2.3.2-pp38-pypy38_pp73-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:69136ef63e7d5178727f358a9cfe4dfda52f132eafcddfa7e6d5933ee1d73b7a"},
+    {file = "ciso8601-2.3.2-pp39-pypy39_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ff397592a0eadd5e0aec395a285751707c655439abb874ad93e34d04d925ec8d"},
+    {file = "ciso8601-2.3.2-pp39-pypy39_pp73-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7eb6c8756806f4b8320fe57e3b048dafc54e99af7586160ff9318f35fc521268"},
+    {file = "ciso8601-2.3.2.tar.gz", hash = "sha256:ec1616969aa46c51310b196022e5d3926f8d3fa52b80ec17f6b4133623bd5434"},
+]
 
 [[package]]
 name = "click"
@@ -527,12 +609,12 @@ version = "1.2.2"
 description = "Backport of PEP 654 (exception groups)"
 optional = false
 python-versions = ">=3.7"
-groups = ["dev"]
-markers = "python_version < \"3.11\""
+groups = ["main", "dev"]
 files = [
     {file = "exceptiongroup-1.2.2-py3-none-any.whl", hash = "sha256:3111b9d131c238bec2f8f516e123e14ba243563fb135d3fe885990585aa7795b"},
     {file = "exceptiongroup-1.2.2.tar.gz", hash = "sha256:47c2edf7c6738fafb49fd34290706d1a1a2f4d1c6df275526b62cbb4aa5393cc"},
 ]
+markers = {main = "python_version < \"3.11\" and extra == \"pinotdb\"", dev = "python_version < \"3.11\""}
 
 [package.extras]
 test = ["pytest (>=6)"]
@@ -897,6 +979,69 @@ grpcio = ">=1.69.0"
 protobuf = ">=5.26.1,<6.0dev"
 
 [[package]]
+name = "h11"
+version = "0.14.0"
+description = "A pure-Python, bring-your-own-I/O implementation of HTTP/1.1"
+optional = true
+python-versions = ">=3.7"
+groups = ["main"]
+markers = "extra == \"pinotdb\""
+files = [
+    {file = "h11-0.14.0-py3-none-any.whl", hash = "sha256:e3fe4ac4b851c468cc8363d500db52c2ead036020723024a109d37346efaa761"},
+    {file = "h11-0.14.0.tar.gz", hash = "sha256:8f19fbbe99e72420ff35c00b27a34cb9937e902a8b810e2c88300c6f0a3b699d"},
+]
+
+[[package]]
+name = "httpcore"
+version = "1.0.7"
+description = "A minimal low-level HTTP client."
+optional = true
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "extra == \"pinotdb\""
+files = [
+    {file = "httpcore-1.0.7-py3-none-any.whl", hash = "sha256:a3fff8f43dc260d5bd363d9f9cf1830fa3a458b332856f34282de498ed420edd"},
+    {file = "httpcore-1.0.7.tar.gz", hash = "sha256:8551cb62a169ec7162ac7be8d4817d561f60e08eaa485234898414bb5a8a0b4c"},
+]
+
+[package.dependencies]
+certifi = "*"
+h11 = ">=0.13,<0.15"
+
+[package.extras]
+asyncio = ["anyio (>=4.0,<5.0)"]
+http2 = ["h2 (>=3,<5)"]
+socks = ["socksio (==1.*)"]
+trio = ["trio (>=0.22.0,<1.0)"]
+
+[[package]]
+name = "httpx"
+version = "0.27.2"
+description = "The next generation HTTP client."
+optional = true
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "extra == \"pinotdb\""
+files = [
+    {file = "httpx-0.27.2-py3-none-any.whl", hash = "sha256:7bb2708e112d8fdd7829cd4243970f0c223274051cb35ee80c03301ee29a3df0"},
+    {file = "httpx-0.27.2.tar.gz", hash = "sha256:f7c2be1d2f3c3c3160d441802406b206c2b76f5947b11115e6df10c6c65e66c2"},
+]
+
+[package.dependencies]
+anyio = "*"
+certifi = "*"
+httpcore = "==1.*"
+idna = "*"
+sniffio = "*"
+
+[package.extras]
+brotli = ["brotli", "brotlicffi"]
+cli = ["click (==8.*)", "pygments (==2.*)", "rich (>=10,<14)"]
+http2 = ["h2 (>=3,<5)"]
+socks = ["socksio (==1.*)"]
+zstd = ["zstandard (>=0.18.0)"]
+
+[[package]]
 name = "idna"
 version = "3.10"
 description = "Internationalized Domain Names in Applications (IDNA)"
@@ -907,7 +1052,7 @@ files = [
     {file = "idna-3.10-py3-none-any.whl", hash = "sha256:946d195a0d259cbba61165e88e65941f16e9b36ea6ddb97f00452bae8b1287d3"},
     {file = "idna-3.10.tar.gz", hash = "sha256:12f65c9b470abda6dc35cf8e63cc574b1c52b11df2c86030af0ac09b01b13ea9"},
 ]
-markers = {main = "extra == \"google-cloud-bigquery\" or extra == \"google-cloud-bigquery-storage\""}
+markers = {main = "extra == \"google-cloud-bigquery\" or extra == \"google-cloud-bigquery-storage\" or extra == \"pinotdb\""}
 
 [package.extras]
 all = ["flake8 (>=7.1.1)", "mypy (>=1.11.2)", "pytest (>=8.3.2)", "ruff (>=0.6.2)"]
@@ -1556,6 +1701,26 @@ files = [
     {file = "pathspec-0.12.1-py3-none-any.whl", hash = "sha256:a0d503e138a4c123b27490a4f7beda6a01c6f288df0e4a8b79c7eb0dc7b4cc08"},
     {file = "pathspec-0.12.1.tar.gz", hash = "sha256:a482d51503a1ab33b1c67a6c3813a26953dbdc71c31dacaef9a838c4e29f5712"},
 ]
+
+[[package]]
+name = "pinotdb"
+version = "5.6.0"
+description = "Python DB-API and SQLAlchemy dialect for Pinot."
+optional = true
+python-versions = "<4,>=3.7"
+groups = ["main"]
+markers = "extra == \"pinotdb\""
+files = [
+    {file = "pinotdb-5.6.0-py3-none-any.whl", hash = "sha256:aa4f239d2ed70cc4d9533d8ed1a098b72ecc749d7960f4c9af874009ae03db4c"},
+    {file = "pinotdb-5.6.0.tar.gz", hash = "sha256:4d69d840925200784e6ff102247d8022d0d55b6cd0f06a3e9f095f8d0730774b"},
+]
+
+[package.dependencies]
+ciso8601 = ">=2.1.3,<3.0.0"
+httpx = ">=0.23.0,<0.28.0"
+
+[package.extras]
+sqlalchemy = ["requests (>=2.25.0,<3.0.0)", "sqlalchemy (>=1.4,<2)"]
 
 [[package]]
 name = "platformdirs"
@@ -2451,6 +2616,19 @@ files = [
 markers = {main = "extra == \"google-cloud-bigquery\""}
 
 [[package]]
+name = "sniffio"
+version = "1.3.1"
+description = "Sniff out which async library your code is running under"
+optional = true
+python-versions = ">=3.7"
+groups = ["main"]
+markers = "extra == \"pinotdb\""
+files = [
+    {file = "sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2"},
+    {file = "sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc"},
+]
+
+[[package]]
 name = "tomli"
 version = "2.2.1"
 description = "A lil' TOML parser"
@@ -2530,7 +2708,7 @@ files = [
     {file = "typing_extensions-4.12.2-py3-none-any.whl", hash = "sha256:04e5ca0351e0f3f85c6853954072df659d0d13fac324d0072316b67d7794700d"},
     {file = "typing_extensions-4.12.2.tar.gz", hash = "sha256:1a7ead55c7e559dd4dee8856e3a88b41225abfe1ce8df57b7c13915fe121ffb8"},
 ]
-markers = {main = "extra == \"psycopg\" and python_version < \"3.13\""}
+markers = {main = "(extra == \"psycopg\" or extra == \"pinotdb\") and python_version < \"3.13\""}
 
 [[package]]
 name = "tzdata"
@@ -2862,6 +3040,7 @@ google-cloud-bigquery = ["google-cloud-bigquery"]
 google-cloud-bigquery-storage = ["google-cloud-bigquery-storage", "numpy", "pyarrow"]
 mysql-connector-python = ["mysql-connector-python"]
 oracledb = ["oracledb"]
+pinotdb = ["pinotdb"]
 psycopg = ["psycopg"]
 psycopg2 = ["psycopg2-binary", "types-psycopg2"]
 pymssql = ["pymssql", "types-pymssql"]
@@ -2869,4 +3048,4 @@ pymssql = ["pymssql", "types-pymssql"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9,<3.14"
-content-hash = "228404ed769aacad47e4dc3e2411de10d19d6ef2f8e71c18dea570bb74f0d843"
+content-hash = "11c5b665a6b316c61c281f51c97156f7b04099885b49c8bd042e97c5b7d0ba3a"

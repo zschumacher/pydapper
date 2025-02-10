@@ -7,6 +7,7 @@ from .main import using
 from .main import using_async
 from .mssql import PymssqlCommands as _PymssqlCommands
 from .mysql import MySqlConnectorPythonCommands as _MySqlConnectorPythonCommands
+from .pinot import PinotDbCommands as _PinotDbCommands
 from .postgresql import AiopgCommands as _AioPgCommand
 from .postgresql import Psycopg2Commands as _Psycopg2Commands
 from .postgresql import Psycopg3Commands as _Psycopg3Commands

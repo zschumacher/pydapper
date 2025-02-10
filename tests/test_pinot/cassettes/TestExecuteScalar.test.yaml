@@ -1,0 +1,35 @@
+interactions:
+- request:
+    body: '{"sql": "select name from owner"}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      content-length:
+      - '33'
+      content-type:
+      - application/json
+      host:
+      - localhost:8099
+      user-agent:
+      - python-httpx/0.27.2
+    method: POST
+    uri: http://localhost:8099/query/sql
+  response:
+    body:
+      string: '{"resultTable":{"dataSchema":{"columnNames":["name"],"columnDataTypes":["STRING"]},"rows":[["Zach
+        Schumacher"]]},"numRowsResultSet":1,"partialResult":false,"exceptions":[],"numGroupsLimitReached":false,"timeUsedMs":6,"requestId":"93259971000000013","brokerId":"Broker_172.17.0.2_8000","numDocsScanned":1,"totalDocs":1,"numEntriesScannedInFilter":0,"numEntriesScannedPostFilter":1,"numServersQueried":1,"numServersResponded":1,"numSegmentsQueried":1,"numSegmentsProcessed":1,"numSegmentsMatched":1,"numConsumingSegmentsQueried":0,"numConsumingSegmentsProcessed":0,"numConsumingSegmentsMatched":0,"minConsumingFreshnessTimeMs":0,"numSegmentsPrunedByBroker":0,"numSegmentsPrunedByServer":0,"numSegmentsPrunedInvalid":0,"numSegmentsPrunedByLimit":0,"numSegmentsPrunedByValue":0,"brokerReduceTimeMs":0,"offlineThreadCpuTimeNs":0,"realtimeThreadCpuTimeNs":0,"offlineSystemActivitiesCpuTimeNs":0,"realtimeSystemActivitiesCpuTimeNs":0,"offlineResponseSerializationCpuTimeNs":0,"realtimeResponseSerializationCpuTimeNs":0,"offlineTotalCpuTimeNs":0,"realtimeTotalCpuTimeNs":0,"explainPlanNumEmptyFilterSegments":0,"explainPlanNumMatchAllFilterSegments":0,"traceInfo":{},"tablesQueried":["owner"]}'
+    headers:
+      Content-Length:
+      - '1185'
+      Content-Type:
+      - application/json
+      X-Pinot-Error-Code:
+      - '-1'
+    status:
+      code: 200
+      message: OK
+version: 1

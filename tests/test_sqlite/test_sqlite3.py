@@ -1,3 +1,4 @@
+import os
 import sqlite3
 
 import pytest
@@ -17,8 +18,19 @@ from tests.test_suites.commands import QueryTestSuite
 pytestmark = pytest.mark.sqlite
 
 
+def test_using_subfolder(database_name, setup_sql_dir):
+    with using(sqlite3.connect(f"{setup_sql_dir}{os.path.sep}{database_name}.db")) as commands:
+        assert isinstance(commands, Sqlite3Commands)
+
+
 def test_using(database_name):
     with using(sqlite3.connect(f"{database_name}.db")) as commands:
+        assert isinstance(commands, Sqlite3Commands)
+
+
+@pytest.mark.parametrize("driver", ["sqlite", "sqlite+sqlite3"])
+def test_connect_subfolder(driver, database_name, setup_sql_dir):
+    with connect(f"{driver}://{setup_sql_dir}{os.path.sep}{database_name}.db") as commands:
         assert isinstance(commands, Sqlite3Commands)
 
 

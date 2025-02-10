@@ -19,7 +19,7 @@ class Sqlite3Commands(Commands):
 
     @classmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands":
-        db_path = parsed_dsn.host or ''
+        db_path = parsed_dsn.host or ""
         if parsed_dsn.database:
             db_path = os.path.join(db_path, parsed_dsn.database)
 

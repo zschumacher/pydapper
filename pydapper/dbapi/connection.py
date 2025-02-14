@@ -1,18 +1,13 @@
-from typing import TypeVar, Generic, Sequence
+from typing import TypeVar, Generic
 from .cursor import CursorProxy, CursorType
-from ..parameters.enums import ParamStyle
-from typing_extensions import Self
+from typing import Self
 from abc import abstractmethod
+from ..dsn_parser import PydapperParseResult
 
 ConnectionType = TypeVar("ConnectionType")
 
 
 class ConnectionProxy(Generic[ConnectionType, CursorType]):
-    param_style: list[ParamStyle]
-
-    def __init_subclass__(cls, **kwargs):
-        assert hasattr(cls, "param_style"), "Must set param_style for concrete subclasses"
-
     def __init__(self, connection: ConnectionType):
         self.connection = connection
 
@@ -26,9 +21,8 @@ class ConnectionProxy(Generic[ConnectionType, CursorType]):
         return self.connection.rollback()
 
     def cursor(self) -> CursorProxy[CursorType]:
-        return CursorProxy(self.connection.cursor(), self.param_style)
+        return CursorProxy(self.connection.cursor())
 
     @classmethod
     @abstractmethod
-    def connect(cls, **kwargs) -> Self:
-        ...
+    def connect(cls, dsn: PydapperParseResult, **kwargs) -> Self: ...

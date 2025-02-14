@@ -5,25 +5,37 @@ CursorType = TypeVar("CursorType")
 
 
 class CursorProxy(Generic[CursorType]):
-    def __init__(self, cursor: CursorType, param_styles: Sequence[ParamStyle]):
+    supported_param_styles: list[ParamStyle] = ...
+
+    def __init__(self, cursor: CursorType):
         self.cursor = cursor
-        self.param_styles = param_styles
+
+    def __init_subclass__(cls, **kwargs):
+        assert hasattr(
+            cls, "supported_param_styles"
+        ), "CursorProxy subclass must declare supported_param_styles"
 
     @property
     def description(self):
         return self.cursor.description
 
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+
     def callproc(self, procname: str, parameters: dict | Sequence[str]):
-        return self.cursor.callproc(procname, parameters=parameters)
+        return self.cursor.callproc(procname, parameters)
 
     def close(self):
         return self.cursor.close()
 
     def execute(self, operation: str, parameters: dict | Sequence[str]):
-        return self.cursor.execute(operation, parameters=parameters)
+        if parameters:
+            return self.cursor.execute(operation, parameters)
+        return self.cursor.execute(operation)
 
     def executemany(self, operation: str, parameters: dict | Sequence[str] = None):
-        return self.cursor.executemany(operation, parameters=parameters)
+        return self.cursor.executemany(operation, parameters)
 
     def fetchone(self):
         return self.cursor.fetchone()
@@ -34,8 +46,6 @@ class CursorProxy(Generic[CursorType]):
     def fetchmany(self, size: int | None = None):
         return self.cursor.fetchmany(size)
 
-    def __enter__(self):
-        ...
+    def __enter__(self): ...
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        ...
+    def __exit__(self, exc_type, exc_val, exc_tb): ...

@@ -1,3 +1,4 @@
+import functools
 import threading
 from queue import Queue
 from .connection import ConnectionProxy
@@ -5,20 +6,23 @@ import queue
 import logging
 from typing import Type
 from contextlib import contextmanager
+from ..dsn_parser import PydapperParseResult
 
 logger = logging.getLogger(__name__)
 
+
 @contextmanager
-def acquire_and_release(pool: "ConnectionPool", timeout: int | None):
-    conn = pool.acquire(timeout=timeout)
+def acquire_and_release(pool: "ConnectionPool"):
+    conn = pool.acquire()
     yield conn
     pool.release(conn)
 
 
 class ConnectionPool:
-    ConnectionProxy: Type[ConnectionProxy] = ...
+    ConnectionProxy: Type[ConnectionProxy]
 
-    def __init__(self, max_size=10, **connect_kwargs):
+    def __init__(self, dsn: str, max_size=10, **connect_kwargs):
+        self._dsn = dsn
         self._max_size = max_size
         self._pool = queue.Queue(maxsize=max_size)
         self._connect_kwargs = connect_kwargs
@@ -26,9 +30,15 @@ class ConnectionPool:
         self._pool_name = self.__class__.__name__
 
     def __init_subclass__(cls, **kwargs):
-        assert hasattr(cls, "ConnectionProxy"), "subclasses of ConnectionPool must define a class level ConnectionProxy"
+        assert hasattr(
+            cls, "ConnectionProxy"
+        ), "subclasses of ConnectionPool must define a class level ConnectionProxy"
 
-    def acquire(self, timeout: int = None):
+    @functools.cached_property
+    def dsn(self) -> PydapperParseResult:
+        return PydapperParseResult(self._dsn)
+
+    def acquire(self):
         with self._lock:
             try:
                 conn = self._pool.get_nowait()
@@ -37,9 +47,11 @@ class ConnectionPool:
             except queue.Empty:
                 if self._pool.qsize() < self._max_size:
                     logger.debug(f"Creating new connection in pool {self._pool_name}")
-                    return self.ConnectionProxy.connect(**self._connect_kwargs)
-                logger.debug(f"Waiting for new connection with {timeout=}")
-                return self._pool.get(timeout=timeout)
+                    return self.ConnectionProxy.connect(
+                        self.dsn, **self._connect_kwargs
+                    )
+                logger.debug(f"Waiting for new connection")
+                return self._pool.get()
 
     def release(self, connection):
         with self._lock:
@@ -47,7 +59,9 @@ class ConnectionPool:
                 self._pool.put_nowait(connection)
                 logger.debug(f"Release connection back to pool {self._pool_name}")
             except queue.Full:
-                logger.debug(f"Pool {self._pool_name} is full, closing unneeded connection")
+                logger.debug(
+                    f"Pool {self._pool_name} is full, closing unneeded connection"
+                )
                 connection.close()
 
     def close_all(self):

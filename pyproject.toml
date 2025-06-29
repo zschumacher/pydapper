@@ -35,7 +35,7 @@ dsnparse = "^0.2.1"
 coro-context-manager = "0.2.1"
 
 ## postgresql
-psycopg = { extras = ["binary"], version = "^3.2.4", optional = true }
+psycopg = { extras = ["binary"], version = "^3.2.8", optional = true }
 psycopg2-binary = { version = "^2.9.10", optional = true }
 types-psycopg2 = { version = "^2.9.4", optional = true }
 aiopg = { version = "^1.4.0", optional = true }
@@ -59,15 +59,15 @@ numpy = { version = "*", optional = true }
 [tool.poetry.group.dev.dependencies]
 # testing
 coverage = "*"
-pytest = "8.*.*"
-pytest-cov = "6.*.*"
-pytest-asyncio = "0.25.*"
+pytest = "*"
+pytest-cov = "*"
+pytest-asyncio = "*"
 pytest-mock = "*"
-pytest-vcr = "^1.0.2"
+pytest-vcr = "*"
 Faker = "*"
 mypy = "*"
-testcontainers = "^4.10.0"
-sqlalchemy = "^2.0.41" # used by testcontainers to check db readiness
+testcontainers = "*"
+sqlalchemy = "*" # used by testcontainers to check db readiness
 
 # linting
 black = "*"
@@ -75,8 +75,6 @@ isort = "*"
 
 # other
 devtools = "*"
-
-
 
 [tool.poetry.group.docs]
 optional = true
@@ -108,7 +106,7 @@ use_parentheses = true
 
 [tool.black]
 line-length = 120
-target-version = ['py37']
+target-version = ['py39']
 include = '\.pyi?$'
 exclude = '''
 (

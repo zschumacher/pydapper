@@ -18,26 +18,26 @@ pytestmark = pytest.mark.postgresql
 
 
 @pytest.fixture(scope="function")
-def commands(server, database_name) -> Psycopg2Commands:
+def commands(server, database_name, db_port) -> Psycopg2Commands:
     import psycopg2
 
     with Psycopg2Commands(
-        psycopg2.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")
+        psycopg2.connect(f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}")
     ) as commands:
         yield commands
         commands.connection.rollback()
 
 
-def test_using(server, database_name):
+def test_using(server, database_name, db_port):
     import psycopg2
 
-    with using(psycopg2.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")) as commands:
+    with using(psycopg2.connect(f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}")) as commands:
         assert isinstance(commands, Psycopg2Commands)
 
 
 @pytest.mark.parametrize("driver", ["postgresql", "postgresql+psycopg2"])
-def test_connect(driver, server, database_name):
-    with connect(f"{driver}://pydapper:pydapper@{server}:5433/{database_name}") as commands:
+def test_connect(driver, server, database_name, db_port):
+    with connect(f"{driver}://pydapper:pydapper@{server}:{db_port}/{database_name}") as commands:
         assert isinstance(commands, Psycopg2Commands)
 
 

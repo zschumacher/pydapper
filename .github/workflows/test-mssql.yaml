@@ -16,17 +16,6 @@ jobs:
       matrix:
         python-version: [ '3.9', '3.10', '3.11', '3.12', '3.13' ]
 
-    services:
-
-      mssql-server:
-        image: mcr.microsoft.com/mssql/server:2019-latest
-        ports:
-          - 1434:1433
-        env:
-          SA_PASSWORD: "pydapper!PYDAPPER"
-          ACCEPT_EULA: "Y"
-          MSSQL_PID: "Express"
-
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -38,7 +27,7 @@ jobs:
 
       - name: install poetry
         env:
-          POETRY_VERSION: "2.0.1"
+          POETRY_VERSION: "2.1.3"
         run: |
           curl -sSL https://install.python-poetry.org | python -
           poetry config virtualenvs.create false

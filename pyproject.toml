@@ -66,6 +66,8 @@ pytest-mock = "*"
 pytest-vcr = "^1.0.2"
 Faker = "*"
 mypy = "*"
+testcontainers = "^4.10.0"
+sqlalchemy = "^2.0.41" # used by testcontainers to check db readiness
 
 # linting
 black = "*"
@@ -163,6 +165,7 @@ markers = [
     "sqlite: marks tests that require sqlite (deselect with '-m \"not sqlite\"')",
     "mssql: marks tests that require mssql (deselect with '-m \"not mssql\")"
 ]
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.mypy]
 no_implicit_optional = false

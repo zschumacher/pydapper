@@ -20,34 +20,27 @@ from tests.test_suites.commands import QuerySingleOrDefaultAsyncTestSuite
 pytestmark = pytest.mark.postgresql
 
 
-@pytest.fixture(scope="function")
-def event_loop():
-    loop = asyncio.get_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest_asyncio.fixture(scope="function")
-async def commands(server, database_name) -> AiopgCommands:
+async def commands(server, database_name, db_port) -> AiopgCommands:
     import aiopg
 
-    async with aiopg.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}") as conn:
+    async with aiopg.connect(f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}") as conn:
         c = AiopgCommands(conn)
         yield c
 
 
 @pytest.mark.asyncio
-async def test_using_async(server, database_name):
+async def test_using_async(server, database_name, db_port):
     import aiopg
 
-    conn = await aiopg.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")
+    conn = await aiopg.connect(f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}")
     async with using_async(conn) as commands:
         assert isinstance(commands, AiopgCommands)
 
 
 @pytest.mark.asyncio
-async def test_connect_async(server, database_name):
-    async with connect_async(f"postgresql+aiopg://pydapper:pydapper@{server}:5433/{database_name}") as commands:
+async def test_connect_async(server, database_name, db_port):
+    async with connect_async(f"postgresql+aiopg://pydapper:pydapper@{server}:{db_port}/{database_name}") as commands:
         assert isinstance(commands, AiopgCommands)
 
 

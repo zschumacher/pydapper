@@ -1,17 +1,23 @@
-import os
-import sys
 import uuid
 
 import pytest
 
 from pydapper.bigquery import GoogleBigqueryClientCommands
+from tests.test_bigquery.testcontainer import BigQueryEmulatorContainer
 
 
-@pytest.fixture(scope="function")
-def python_version():
-    """Each version needs to have its own bigquery tables since per version tests run at the same time in GHA"""
-    version = os.getenv("PYTHON_VERSION") or sys.version[:3]
-    return version.replace(".", "")
+@pytest.fixture(scope="session")
+def bigquery_container():
+    with BigQueryEmulatorContainer(
+        project="pydapper",
+        dataset="pydapper",
+    ) as bigquery:
+        yield bigquery
+
+
+@pytest.fixture(scope="session")
+def http_port(bigquery_container):
+    return bigquery_container.get_exposed_port(bigquery_container.port)
 
 
 @pytest.fixture(scope="function")
@@ -20,22 +26,22 @@ def func_uuid():
 
 
 @pytest.fixture(scope="function")
-def task_table_name(python_version, func_uuid):
-    return f"pydapper.pydapper.task_{python_version}_{func_uuid.hex}"
+def task_table_name(func_uuid):
+    return f"pydapper.pydapper.task_{func_uuid.hex}"
 
 
 @pytest.fixture(scope="function")
-def owner_table_name(python_version, func_uuid):
-    return f"pydapper.pydapper.owner_{python_version}_{func_uuid.hex}"
+def owner_table_name(func_uuid):
+    return f"pydapper.pydapper.owner_{func_uuid.hex}"
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, http_port, server):
     from google.api_core.client_options import ClientOptions
     from google.auth.credentials import AnonymousCredentials
     from google.cloud.bigquery import Client
 
-    options = ClientOptions(api_endpoint="http://localhost:9050")
+    options = ClientOptions(api_endpoint=f"http://{server}:{http_port}")
 
     client = Client(client_options=options, credentials=AnonymousCredentials(), project="pydapper")
     yield client
@@ -50,7 +56,7 @@ def commands(client) -> GoogleBigqueryClientCommands:
 
 
 @pytest.fixture(scope="function")
-def bigquery_setup(client, setup_sql_dir, python_version, owner_table_name, task_table_name):
+def bigquery_setup(client, setup_sql_dir, owner_table_name, task_table_name):
     from google.cloud.bigquery.dbapi import connect
 
     conn = connect(client=client)

@@ -16,23 +16,6 @@ jobs:
       matrix:
         python-version: [ '3.9', '3.10', '3.11', '3.12', '3.13' ]
 
-    services:
-
-      oracle:
-        image: gvenzl/oracle-free:slim
-        ports:
-          - 1522:1521
-        env:
-          ORACLE_RANDOM_PASSWORD: "yes"
-          APP_USER: "pydapper"
-          APP_USER_PASSWORD: "pydapper"
-          ORACLE_DATABASE: "pydapper"
-        options: >- # oracle has a longer startup so give the healthcheck more retries
-          --health-cmd healthcheck.sh
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
     steps:
       - name: checkout
         uses: actions/checkout@v4

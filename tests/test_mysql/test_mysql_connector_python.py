@@ -16,27 +16,27 @@ pytestmark = pytest.mark.mysql
 
 
 @pytest.fixture(scope="function")
-def commands(server, database_name) -> MySqlConnectorPythonCommands:
+def commands(server, database_name, db_port) -> MySqlConnectorPythonCommands:
     import mysql.connector
 
     with MySqlConnectorPythonCommands(
-        mysql.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)
+        mysql.connector.connect(host=server, port=db_port, user="pydapper", password="pydapper", database=database_name)
     ) as commands:
         yield commands
 
 
-def test_using(server, database_name):
+def test_using(server, database_name, db_port):
     import mysql.connector
 
     with using(
-        mysql.connector.connect(host=server, port=3307, user="pydapper", password="pydapper", database=database_name)
+        mysql.connector.connect(host=server, port=db_port, user="pydapper", password="pydapper", database=database_name)
     ) as commands:
         assert isinstance(commands, MySqlConnectorPythonCommands)
 
 
 @pytest.mark.parametrize("driver", ["mysql", "mysql+mysql"])
-def test_connect(driver, database_name, server):
-    with connect(f"{driver}://pydapper:pydapper@{server}:3307/{database_name}") as commands:
+def test_connect(driver, database_name, server, db_port):
+    with connect(f"{driver}://pydapper:pydapper@{server}:{db_port}/{database_name}") as commands:
         assert isinstance(commands, MySqlConnectorPythonCommands)
 
 

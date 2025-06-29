@@ -19,30 +19,30 @@ pytestmark = pytest.mark.oracle
 
 
 @pytest.fixture(scope="function")
-def commands(server, database_name) -> OracledbCommands:
+def commands(server, database_name, db_port) -> OracledbCommands:
     import oracledb
 
     with OracledbCommands(
-        oracledb.connect(password="pydapper", user="pydapper", dsn=f"{server}:1522/{database_name}")
+        oracledb.connect(password="pydapper", user="pydapper", dsn=f"{server}:{db_port}/{database_name}")
     ) as commands:
         yield commands
 
 
-def test_using(server, database_name):
+def test_using(server, database_name, db_port):
     import oracledb
 
     with using(
-        oracledb.connect(password="pydapper", user="pydapper", dsn=f"{server}:1522/{database_name}")
+        oracledb.connect(password="pydapper", user="pydapper", dsn=f"{server}:{db_port}/{database_name}")
     ) as commands:
         assert isinstance(commands, OracledbCommands)
         assert isinstance(commands.connection, oracledb.Connection)
 
 
 @pytest.mark.parametrize("driver", ["oracle+oracledb", "oracle"])
-def test_connect(driver, database_name, server):
+def test_connect(driver, database_name, server, db_port):
     import oracledb
 
-    with connect(f"{driver}://pydapper:pydapper@{server}:1522/{database_name}") as commands:
+    with connect(f"{driver}://pydapper:pydapper@{server}:{db_port}/{database_name}") as commands:
         assert isinstance(commands, OracledbCommands)
         assert isinstance(commands.connection, oracledb.Connection)
 

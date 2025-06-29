@@ -20,10 +20,6 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: start bq emulator
-        run: |
-          docker run -d -p 9050:9050 -p 9060:9060 ghcr.io/goccy/bigquery-emulator:latest --project pydapper --dataset pydapper
-
       - name: set up python
         uses: actions/setup-python@v4
         with:

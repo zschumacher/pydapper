@@ -30,50 +30,52 @@ pytestmark = pytest.mark.postgresql
 
 
 @pytest.fixture(scope="function")
-def commands(server, database_name) -> Psycopg3Commands:
+def commands(server, database_name, db_port) -> Psycopg3Commands:
     import psycopg
 
-    with Psycopg3Commands(psycopg.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")) as commands:
+    with Psycopg3Commands(
+        psycopg.connect(f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}")
+    ) as commands:
         yield commands
         commands.connection.rollback()
 
 
 @pytest_asyncio.fixture(scope="function")
-async def commands_async(server, database_name) -> Psycopg3CommandsAsync:
+async def commands_async(server, database_name, db_port) -> Psycopg3CommandsAsync:
     import psycopg
 
-    conn = await psycopg.AsyncConnection.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")
+    conn = await psycopg.AsyncConnection.connect(f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}")
     with Psycopg3CommandsAsync(conn) as commands_async:
         yield commands_async
         await commands_async.connection.rollback()
 
 
-def test_using(server, database_name):
+def test_using(server, database_name, db_port):
     import psycopg
 
-    with using(psycopg.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")) as commands:
+    with using(psycopg.connect(f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}")) as commands:
         assert isinstance(commands, Psycopg3Commands)
 
 
 @pytest.mark.asyncio
-async def test_using_async(server, database_name):
+async def test_using_async(server, database_name, db_port):
     import psycopg
 
-    conn = await psycopg.AsyncConnection.connect(f"postgresql://pydapper:pydapper@{server}:5433/{database_name}")
+    conn = await psycopg.AsyncConnection.connect(f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}")
     async with using_async(conn) as commands_async:
         assert isinstance(commands_async, Psycopg3CommandsAsync)
 
 
 @pytest.mark.parametrize("driver", ["postgresql+psycopg"])
-def test_connect(driver, server, database_name):
-    with connect(f"{driver}://pydapper:pydapper@{server}:5433/{database_name}") as commands:
+def test_connect(driver, server, database_name, db_port):
+    with connect(f"{driver}://pydapper:pydapper@{server}:{db_port}/{database_name}") as commands:
         assert isinstance(commands, Psycopg3Commands)
 
 
 @pytest.mark.parametrize("driver", ["postgresql+psycopg"])
 @pytest.mark.asyncio
-async def test_connect_async(driver, server, database_name):
-    async with connect_async(f"{driver}://pydapper:pydapper@{server}:5433/{database_name}") as commands_async:
+async def test_connect_async(driver, server, database_name, db_port):
+    async with connect_async(f"{driver}://pydapper:pydapper@{server}:{db_port}/{database_name}") as commands_async:
         assert isinstance(commands_async, Psycopg3CommandsAsync)
 
 

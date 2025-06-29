@@ -19,27 +19,27 @@ pytestmark = pytest.mark.mssql
 
 
 @pytest.fixture(scope="function")
-def commands(server, database_name) -> PymssqlCommands:
+def commands(server, database_name, db_port) -> PymssqlCommands:
     from pymssql import _pymssql
 
     with PymssqlCommands(
-        _pymssql.connect(server=server, port=1434, password="pydapper!PYDAPPER", user="sa", database=database_name)
+        _pymssql.connect(server=server, port=db_port, password="pydapper!PYDAPPER", user="sa", database=database_name)
     ) as commands:
         yield commands
 
 
-def test_using(server, database_name):
+def test_using(server, database_name, db_port):
     from pymssql import _pymssql
 
     with using(
-        _pymssql.connect(server=server, port=1434, password="pydapper!PYDAPPER", user="sa", database=database_name)
+        _pymssql.connect(server=server, port=db_port, password="pydapper!PYDAPPER", user="sa", database=database_name)
     ) as commands:
         assert isinstance(commands, PymssqlCommands)
 
 
 @pytest.mark.parametrize("driver", ["mssql", "mysql+pymssql"])
-def test_connect(driver, database_name, server):
-    with connect(f"{driver}://sa:pydapper!PYDAPPER@{server}:1434/{database_name}") as commands:
+def test_connect(driver, database_name, server, db_port):
+    with connect(f"{driver}://sa:pydapper!PYDAPPER@{server}:{db_port}/{database_name}") as commands:
         assert isinstance(commands, PymssqlCommands)
 
 

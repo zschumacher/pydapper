@@ -20,13 +20,6 @@ from tests.test_suites.commands import QuerySingleOrDefaultAsyncTestSuite
 pytestmark = pytest.mark.postgresql
 
 
-@pytest.fixture(scope="function")
-def event_loop():
-    loop = asyncio.get_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest_asyncio.fixture(scope="function")
 async def commands(server, database_name, db_port) -> AiopgCommands:
     import aiopg

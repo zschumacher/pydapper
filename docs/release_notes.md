@@ -1,5 +1,7 @@
 ## Latest Changes
 
+* chore: migrate to use testcontainers. PR [#383](https://github.com/zschumacher/pydapper/pull/383) by [@zschumacher](https://github.com/zschumacher).
+
 ## 0.12.0
 ### Features
 * :sparkles: Support psycopg async apis. PR [#336](https://github.com/zschumacher/pydapper/pull/336) by [@zschumacher](https://github.com/zschumacher).

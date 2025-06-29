@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* chore: update deps. PR [#384](https://github.com/zschumacher/pydapper/pull/384) by [@zschumacher](https://github.com/zschumacher).
 * chore: migrate to use testcontainers. PR [#383](https://github.com/zschumacher/pydapper/pull/383) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.12.0

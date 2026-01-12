@@ -30,9 +30,8 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.14"
+python = ">=3.9,<4.0"
 dsnparse = "^0.2.1"
-coro-context-manager = "0.2.1"
 
 ## postgresql
 psycopg = { extras = ["binary"], version = "^3.2.8", optional = true }
@@ -48,7 +47,7 @@ types-pymssql = { version = "^2.1.0", optional = true }
 mysql-connector-python = { version = "^9.2.0", optional = true }
 
 ## oracle
-oracledb = { version = "^2.5.1", optional = true }
+oracledb = { version = "^3.4.0", optional = true }
 
 ## bigquery
 google-cloud-bigquery = { version = "^3.29.0", optional = true }

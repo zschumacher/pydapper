@@ -9,8 +9,7 @@ from typing import Type
 from typing import Union
 from typing import cast
 
-from coro_context_manager import CoroContextManager
-
+from ._context import CoroContextManager
 from .commands import Commands
 from .commands import CommandsAsync
 from .dsn_parser import PydapperParseResult

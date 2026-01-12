@@ -1,7 +1,6 @@
-import asyncio
 from typing import TYPE_CHECKING
 
-from coro_context_manager import CoroContextManager
+from .._context import CoroContextManager
 
 from pydapper.commands import Commands
 from pydapper.commands import CommandsAsync
@@ -12,7 +11,6 @@ from ..utils import import_dbapi_module
 
 if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
-    from ..types import AsyncCursorType
 
 
 @register("psycopg")

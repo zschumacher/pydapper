@@ -22,7 +22,7 @@ from typing import Union
 from typing import cast
 from typing import overload
 
-from coro_context_manager import CoroContextManager
+from ._context import CoroContextManager
 
 from .exceptions import MoreThanOneResultException
 from .exceptions import NoResultException

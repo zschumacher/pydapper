@@ -23,7 +23,6 @@ from typing import cast
 from typing import overload
 
 from ._context import CoroContextManager
-
 from .exceptions import MoreThanOneResultException
 from .exceptions import NoResultException
 from .utils import database_row_to_dict

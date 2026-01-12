@@ -10,7 +10,6 @@ from typing import Union
 from typing import cast
 
 from ._context import CoroContextManager
-
 from .commands import Commands
 from .commands import CommandsAsync
 from .dsn_parser import PydapperParseResult

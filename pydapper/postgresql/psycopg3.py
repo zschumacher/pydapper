@@ -1,10 +1,9 @@
 from typing import TYPE_CHECKING
 
-from .._context import CoroContextManager
-
 from pydapper.commands import Commands
 from pydapper.commands import CommandsAsync
 
+from .._context import CoroContextManager
 from ..main import register
 from ..main import register_async
 from ..utils import import_dbapi_module

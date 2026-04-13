@@ -1,5 +1,8 @@
 ## Latest Changes
 
+
+## 0.13.1
+### Internal
 * chore(deps): update deps. PR [#428](https://github.com/zschumacher/pydapper/pull/428) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.13.0

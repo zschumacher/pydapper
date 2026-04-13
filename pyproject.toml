@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pydapper"
-version = "0.13.0"
+version = "0.13.1"
 description = "A python micro ORM inspired by the nuget package Dapper"
 authors = ["Zach Schumacher <zschu15@gmail.com>"]
 license = "MIT"

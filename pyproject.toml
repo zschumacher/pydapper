@@ -31,7 +31,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
-dsnparse = "^0.2.1"
+dsnparse = ">=0.2.1,<0.5.0"
 
 ## postgresql
 psycopg = { extras = ["binary"], version = "^3.3.3", optional = true }

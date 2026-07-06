@@ -12,6 +12,10 @@
 
 `param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 
+## Cardinality
+- 0 rows with `buffered=True`: returns an empty list.
+- 0 rows with `buffered=False`: returns an async generator that yields no rows.
+
 ## Example - Serialize to a dataclass
 The raw sql query can be executed using the `query_async` method and map the results to a list of dataclasses.
 ```python

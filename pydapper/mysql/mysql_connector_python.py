@@ -48,7 +48,7 @@ class MySqlConnectorPythonCommands(Commands):
             handler.execute(cursor)
             headers = get_col_names(cursor)
             row = cursor.fetchone()
-            if not row:
+            if row is None:
                 raise NoResultException("Query returned no results")
             cursor.fetchall()
         return serialize_dict_row(model, database_row_to_dict(headers, row))

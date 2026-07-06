@@ -195,7 +195,7 @@ class Commands(BaseCommands, ABC):
             headers = get_col_names(cursor)
             while True:
                 row = cursor.fetchone()
-                if not row:
+                if row is None:
                     break
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
 
@@ -369,7 +369,7 @@ class Commands(BaseCommands, ABC):
             handler.execute(cursor)
             headers = get_col_names(cursor)
             row = cursor.fetchone()
-            if not row:
+            if row is None:
                 raise NoResultException("Query returned no results")
         return serialize_dict_row(model, database_row_to_dict(headers, row))
 
@@ -601,7 +601,7 @@ class Commands(BaseCommands, ABC):
         with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             first_row = cursor.fetchone()
-        if not first_row:
+        if first_row is None:
             raise NoResultException("Query returned no results")
         return first_row[0]
 
@@ -653,7 +653,7 @@ class CommandsAsync(BaseCommands, ABC):
             headers = get_col_names(cursor)
             while True:
                 row = await cursor.fetchone()
-                if not row:
+                if row is None:
                     break
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
 
@@ -830,7 +830,7 @@ class CommandsAsync(BaseCommands, ABC):
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
             row = await cursor.fetchone()
-            if not row:
+            if row is None:
                 raise NoResultException("Query returned no results")
         return serialize_dict_row(model, database_row_to_dict(headers, row))
 
@@ -1068,6 +1068,6 @@ class CommandsAsync(BaseCommands, ABC):
         async with self.cursor() as cursor:
             await handler.execute_async(cursor)
             first_row = await cursor.fetchone()
-        if not first_row:
+        if first_row is None:
             raise NoResultException("Query returned no results")
         return first_row[0]

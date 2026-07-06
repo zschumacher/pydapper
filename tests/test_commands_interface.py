@@ -2,8 +2,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from pydapper.exceptions import MissingParameterException
 from pydapper.exceptions import MoreThanOneResultException
 from pydapper.exceptions import NoResultException
+from pydapper.exceptions import PyDapperException
+from pydapper.exceptions import RowMappingException
+from pydapper.exceptions import UnsupportedFeatureError
 from tests.mocks import MockAsyncCommands
 from tests.mocks import MockAsyncConnection
 from tests.mocks import MockAsyncCursor
@@ -13,6 +17,11 @@ from tests.mocks import MockCursor
 from tests.mocks import MockParamHandler
 
 pytestmark = pytest.mark.core
+
+
+class FalsyRow(tuple):
+    def __bool__(self):
+        return False
 
 
 @pytest.fixture
@@ -245,6 +254,21 @@ ASYNC_ALIAS_CONFLICT_CALLS = [
 ]
 
 
+class TestPublicExceptions:
+    @pytest.mark.parametrize(
+        "exception_type",
+        [
+            NoResultException,
+            MoreThanOneResultException,
+            MissingParameterException,
+            UnsupportedFeatureError,
+            RowMappingException,
+        ],
+    )
+    def test_public_exceptions_subclass_pydapper_exception(self, exception_type):
+        assert issubclass(exception_type, PyDapperException)
+
+
 class TestParamHandler:
     def test__init__validation(self):
         with pytest.raises(ValueError):
@@ -314,6 +338,14 @@ class TestCommands:
     @pytest.fixture
     def set_fetchone_to_return_none(self, monkeypatch):
         monkeypatch.setattr(MockCursor, "fetchone", lambda self_: None)
+
+    @pytest.fixture
+    def set_fetchone_to_return_null_first_column(self, monkeypatch):
+        monkeypatch.setattr(MockCursor, "fetchone", lambda self_: FalsyRow((None,)))
+
+    @pytest.fixture
+    def set_fetchone_to_return_falsy_row(self, monkeypatch):
+        monkeypatch.setattr(MockCursor, "fetchone", lambda self_: FalsyRow((None, "nullable")))
 
     @pytest.fixture
     def set_fetchall_return_one(self, faker, monkeypatch):
@@ -399,11 +431,32 @@ class TestCommands:
 
         assert captured_handler_params == [params]
 
+    def test_mysql_query_first_treats_only_none_as_no_result(self, connection, set_fetchone_to_return_falsy_row):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        with MockMySqlConnectorPythonCommands(connection) as commands:
+            data = commands.query_first("select id, name from some_table")
+
+        assert data == {"id": None, "name": "nullable"}
+
     def test_query(self, connection):
         with MockCommands(connection) as commands:
             data = commands.query("select id, name from some_table", model=SimpleNamespace)
         assert len(data) == 2
         assert all(isinstance(row, SimpleNamespace) for row in data)
+
+    def test_query_returns_empty_list_on_no_results(self, connection, set_fetchall_return_empty):
+        with MockCommands(connection) as commands:
+            data = commands.query("select id, name from some_table")
+        assert data == []
+
+    def test_query_unbuffered_yields_no_rows_on_no_results(self, connection, set_fetchone_to_return_none):
+        with MockCommands(connection) as commands:
+            generator = commands.query("select id, name from some_table", buffered=False)
+            assert list(generator) == []
 
     def test_query_multiple(self, connection):
         with MockCommands(connection) as commands:
@@ -450,6 +503,33 @@ class TestCommands:
             data = commands.query_first_or_default("select * from some_table", default=default)
         assert data is default
 
+    def test_query_first_or_default_calls_callable_default_on_no_result(self, connection, set_fetchone_to_return_none):
+        sentinel = object()
+        calls = []
+
+        def default():
+            calls.append(None)
+            return sentinel
+
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=default)
+
+        assert data is sentinel
+        assert calls == [None]
+
+    def test_query_first_or_default_returns_first_row(self, connection):
+        calls = []
+
+        def default():
+            calls.append(None)
+            return object()
+
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=default)
+
+        assert data["id"] == 1
+        assert calls == []
+
     def test_query_single(self, connection, set_fetchall_return_one):
         with MockCommands(connection) as commands:
             record = commands.query_single("select * from some_table")
@@ -471,6 +551,37 @@ class TestCommands:
             record = commands.query_single_or_default("select * from some_table", default=default)
         assert record is default
 
+    def test_query_single_or_default_calls_callable_default_on_no_result(self, connection, set_fetchall_return_empty):
+        sentinel = object()
+        calls = []
+
+        def default():
+            calls.append(None)
+            return sentinel
+
+        with MockCommands(connection) as commands:
+            record = commands.query_single_or_default("select * from some_table", default=default)
+
+        assert record is sentinel
+        assert calls == [None]
+
+    def test_query_single_or_default_returns_single_row(self, connection, set_fetchall_return_one):
+        calls = []
+
+        def default():
+            calls.append(None)
+            return object()
+
+        with MockCommands(connection) as commands:
+            record = commands.query_single_or_default("select * from some_table", default=default)
+
+        assert record["id"] == 1
+        assert calls == []
+
+    def test_query_single_or_default_raises_on_many_results(self, connection):
+        with MockCommands(connection) as commands, pytest.raises(MoreThanOneResultException):
+            commands.query_single_or_default("select * from some_table", default=None)
+
     def test_execute_scalar(self, connection):
         with MockCommands(connection) as commands:
             id_ = commands.execute_scalar("select id, name from some_table")
@@ -479,6 +590,12 @@ class TestCommands:
     def test_execute_scalar_raises_on_no_result(self, connection, set_fetchone_to_return_none):
         with MockCommands(connection) as commands, pytest.raises(NoResultException):
             commands.execute_scalar("select * from some_table")
+
+    def test_execute_scalar_returns_none_for_null_first_column(
+        self, connection, set_fetchone_to_return_null_first_column
+    ):
+        with MockCommands(connection) as commands:
+            assert commands.execute_scalar("select nullable_column from some_table") is None
 
 
 class TestCommandsAsync:
@@ -490,6 +607,13 @@ class TestCommandsAsync:
     def set_fetchone_to_return_none(self, mocker):
         async def fetchone(s):
             return None
+
+        mocker.patch("tests.mocks.MockAsyncCursor.fetchone", fetchone)
+
+    @pytest.fixture
+    def set_fetchone_to_return_null_first_column(self, mocker):
+        async def fetchone(s):
+            return FalsyRow((None,))
 
         mocker.patch("tests.mocks.MockAsyncCursor.fetchone", fetchone)
 
@@ -587,6 +711,18 @@ class TestCommandsAsync:
         assert all(isinstance(row, SimpleNamespace) for row in data)
 
     @pytest.mark.asyncio
+    async def test_query_returns_empty_list_on_no_results(self, connection, set_fetchall_return_empty):
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_async("select id, name from some_table")
+        assert data == []
+
+    @pytest.mark.asyncio
+    async def test_query_unbuffered_yields_no_rows_on_no_results(self, connection, set_fetchone_to_return_none):
+        async with MockAsyncCommands(connection) as commands:
+            generator = await commands.query_async("select id, name from some_table", buffered=False)
+            assert [row async for row in generator] == []
+
+    @pytest.mark.asyncio
     async def test_query_multiple(self, connection):
         async with MockAsyncCommands(connection) as commands:
             data1, data2 = await commands.query_multiple_async(
@@ -640,6 +776,37 @@ class TestCommandsAsync:
         assert data is default
 
     @pytest.mark.asyncio
+    async def test_query_first_or_default_calls_callable_default_on_no_result(
+        self, connection, set_fetchone_to_return_none
+    ):
+        sentinel = object()
+        calls = []
+
+        def default():
+            calls.append(None)
+            return sentinel
+
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_first_or_default_async("select * from some_table", default=default)
+
+        assert data is sentinel
+        assert calls == [None]
+
+    @pytest.mark.asyncio
+    async def test_query_first_or_default_returns_first_row(self, connection):
+        calls = []
+
+        def default():
+            calls.append(None)
+            return object()
+
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_first_or_default_async("select * from some_table", default=default)
+
+        assert data["id"] == 1
+        assert calls == []
+
+    @pytest.mark.asyncio
     async def test_query_single(self, connection, set_fetchall_return_one):
         async with MockAsyncCommands(connection) as commands:
             record = await commands.query_single_async("select * from some_table")
@@ -667,6 +834,43 @@ class TestCommandsAsync:
         assert record is default
 
     @pytest.mark.asyncio
+    async def test_query_single_or_default_calls_callable_default_on_no_result(
+        self, connection, set_fetchall_return_empty
+    ):
+        sentinel = object()
+        calls = []
+
+        def default():
+            calls.append(None)
+            return sentinel
+
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_or_default_async("select * from some_table", default=default)
+
+        assert record is sentinel
+        assert calls == [None]
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default_returns_single_row(self, connection, set_fetchall_return_one):
+        calls = []
+
+        def default():
+            calls.append(None)
+            return object()
+
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_or_default_async("select * from some_table", default=default)
+
+        assert record["id"] == 1
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default_raises_on_many_results(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(MoreThanOneResultException):
+                await commands.query_single_or_default_async("select * from some_table", default=None)
+
+    @pytest.mark.asyncio
     async def test_execute_scalar(self, connection):
         async with MockAsyncCommands(connection) as commands:
             id_ = await commands.execute_scalar_async("select id, name from some_table")
@@ -677,3 +881,10 @@ class TestCommandsAsync:
         async with MockAsyncCommands(connection) as commands:
             with pytest.raises(NoResultException):
                 await commands.execute_scalar_async("select * from some_table")
+
+    @pytest.mark.asyncio
+    async def test_execute_scalar_returns_none_for_null_first_column(
+        self, connection, set_fetchone_to_return_null_first_column
+    ):
+        async with MockAsyncCommands(connection) as commands:
+            assert await commands.execute_scalar_async("select nullable_column from some_table") is None

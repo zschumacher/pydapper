@@ -12,6 +12,12 @@ import pytest
 from typing_extensions import assert_type
 
 import pydapper
+from pydapper.exceptions import MissingParameterException
+from pydapper.exceptions import MoreThanOneResultException
+from pydapper.exceptions import NoResultException
+from pydapper.exceptions import PyDapperException
+from pydapper.exceptions import RowMappingException
+from pydapper.exceptions import UnsupportedFeatureError
 
 """This file tests some of the more complex type annotations on the Commands and AsyncCommands classes"""
 
@@ -28,6 +34,15 @@ class Task:
 
 def default_callable() -> str:
     return "sup"
+
+
+def public_exceptions() -> None:
+    assert_type(PyDapperException(), PyDapperException)
+    assert_type(NoResultException(), NoResultException)
+    assert_type(MoreThanOneResultException(), MoreThanOneResultException)
+    assert_type(MissingParameterException(), MissingParameterException)
+    assert_type(UnsupportedFeatureError(), UnsupportedFeatureError)
+    assert_type(RowMappingException(), RowMappingException)
 
 
 class Commands:

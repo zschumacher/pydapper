@@ -49,10 +49,13 @@ class Commands:
     @staticmethod
     def execute(query: str) -> None:
         params = {"id": 1}
+        batch_params = [{"id": 1}, {"id": 2}]
 
         with pydapper.connect() as commands:
             assert_type(commands.execute(query, param=params), int)
             assert_type(commands.execute(query, params=params), int)
+            assert_type(commands.execute(query, params=[]), int)
+            assert_type(commands.execute(query, params=batch_params), int)
             assert_type(commands.execute_scalar(query, param=params), Any)
             assert_type(commands.execute_scalar(query, params=params), Any)
             assert_type(commands.query_multiple((query,), param=params), Tuple[List[Any], ...])
@@ -131,10 +134,13 @@ class CommandsAsync:
     @staticmethod
     async def execute(query: str) -> None:
         params = {"id": 1}
+        batch_params = [{"id": 1}, {"id": 2}]
 
         async with pydapper.connect_async() as commands:
             assert_type(await commands.execute_async(query, param=params), int)
             assert_type(await commands.execute_async(query, params=params), int)
+            assert_type(await commands.execute_async(query, params=[]), int)
+            assert_type(await commands.execute_async(query, params=batch_params), int)
             assert_type(await commands.execute_scalar_async(query, param=params), Any)
             assert_type(await commands.execute_scalar_async(query, params=params), Any)
             assert_type(await commands.query_multiple_async((query,), param=params), Tuple[List[Any], ...])

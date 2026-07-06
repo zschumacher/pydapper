@@ -254,6 +254,78 @@ ASYNC_ALIAS_CONFLICT_CALLS = [
 ]
 
 
+SYNC_READ_LIST_PARAMS_CALLS = [
+    pytest.param(
+        lambda commands: commands.query("select id, name from some_table where id = ?id?", params=[]),
+        id="query",
+    ),
+    pytest.param(
+        lambda commands: commands.query_multiple(("select id, name from some_table where id = ?id?",), params=[]),
+        id="query_multiple",
+    ),
+    pytest.param(
+        lambda commands: commands.query_first("select id, name from some_table where id = ?id?", params=[]),
+        id="query_first",
+    ),
+    pytest.param(
+        lambda commands: commands.query_first_or_default(
+            "select id, name from some_table where id = ?id?", None, params=[]
+        ),
+        id="query_first_or_default",
+    ),
+    pytest.param(
+        lambda commands: commands.query_single("select id, name from some_table where id = ?id?", params=[]),
+        id="query_single",
+    ),
+    pytest.param(
+        lambda commands: commands.query_single_or_default(
+            "select id, name from some_table where id = ?id?", None, params=[]
+        ),
+        id="query_single_or_default",
+    ),
+    pytest.param(
+        lambda commands: commands.execute_scalar("select id from some_table where id = ?id?", params=[]),
+        id="execute_scalar",
+    ),
+]
+
+
+ASYNC_READ_LIST_PARAMS_CALLS = [
+    pytest.param(
+        lambda commands: commands.query_async("select id, name from some_table where id = ?id?", params=[]),
+        id="query_async",
+    ),
+    pytest.param(
+        lambda commands: commands.query_multiple_async(("select id, name from some_table where id = ?id?",), params=[]),
+        id="query_multiple_async",
+    ),
+    pytest.param(
+        lambda commands: commands.query_first_async("select id, name from some_table where id = ?id?", params=[]),
+        id="query_first_async",
+    ),
+    pytest.param(
+        lambda commands: commands.query_first_or_default_async(
+            "select id, name from some_table where id = ?id?", None, params=[]
+        ),
+        id="query_first_or_default_async",
+    ),
+    pytest.param(
+        lambda commands: commands.query_single_async("select id, name from some_table where id = ?id?", params=[]),
+        id="query_single_async",
+    ),
+    pytest.param(
+        lambda commands: commands.query_single_or_default_async(
+            "select id, name from some_table where id = ?id?", None, params=[]
+        ),
+        id="query_single_or_default_async",
+    ),
+    pytest.param(
+        lambda commands: commands.execute_scalar_async("select id from some_table where id = ?id?", params=[]),
+        id="execute_scalar_async",
+    ),
+]
+
+
 class TestPublicExceptions:
     @pytest.mark.parametrize(
         "exception_type",
@@ -273,6 +345,12 @@ class TestParamHandler:
     def test__init__validation(self):
         with pytest.raises(ValueError):
             MockParamHandler("sup", param=[SimpleNamespace(), dict()])
+
+    def test_default_param_handler_get_param_placeholder(self):
+        from pydapper.commands import DefaultSqlParamHandler
+
+        handler = DefaultSqlParamHandler("sup", None)
+        assert handler.get_param_placeholder("sup") == "%s"
 
     def test_get_param_placeholder(self):
         handler = MockParamHandler("sup", None)
@@ -294,6 +372,16 @@ class TestParamHandler:
         )
         assert handler.ordered_param_values == ("dude", "world", "hello", "bar", "foo")
 
+    def test_ordered_param_values_empty_top_level_list_is_executemany_input(self):
+        handler = MockParamHandler("insert into table (id) values (?id?)", [])
+        assert handler.ordered_param_values == []
+
+    def test_list_inside_mapping_is_single_parameter_value(self):
+        handler = MockParamHandler("select * from table where id in ?ids?", {"ids": []})
+        assert handler.ordered_param_names == ("ids",)
+        assert handler.ordered_param_values == ([],)
+        assert handler.prepared_sql == "select * from table where id in %s"
+
     def test_prepared_sql(self):
         handler = MockParamHandler("select * from table where id = ?id? and name = ?name?", {"id": 1, "name": "Zach"})
         assert handler.prepared_sql == "select * from table where id = %s and name = %s"
@@ -301,6 +389,181 @@ class TestParamHandler:
     def test_prepared_sql_no_matching_param(self):
         handler = MockParamHandler("select * from table", {"id": 1, "name": "Zach"})
         assert handler.prepared_sql == "select * from table"
+
+    @pytest.mark.parametrize("param", [None, {}, []])
+    def test_prepared_sql_with_falsey_params_preserves_original_sql(self, param):
+        handler = MockParamHandler("select * from table where id = ?id?", param)
+        assert handler.prepared_sql == "select * from table where id = ?id?"
+
+    def test_prepared_sql_ignores_placeholders_inside_quoted_text(self):
+        sql = """select '?ignored?', 'it''s ?still_ignored?', "?quoted?", "a "" ?still_quoted? "" b", ?active?"""
+        handler = MockParamHandler(sql, {"active": 1})
+
+        assert handler.ordered_param_names == ("active",)
+        assert (
+            handler.prepared_sql
+            == """select '?ignored?', 'it''s ?still_ignored?', "?quoted?", "a "" ?still_quoted? "" b", %s"""
+        )
+
+    def test_prepared_sql_ignores_placeholders_inside_backslash_escaped_quoted_text(self):
+        sql = r"select 'it\'s ?ignored?' as value, ?id?"
+        handler = MockParamHandler(sql, {"id": 1})
+
+        assert handler.ordered_param_names == ("id",)
+        assert handler.prepared_sql == r"select 'it\'s ?ignored?' as value, %s"
+
+    def test_prepared_sql_ignores_unclosed_quoted_text_at_eof(self):
+        sql = "select '?ignored? as value, ?also_ignored?"
+        handler = MockParamHandler(sql, {"also_ignored": 1})
+
+        assert handler.ordered_param_names == ()
+        assert handler.prepared_sql == sql
+
+    def test_prepared_sql_ignores_placeholders_inside_comments(self):
+        sql = "select ?active? -- ?ignored?\n, ?next? /* ?block_ignored? */ ?after_block? -- ?eof_ignored?"
+        handler = MockParamHandler(sql, {"active": 1, "next": 2, "after_block": 3})
+
+        assert handler.ordered_param_names == ("active", "next", "after_block")
+        assert handler.prepared_sql == "select %s -- ?ignored?\n, %s /* ?block_ignored? */ %s -- ?eof_ignored?"
+
+    def test_prepared_sql_ignores_unclosed_block_comment_at_eof(self):
+        sql = "select ?active? /* ?ignored?"
+        handler = MockParamHandler(sql, {"active": 1})
+
+        assert handler.ordered_param_names == ("active",)
+        assert handler.prepared_sql == "select %s /* ?ignored?"
+
+    def test_active_and_ignored_placeholders_with_same_name_are_distinct(self):
+        sql = "select '?id?' as literal, ?id? as id -- ?id?\n, ?id? as next_id"
+        handler = MockParamHandler(sql, {"id": 1})
+
+        assert handler.ordered_param_names == ("id", "id")
+        assert handler.ordered_param_values == (1, 1)
+        assert handler.prepared_sql == "select '?id?' as literal, %s as id -- ?id?\n, %s as next_id"
+
+    def test_duplicate_placeholders_bind_in_occurrence_order(self):
+        handler = MockParamHandler(
+            "select * from table where id = ?id? or parent_id = ?id?",
+            {"id": 1},
+        )
+
+        assert handler.ordered_param_names == ("id", "id")
+        assert handler.ordered_param_values == (1, 1)
+        assert handler.prepared_sql == "select * from table where id = %s or parent_id = %s"
+
+    def test_placeholder_names_allow_uppercase_and_digits_after_first_character(self):
+        handler = MockParamHandler("select * from table where id = ?TaskID1?", {"TaskID1": 1})
+
+        assert handler.ordered_param_names == ("TaskID1",)
+        assert handler.ordered_param_values == (1,)
+        assert handler.prepared_sql == "select * from table where id = %s"
+
+    def test_invalid_placeholder_forms_are_ignored(self):
+        sql = "select ??, ??id?, ? id?, ?first-name?, ?first-?id?, ?bad?valid?, ?table.column?, ?1id?, ?_valid?"
+        handler = MockParamHandler(sql, {"_valid": 1})
+
+        assert handler.ordered_param_names == ("_valid",)
+        assert (
+            handler.prepared_sql
+            == "select ??, ??id?, ? id?, ?first-name?, ?first-?id?, ?bad?valid?, ?table.column?, ?1id?, %s"
+        )
+
+    def test_invalid_placeholder_does_not_swallow_later_valid_placeholder(self):
+        sql = "select ? as native_param, ?bad, ?id?"
+        handler = MockParamHandler(sql, {"id": 1})
+
+        assert handler.ordered_param_names == ("id",)
+        assert handler.prepared_sql == "select ? as native_param, ?bad, %s"
+
+    def test_postgresql_question_mark_operators_do_not_swallow_placeholders(self):
+        sql = "select * from table where data ? 'key' and tags ?| ?keys? and id = ?id?"
+        handler = MockParamHandler(sql, {"keys": ["urgent"], "id": 1})
+
+        assert handler.ordered_param_names == ("keys", "id")
+        assert handler.prepared_sql == "select * from table where data ? 'key' and tags ?| %s and id = %s"
+
+    def test_unspaced_question_mark_operator_does_not_swallow_later_placeholder(self):
+        sql = "select * from table where data?key_col::text=?expected?"
+        handler = MockParamHandler(sql, {"expected": "value"})
+
+        assert handler.ordered_param_names == ("expected",)
+        assert handler.prepared_sql == "select * from table where data?key_col::text=%s"
+
+    def test_malformed_placeholder_recovery_respects_comments_and_quotes(self):
+        sql = "select ?bad -- ?comment? ?id?\n, '?ignored? ?id?', ?next?"
+        handler = MockParamHandler(sql, {"next": 1})
+
+        assert handler.ordered_param_names == ("next",)
+        assert handler.prepared_sql == "select ?bad -- ?comment? ?id?\n, '?ignored? ?id?', %s"
+
+    @pytest.mark.parametrize(
+        "sql, expected_prepared_sql",
+        [
+            ('select ?bad"?ignored?", ?id?', 'select ?bad"?ignored?", %s'),
+            ("select ?bad-- ?ignored?\n, ?id?", "select ?bad-- ?ignored?\n, %s"),
+            ("select ?bad/* ?ignored? */, ?id?", "select ?bad/* ?ignored? */, %s"),
+        ],
+    )
+    def test_malformed_placeholder_recovery_stops_at_sql_boundaries(self, sql, expected_prepared_sql):
+        handler = MockParamHandler(sql, {"id": 1})
+
+        assert handler.ordered_param_names == ("id",)
+        assert handler.prepared_sql == expected_prepared_sql
+
+    def test_malformed_placeholder_at_eof_is_ignored(self):
+        handler = MockParamHandler("select ?bad", {"bad": 1})
+
+        assert handler.ordered_param_names == ()
+        assert handler.prepared_sql == "select ?bad"
+
+    def test_get_param_placeholder_runs_once_per_active_occurrence(self):
+        class TrackingParamHandler(MockParamHandler):
+            def __init__(self, sql, param=None):
+                self.placeholder_calls = []
+                super().__init__(sql, param)
+
+            def get_param_placeholder(self, param_name):
+                self.placeholder_calls.append(param_name)
+                return f"${len(self.placeholder_calls)}"
+
+        handler = TrackingParamHandler("?id?, '?name?', ?name?, ?id? -- ?name?", {"id": 1, "name": "Zach"})
+
+        assert handler.prepared_sql == "$1, '?name?', $2, $3 -- ?name?"
+        assert handler.placeholder_calls == ["id", "name", "id"]
+
+    def test_execute_with_empty_top_level_list_returns_zero_without_cursor_calls(self):
+        class NoCallCursor:
+            rowcount = 123
+
+            def execute(self, *args, **kwargs):
+                raise AssertionError("execute should not be called")
+
+            def executemany(self, *args, **kwargs):
+                raise AssertionError("executemany should not be called")
+
+        handler = MockParamHandler("insert into table (id) values (?id?)", [])
+
+        assert handler.execute(NoCallCursor()) == 0
+
+    def test_execute_with_no_params_executes_once(self):
+        class TrackingCursor:
+            rowcount = 0
+
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, sql, parameters=None):
+                self.calls.append(("execute", sql, parameters))
+                self.rowcount = 1
+
+            def executemany(self, *args, **kwargs):
+                raise AssertionError("executemany should not be called")
+
+        cursor = TrackingCursor()
+        handler = MockParamHandler("insert into table default values", None)
+
+        assert handler.execute(cursor) == 1
+        assert cursor.calls == [("execute", "insert into table default values", None)]
 
     @pytest.mark.parametrize(
         "sql, param, expected",
@@ -328,6 +591,61 @@ class TestParamHandler:
         handler = MockParamHandler(sql, param)
         async with MockAsyncCursor() as cursor:
             assert await handler.execute_async(cursor) == expected
+
+    @pytest.mark.asyncio
+    async def test_execute_async_with_empty_top_level_list_returns_zero_without_cursor_calls(self):
+        class NoCallCursor:
+            rowcount = 123
+
+            async def execute(self, *args, **kwargs):
+                raise AssertionError("execute should not be called")
+
+            async def executemany(self, *args, **kwargs):
+                raise AssertionError("executemany should not be called")
+
+        handler = MockParamHandler("insert into table (id) values (?id?)", [])
+
+        assert await handler.execute_async(NoCallCursor()) == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_async_with_no_params_executes_once(self):
+        class TrackingCursor:
+            rowcount = 0
+
+            def __init__(self):
+                self.calls = []
+
+            async def execute(self, sql, parameters=None):
+                self.calls.append(("execute", sql, parameters))
+                self.rowcount = 1
+
+            async def executemany(self, *args, **kwargs):
+                raise AssertionError("executemany should not be called")
+
+        cursor = TrackingCursor()
+        handler = MockParamHandler("insert into table default values", None)
+
+        assert await handler.execute_async(cursor) == 1
+        assert cursor.calls == [("execute", "insert into table default values", None)]
+
+    @pytest.mark.asyncio
+    async def test_aiopg_param_handler_executes_no_param_sql_without_empty_tuple(self):
+        from pydapper.postgresql.aiopg import AiopgCommands
+
+        class TrackingCursor:
+            rowcount = 1
+
+            def __init__(self):
+                self.calls = []
+
+            async def execute(self, sql, parameters=None):
+                self.calls.append((sql, parameters))
+
+        cursor = TrackingCursor()
+        handler = AiopgCommands.SqlParamHandler("select 1", None)
+
+        assert await handler.execute_async(cursor) == 1
+        assert cursor.calls == [("select 1", None)]
 
 
 class TestCommands:
@@ -368,8 +686,44 @@ class TestCommands:
             pass
         assert commands.connection.closed
 
+    def test_context_manager_methods_allow_plain_connection(self):
+        class PlainConnection:
+            pass
+
+        commands = MockCommands(PlainConnection())
+
+        assert commands.__enter__() is commands
+        assert commands.__exit__(None, None, None) is None
+
     def test_cursor(self, connection):
         assert isinstance(MockCommands(connection).cursor(), MockCursor)
+
+    def test_cursor_context_proxy_supports_cursor_without_context_manager(self):
+        class PlainCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchall(self):
+                return (1, "Zach"), (2, "Bob")
+
+        class PlainCursorConnection:
+            def __init__(self):
+                self.cursor_instance = PlainCursor()
+                self.cursor_calls = 0
+
+            def cursor(self, *args, **kwargs):
+                self.cursor_calls += 1
+                return self.cursor_instance
+
+        connection = PlainCursorConnection()
+
+        records = MockCommands(connection).query("select id, name from some_table")
+
+        assert records == [{"id": 1, "name": "Zach"}, {"id": 2, "name": "Bob"}]
+        assert connection.cursor_calls == 2
 
     def test_execute(self, connection):
         with MockCommands(connection) as commands:
@@ -377,6 +731,57 @@ class TestCommands:
                 "insert into some_table (id, name), (?id?, ?name?)", param={"id": 1, "name": "Zach"}
             )
         assert affected_rows == 1
+
+    def test_execute_sends_prepared_sql_and_ordered_values_to_cursor(self):
+        class RecordingCursor:
+            rowcount = 1
+
+            def __init__(self):
+                self.calls = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+            def execute(self, sql, parameters=None):
+                self.calls.append((sql, parameters))
+
+            def executemany(self, *args, **kwargs):
+                raise AssertionError("executemany should not be called")
+
+        class RecordingConnection(MockConnection):
+            def __init__(self):
+                super().__init__()
+                self.cursor_instance = RecordingCursor()
+
+            def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        connection = RecordingConnection()
+
+        with MockCommands(connection) as commands:
+            affected_rows = commands.execute(
+                "update task set note = '?ignored?' where id = ?id? -- ?id?",
+                params={"id": 1},
+            )
+
+        assert affected_rows == 1
+        assert connection.cursor_instance.calls == [("update task set note = '?ignored?' where id = %s -- ?id?", (1,))]
+
+    def test_execute_with_empty_top_level_list_params_returns_zero_without_opening_cursor(self):
+        class NoCursorConnection(MockConnection):
+            def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        with MockCommands(NoCursorConnection()) as commands:
+            assert commands.execute("insert into some_table (id) values (?id?)", params=[]) == 0
+
+    @pytest.mark.parametrize("call", SYNC_READ_LIST_PARAMS_CALLS)
+    def test_read_methods_reject_top_level_list_params(self, connection, call):
+        with MockCommands(connection) as commands, pytest.raises(ValueError):
+            call(commands)
 
     @pytest.mark.parametrize("call, expected_handler_count", SYNC_PARAMS_CALLS)
     def test_public_methods_accept_params(
@@ -442,6 +847,24 @@ class TestCommands:
 
         assert data == {"id": None, "name": "nullable"}
 
+    def test_mysql_query_first_raises_on_none_result(self, connection, set_fetchone_to_return_none):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(NoResultException):
+            commands.query_first("select id, name from some_table")
+
+    def test_mysql_query_first_rejects_top_level_list_params(self, connection):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(ValueError):
+            commands.query_first("select id, name from some_table where id = ?id?", params=[])
+
     def test_query(self, connection):
         with MockCommands(connection) as commands:
             data = commands.query("select id, name from some_table", model=SimpleNamespace)
@@ -457,6 +880,27 @@ class TestCommands:
         with MockCommands(connection) as commands:
             generator = commands.query("select id, name from some_table", buffered=False)
             assert list(generator) == []
+
+    def test_query_unbuffered_yields_rows_until_none(self):
+        class OneRowCursor(MockCursor):
+            def __init__(self):
+                super().__init__()
+                self.rows = [(1, "Zach"), None]
+
+            def fetchone(self):
+                return self.rows.pop(0)
+
+        class OneRowConnection(MockConnection):
+            def __init__(self):
+                super().__init__()
+                self.cursor_instance = OneRowCursor()
+
+            def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        with MockCommands(OneRowConnection()) as commands:
+            generator = commands.query("select id, name from some_table", buffered=False)
+            assert list(generator) == [{"id": 1, "name": "Zach"}]
 
     def test_query_multiple(self, connection):
         with MockCommands(connection) as commands:
@@ -656,6 +1100,61 @@ class TestCommandsAsync:
         assert affected_rows == 1
 
     @pytest.mark.asyncio
+    async def test_execute_async_sends_prepared_sql_and_ordered_values_to_cursor(self):
+        class RecordingCursor:
+            rowcount = 1
+
+            def __init__(self):
+                self.calls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+            async def execute(self, sql, parameters=None):
+                self.calls.append((sql, parameters))
+
+            async def executemany(self, *args, **kwargs):
+                raise AssertionError("executemany should not be called")
+
+        class RecordingConnection(MockAsyncConnection):
+            def __init__(self):
+                super().__init__()
+                self.cursor_instance = RecordingCursor()
+
+            async def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        connection = RecordingConnection()
+
+        async with MockAsyncCommands(connection) as commands:
+            affected_rows = await commands.execute_async(
+                "update task set note = '?ignored?' where id = ?id? -- ?id?",
+                params={"id": 1},
+            )
+
+        assert affected_rows == 1
+        assert connection.cursor_instance.calls == [("update task set note = '?ignored?' where id = %s -- ?id?", (1,))]
+
+    @pytest.mark.asyncio
+    async def test_execute_async_with_empty_top_level_list_params_returns_zero_without_opening_cursor(self):
+        class NoCursorConnection(MockAsyncConnection):
+            async def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        async with MockAsyncCommands(NoCursorConnection()) as commands:
+            assert await commands.execute_async("insert into some_table (id) values (?id?)", params=[]) == 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("call", ASYNC_READ_LIST_PARAMS_CALLS)
+    async def test_read_methods_reject_top_level_list_params(self, connection, call):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(ValueError):
+                await call(commands)
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("call, expected_handler_count", ASYNC_PARAMS_CALLS)
     async def test_public_methods_accept_params(
         self, connection, captured_handler_params, set_fetchall_return_one, call, expected_handler_count
@@ -723,6 +1222,30 @@ class TestCommandsAsync:
             assert [row async for row in generator] == []
 
     @pytest.mark.asyncio
+    async def test_query_unbuffered_yields_rows_until_none(self):
+        class OneRowAsyncCursor(MockAsyncCursor):
+            def __init__(self):
+                super().__init__()
+                self.rows = [(1, "Zach"), None]
+
+            async def fetchone(self):
+                return self.rows.pop(0)
+
+        class OneRowAsyncConnection(MockAsyncConnection):
+            def __init__(self):
+                super().__init__()
+                self.cursor_instance = OneRowAsyncCursor()
+
+            async def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        async with MockAsyncCommands(OneRowAsyncConnection()) as commands:
+            generator = await commands.query_async("select id, name from some_table", buffered=False)
+            records = [record async for record in generator]
+
+        assert records == [{"id": 1, "name": "Zach"}]
+
+    @pytest.mark.asyncio
     async def test_query_multiple(self, connection):
         async with MockAsyncCommands(connection) as commands:
             data1, data2 = await commands.query_multiple_async(
@@ -761,6 +1284,18 @@ class TestCommandsAsync:
         assert isinstance(record, SimpleNamespace)
         assert record.id
         assert record.name
+
+    @pytest.mark.asyncio
+    async def test_query_first_treats_falsy_row_as_result(self, connection, mocker):
+        async def fetchone(s):
+            return FalsyRow((None, "nullable"))
+
+        mocker.patch("tests.mocks.MockAsyncCursor.fetchone", fetchone)
+
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_first_async("select id, name from some_table")
+
+        assert record == {"id": None, "name": "nullable"}
 
     @pytest.mark.asyncio
     async def test_query_first_raises_on_no_result(self, connection, set_fetchone_to_return_none):

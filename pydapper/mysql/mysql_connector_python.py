@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from pydapper import register
 from pydapper.commands import _PARAM_ALIAS_UNSET
 from pydapper.commands import Commands
+from pydapper.commands import _raise_if_list_params_for_read
 
 from ..exceptions import NoResultException
 from ..utils import database_row_to_dict
@@ -42,6 +43,7 @@ class MySqlConnectorPythonCommands(Commands):
         fetchall to make the lib happy.
         """
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         with self.cursor() as cursor:

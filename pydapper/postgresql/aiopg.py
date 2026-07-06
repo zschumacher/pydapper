@@ -21,8 +21,11 @@ class AiopgCommands(CommandsAsync):
                 for param_values in self.ordered_param_values:
                     await cursor.execute(self.prepared_sql, param_values)
                     rowcount += cursor.rowcount
-            else:
+            elif self.ordered_param_values:
                 await cursor.execute(self.prepared_sql, self.ordered_param_values)
+                rowcount = cursor.rowcount
+            else:
+                await cursor.execute(self.prepared_sql)
                 rowcount = cursor.rowcount
 
             return rowcount

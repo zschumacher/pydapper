@@ -1,11 +1,9 @@
-import re
 import typing
 from abc import ABC
 from abc import abstractmethod
 from contextlib import ExitStack
 from contextlib import contextmanager
 from functools import cached_property
-from re import Match
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import AsyncGenerator
@@ -23,6 +21,8 @@ from typing import cast
 from typing import overload
 
 from ._context import CoroContextManager
+from ._sql_placeholders import PlaceholderSpan
+from ._sql_placeholders import scan_placeholder_spans
 from .exceptions import MoreThanOneResultException
 from .exceptions import NoResultException
 from .utils import database_row_to_dict
@@ -64,13 +64,20 @@ def _resolve_param_aliases(param=_PARAM_ALIAS_UNSET, params=_PARAM_ALIAS_UNSET):
     return None
 
 
-class BaseSqlParamHandler(ABC):
-    _PARAM_REGEX = "\\?(.*?)\\?"
+def _is_empty_executemany_params(param: Any) -> bool:
+    return isinstance(param, list) and not param
 
+
+def _raise_if_list_params_for_read(param: Any) -> None:
+    if isinstance(param, list):
+        raise ValueError("Top-level list params are only supported by execute and execute_async.")
+
+
+class BaseSqlParamHandler(ABC):
     def __init__(self, sql: str, param: Union["ParamType", "ListParamType"] = None):
         self._sql = sql
         self._param = param
-        if isinstance(self._param, list):
+        if isinstance(self._param, list) and self._param:
             all_params_are_same_type = all(isinstance(param, type(self._param[0])) for param in self._param[1:])
             if not all_params_are_same_type:
                 raise ValueError(f"All objects in params must be of type {type(self._param[0])}")
@@ -80,34 +87,40 @@ class BaseSqlParamHandler(ABC):
 
     @cached_property
     def ordered_param_names(self) -> Tuple[str, ...]:
-        matches = re.findall(BaseSqlParamHandler._PARAM_REGEX, self._sql)
-        matches = cast(List[str], matches)
-        return tuple(matches)
+        return tuple(name for _, _, name in self._placeholder_spans)
+
+    @cached_property
+    def _placeholder_spans(self) -> Tuple[PlaceholderSpan, ...]:
+        return scan_placeholder_spans(self._sql)
 
     @cached_property
     def ordered_param_values(self) -> Union[Tuple[Any, ...], List[Tuple[Any, ...]], Tuple]:
-        if self._param:
-            if isinstance(self._param, list):
-                return [tuple(safe_getattr(p, name) for name in self.ordered_param_names) for p in self._param]
+        if isinstance(self._param, list):
+            return [tuple(safe_getattr(p, name) for name in self.ordered_param_names) for p in self._param]
 
+        if self._param:
             return tuple(safe_getattr(self._param, name) for name in self.ordered_param_names)
         return tuple()
 
     @cached_property
     def prepared_sql(self) -> str:
-        if self._param and len(self.ordered_param_names) > 0:
-            pattern = re.compile("|".join(re.escape(f"?{name}?") for name in self.ordered_param_names))
+        if self._param and self._placeholder_spans:
+            prepared_sql_parts = []
+            current_index = 0
 
-            def sub_param_with_placeholder(m: Match) -> str:
-                matched_placeholder = m.group(0)
-                matched_param_name = matched_placeholder.strip("?")
-                return self.get_param_placeholder(matched_param_name)
+            for start, end, name in self._placeholder_spans:
+                prepared_sql_parts.append(self._sql[current_index:start])
+                prepared_sql_parts.append(self.get_param_placeholder(name))
+                current_index = end
 
-            return pattern.sub(sub_param_with_placeholder, self._sql)  # type: ignore
+            prepared_sql_parts.append(self._sql[current_index:])
+            return "".join(prepared_sql_parts)
         return self._sql
 
     def execute(self, cursor: "CursorType") -> int:
         if isinstance(self.ordered_param_values, list):
+            if not self.ordered_param_values:
+                return 0
             cursor.executemany(self.prepared_sql, self.ordered_param_values)
         elif self.ordered_param_values:
             cursor.execute(self.prepared_sql, self.ordered_param_values)
@@ -118,9 +131,13 @@ class BaseSqlParamHandler(ABC):
 
     async def execute_async(self, cursor: "AsyncCursorType") -> int:
         if isinstance(self.ordered_param_values, list):
+            if not self.ordered_param_values:
+                return 0
             await cursor.executemany(self.prepared_sql, self.ordered_param_values)
-        else:
+        elif self.ordered_param_values:
             await cursor.execute(self.prepared_sql, self.ordered_param_values)
+        else:
+            await cursor.execute(self.prepared_sql)
 
         return cursor.rowcount
 
@@ -175,6 +192,9 @@ class Commands(BaseCommands, ABC):
 
     def execute(self, sql, params=_PARAM_ALIAS_UNSET, *, param=_PARAM_ALIAS_UNSET):
         resolved_params = self._resolve_params(param, params)
+        if _is_empty_executemany_params(resolved_params):
+            return 0
+
         handler = self.SqlParamHandler(sql, resolved_params)
         with self._cursor_context_proxy() as cursor:
             rowcount = handler.execute(cursor)
@@ -281,6 +301,7 @@ class Commands(BaseCommands, ABC):
 
     def query(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, buffered=True, *, params=_PARAM_ALIAS_UNSET):
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
         return self._buffered_query(handler, model) if buffered else self._unbuffered_query(handler, model)
 
@@ -309,6 +330,7 @@ class Commands(BaseCommands, ABC):
               and hinters will be able to infer which model type you're working with.  Leaving this as is for now...
         """
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
 
         if models is None:
             models = tuple(dict for _ in queries)
@@ -363,6 +385,7 @@ class Commands(BaseCommands, ABC):
 
     def query_first(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET):
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         with self._cursor_context_proxy() as cursor:
@@ -489,6 +512,7 @@ class Commands(BaseCommands, ABC):
 
     def query_single(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET):
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         with self._cursor_context_proxy() as cursor:
@@ -590,13 +614,14 @@ class Commands(BaseCommands, ABC):
             return default() if callable(default) else default
 
     @overload
-    def execute_scalar(self, sql: str, params: "ParamType" = None) -> Any: ...
+    def execute_scalar(self, sql: str, params: Optional["ParamType"] = None) -> Any: ...
 
     @overload
-    def execute_scalar(self, sql: str, *, param: "ParamType" = None) -> Any: ...
+    def execute_scalar(self, sql: str, *, param: Optional["ParamType"] = None) -> Any: ...
 
     def execute_scalar(self, sql, params=_PARAM_ALIAS_UNSET, *, param=_PARAM_ALIAS_UNSET):
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
         with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
@@ -632,6 +657,9 @@ class CommandsAsync(BaseCommands, ABC):
 
     async def execute_async(self, sql, params=_PARAM_ALIAS_UNSET, *, param=_PARAM_ALIAS_UNSET):
         resolved_params = self._resolve_params(param, params)
+        if _is_empty_executemany_params(resolved_params):
+            return 0
+
         handler = self.SqlParamHandler(sql, resolved_params)
         async with self.cursor() as cursor:
             return await handler.execute_async(cursor)
@@ -739,6 +767,7 @@ class CommandsAsync(BaseCommands, ABC):
 
     async def query_async(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, buffered=True, *, params=_PARAM_ALIAS_UNSET):
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
         if buffered:
             records = await self._buffered_query(handler, model)
@@ -768,6 +797,7 @@ class CommandsAsync(BaseCommands, ABC):
               and hinters will be able to infer which model type you're working with.  Leaving this as is for now...
         """
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
 
         if models is None:
             models = cast(Tuple[dict], tuple(dict for _ in queries))
@@ -824,6 +854,7 @@ class CommandsAsync(BaseCommands, ABC):
 
     async def query_first_async(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET):
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         async with self.cursor() as cursor:
@@ -832,7 +863,7 @@ class CommandsAsync(BaseCommands, ABC):
             row = await cursor.fetchone()
             if row is None:
                 raise NoResultException("Query returned no results")
-        return serialize_dict_row(model, database_row_to_dict(headers, row))
+            return serialize_dict_row(model, database_row_to_dict(headers, row))
 
     @overload
     async def query_first_or_default_async(
@@ -954,6 +985,7 @@ class CommandsAsync(BaseCommands, ABC):
 
     async def query_single_async(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET):
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         async with self.cursor() as cursor:
@@ -1057,13 +1089,14 @@ class CommandsAsync(BaseCommands, ABC):
             return default() if callable(default) else default
 
     @overload
-    async def execute_scalar_async(self, sql: str, params: "ParamType" = None) -> Any: ...
+    async def execute_scalar_async(self, sql: str, params: Optional["ParamType"] = None) -> Any: ...
 
     @overload
-    async def execute_scalar_async(self, sql: str, *, param: "ParamType" = None) -> Any: ...
+    async def execute_scalar_async(self, sql: str, *, param: Optional["ParamType"] = None) -> Any: ...
 
     async def execute_scalar_async(self, sql, params=_PARAM_ALIAS_UNSET, *, param=_PARAM_ALIAS_UNSET):
         resolved_params = self._resolve_params(param, params)
+        _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
         async with self.cursor() as cursor:
             await handler.execute_async(cursor)

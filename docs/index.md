@@ -37,6 +37,11 @@ Why would I use *pydapper*?
 **Safe from SQL injection**
 : pydapper provides a consistent syntax for declaring query parameters and guarantees it is converted to the safest
   possible parameter substitution for the dbapi to deter SQL injection
+  Parameter placeholders use the form `?name?`, where `name` starts with an ASCII letter or underscore and then contains
+  only ASCII letters, numbers, or underscores. Placeholder-shaped text inside single-quoted text, double-quoted text,
+  `--` line comments, and `/* ... */` block comments is ignored; PostgreSQL dollar-quoted strings are not special-cased
+  by the placeholder scanner. Invalid forms such as `??`, `? id?`, `?first-name?`, `?table.column?`, and `?1id?` are left
+  unchanged.
 
 **You want a framework that lets you BYOC (bring your own connection)**
 : Sometimes ORM frameworks abstract *too* much from you.  *pydapper* allows you to use your own connection

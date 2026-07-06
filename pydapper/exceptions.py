@@ -8,3 +8,15 @@ class NoResultException(PyDapperException):
 
 class MoreThanOneResultException(PyDapperException):
     pass
+
+
+class MissingParameterException(PyDapperException):
+    pass
+
+
+class UnsupportedFeatureError(PyDapperException):
+    pass
+
+
+class RowMappingException(PyDapperException):
+    pass

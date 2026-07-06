@@ -11,6 +11,11 @@ the query.  The additional columns or rows are ignored.
 
 `param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 
+## Cardinality
+- 0 rows: raises `NoResultException`.
+- 1+ rows: returns the first column of the first row.
+- SQL `NULL` in the first column is returned as Python `None`.
+
 ## Example
 Get the name of the first task owner in the database.
 

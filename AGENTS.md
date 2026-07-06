@@ -122,12 +122,19 @@ explicitly calls for it.
 PR titles should always use Conventional Commits format, for example
 `docs: add agent development guide` or `fix: handle param alias conflict`.
 
-In PR summaries, include:
+PR descriptions should be self-contained. Prefer a short structured body with
+these pieces:
 
 * What changed and why.
+* A concrete example of the behavior before and after, when behavior changes.
 * Which commands ran and their results.
 * Which driver-specific tests were skipped and why.
 * Any public API, type compatibility, docs, or optional-extra impact.
+
+Keep examples small and reviewable. For API changes, show import paths or call
+patterns. For bug fixes, show the edge case that now works. For docs-only
+changes, name the docs page or generated site area instead of inventing a
+runtime example.
 
 Repo-local Codex skills are not currently needed. Prefer this file and the
 development docs unless a future workflow needs reusable, task-specific context

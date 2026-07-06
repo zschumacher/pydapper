@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: add params alias across public command APIs. PR [#503](https://github.com/zschumacher/pydapper/pull/503) by [@zschumacher](https://github.com/zschumacher).
 * docs: add AI development guidance. PR [#504](https://github.com/zschumacher/pydapper/pull/504) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.13.1

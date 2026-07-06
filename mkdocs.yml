@@ -27,6 +27,8 @@ nav:
       - query_single_async: async_methods/query_single_async.md
       - query_single_or_default_async: async_methods/query_single_or_default_async.md
       - query_multiple_async: async_methods/query_multiple_async.md
+  - Development:
+      - AI-assisted development: development/ai-assisted-development.md
   - Release Notes: release_notes.md
 
 theme:
@@ -68,7 +70,7 @@ markdown_extensions:
           format: !!python/name:pymdownx.superfences.fence_code_format ''
   - pymdownx.extra
   - pymdownx.emoji:
-      emoji_index: !!python/name:materialx.emoji.twemoji
-      emoji_generator: !!python/name:materialx.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - toc:
       permalink: 🔗

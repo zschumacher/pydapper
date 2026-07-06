@@ -7,9 +7,11 @@ set is empty; this method throws an exception if there is more than one element 
 |---------|-------------|-----------------------------------------------------------------------------------------------|--------------|---------|
 | sql     | `str`       | the sql query str to execute                                                                  | :thumbsdown: |         |
  | default | `Any`       | any object to return if the result set is empty                                               | :thumbsdown: |
-| param   | `ParamType` | params to substitute in the query                                                             | :thumbsup:   | `None`  |
+| params   | `ParamType` | params to substitute in the query                                                             | :thumbsup:   | `None`  |
  | model   | `Any`       | the callable to serialize the model;  callable must be able to accept column names as kwargs. | :thumbsup:   | `dict`  |
 
+
+`param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 
 ## First, Single and Default
 {!docs/.first_single_default.md!}

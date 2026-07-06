@@ -7,7 +7,9 @@ the query.  The additional columns or rows are ignored.
 | name  | type        | description                       | optional     | default |
 |-------|-------------|-----------------------------------|--------------|---------|
 | sql   | `str`       | the sql query str to execute      | :thumbsdown: |         |
-| param | `ParamType` | params to substitute in the query | :thumbsup:   | `None`  |
+| params | `ParamType` | params to substitute in the query | :thumbsup:   | `None`  |
+
+`param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 
 ## Example
 Get the name of the first task owner in the database.

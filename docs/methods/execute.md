@@ -6,7 +6,9 @@ to execute insert, update or delete operations.
 | name  | type                       | description                       | optional     | default |
 |-------|----------------------------|-----------------------------------|--------------|---------|
  | sql   | `str`                      | the sql query str to execute      | :thumbsdown: |         |
- | param | `ListParamType, ParamType` | params to substitute in the query | :thumbsup:   | `None`  |
+ | params | `ListParamType, ParamType` | params to substitute in the query | :thumbsup:   | `None`  |
+
+`param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 
 ## Example - Execute Insert
 ### Single
@@ -18,7 +20,7 @@ Execute the INSERT statement a single time.
 (*This script is complete, it should run "as is"*)
 
 ### Multiple
-Execute the INSERT statement multiple times, one for each object in the param list.
+Execute the INSERT statement multiple times, one for each object in the params list.
 
 ```python
 {!docs/../docs_src/methods/execute/insert_multiple.py!}
@@ -35,7 +37,7 @@ Execute the UPDATE statement a single time.
 (*This script is complete, it should run "as is"*)
 
 ### Multiple
-Execute the UPDATE statement multiple times, one for each object in the param list.
+Execute the UPDATE statement multiple times, one for each object in the params list.
 
 ```python
 {!docs/../docs_src/methods/execute/update_multiple.py!}
@@ -52,7 +54,7 @@ Execute the DELETE statement a single time.
 (*This script is complete, it should run "as is"*)
 
 ### Multiple
-Execute the DELETE statement multiple times, one for each object in the param list.
+Execute the DELETE statement multiple times, one for each object in the params list.
 
 ```python
 {!docs/../docs_src/methods/execute/delete_multiple.py!}

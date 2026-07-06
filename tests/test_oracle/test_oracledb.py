@@ -100,6 +100,10 @@ class TestQueryMultiple(QueryMultipleTestSuite):
 
 class TestQueryFirst(QueryFirstTestSuite):
     def test_param(self, commands, task_table_name):
+        task = commands.query_first(f"select id from {task_table_name} where id = ?id?", params={"id": 1})
+        assert task["ID"] == 1
+
+    def test_param_alias(self, commands, task_table_name):
         task = commands.query_first(f"select id from {task_table_name} where id = ?id?", param={"id": 1})
         assert task["ID"] == 1
 
@@ -113,7 +117,7 @@ class TestQuerySingle(QuerySingleTestSuite):
         assert task["ID"] == 1
 
     def test_param(self, commands, task_table_name):
-        task = commands.query_single(f"select id from {task_table_name} where id = ?id?", param={"id": 1})
+        task = commands.query_single(f"select id from {task_table_name} where id = ?id?", params={"id": 1})
         assert task["ID"] == 1
 
 

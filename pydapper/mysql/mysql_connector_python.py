@@ -1,11 +1,10 @@
 from typing import TYPE_CHECKING
-from typing import Any
 
 from pydapper import register
+from pydapper.commands import _PARAM_ALIAS_UNSET
 from pydapper.commands import Commands
 
 from ..exceptions import NoResultException
-from ..types import ParamType
 from ..utils import database_row_to_dict
 from ..utils import get_col_names
 from ..utils import import_dbapi_module
@@ -34,13 +33,16 @@ class MySqlConnectorPythonCommands(Commands):
         self,
         sql,
         model=dict,
-        param=None,
+        param=_PARAM_ALIAS_UNSET,
+        *,
+        params=_PARAM_ALIAS_UNSET,
     ):
         """
         the mysql connector throws an exception if you only read one row from a cursor.  Unfortunately, we have to
         fetchall to make the lib happy.
         """
-        handler = self.SqlParamHandler(sql, param)
+        resolved_params = self._resolve_params(param, params)
+        handler = self.SqlParamHandler(sql, resolved_params)
 
         with self.cursor() as cursor:
             handler.execute(cursor)

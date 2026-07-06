@@ -15,6 +15,236 @@ from tests.mocks import MockParamHandler
 pytestmark = pytest.mark.core
 
 
+@pytest.fixture
+def captured_handler_params(monkeypatch):
+    captured = []
+    original_init = MockParamHandler.__init__
+
+    def capture_init(self, sql, param=None):
+        captured.append(param)
+        original_init(self, sql, param)
+
+    monkeypatch.setattr(MockParamHandler, "__init__", capture_init)
+    return captured
+
+
+SYNC_PARAMS_CALLS = [
+    pytest.param(
+        lambda commands, params: commands.execute("insert into some_table (id) values (?id?)", params=params),
+        1,
+        id="execute",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query("select id, name from some_table where id = ?id?", params=params),
+        1,
+        id="query",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_multiple(
+            (
+                "select id, name from some_table where id = ?id?",
+                "select id, name from another_table where id = ?id?",
+            ),
+            params=params,
+        ),
+        2,
+        id="query_multiple",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_first("select id, name from some_table where id = ?id?", params=params),
+        1,
+        id="query_first",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_first_or_default(
+            "select id, name from some_table where id = ?id?", None, params=params
+        ),
+        1,
+        id="query_first_or_default",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_single(
+            "select id, name from some_table where id = ?id?", params=params
+        ),
+        1,
+        id="query_single",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_single_or_default(
+            "select id, name from some_table where id = ?id?", None, params=params
+        ),
+        1,
+        id="query_single_or_default",
+    ),
+    pytest.param(
+        lambda commands, params: commands.execute_scalar("select id from some_table where id = ?id?", params=params),
+        1,
+        id="execute_scalar",
+    ),
+]
+
+SYNC_ALIAS_CONFLICT_CALLS = [
+    pytest.param(
+        lambda commands, params: commands.execute(
+            "insert into some_table (id) values (?id?)", param=params, params=params
+        ),
+        id="execute",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query(
+            "select id, name from some_table where id = ?id?", param=params, params=params
+        ),
+        id="query",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_multiple(
+            ("select id, name from some_table where id = ?id?",), param=params, params=params
+        ),
+        id="query_multiple",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_first(
+            "select id, name from some_table where id = ?id?", param=params, params=params
+        ),
+        id="query_first",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_first_or_default(
+            "select id, name from some_table where id = ?id?", None, param=params, params=params
+        ),
+        id="query_first_or_default",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_single(
+            "select id, name from some_table where id = ?id?", param=params, params=params
+        ),
+        id="query_single",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_single_or_default(
+            "select id, name from some_table where id = ?id?", None, param=params, params=params
+        ),
+        id="query_single_or_default",
+    ),
+    pytest.param(
+        lambda commands, params: commands.execute_scalar(
+            "select id from some_table where id = ?id?", param=params, params=params
+        ),
+        id="execute_scalar",
+    ),
+]
+
+ASYNC_PARAMS_CALLS = [
+    pytest.param(
+        lambda commands, params: commands.execute_async("insert into some_table (id) values (?id?)", params=params),
+        1,
+        id="execute_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_async("select id, name from some_table where id = ?id?", params=params),
+        1,
+        id="query_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_multiple_async(
+            (
+                "select id, name from some_table where id = ?id?",
+                "select id, name from another_table where id = ?id?",
+            ),
+            params=params,
+        ),
+        2,
+        id="query_multiple_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_first_async(
+            "select id, name from some_table where id = ?id?", params=params
+        ),
+        1,
+        id="query_first_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_first_or_default_async(
+            "select id, name from some_table where id = ?id?", None, params=params
+        ),
+        1,
+        id="query_first_or_default_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_single_async(
+            "select id, name from some_table where id = ?id?", params=params
+        ),
+        1,
+        id="query_single_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_single_or_default_async(
+            "select id, name from some_table where id = ?id?", None, params=params
+        ),
+        1,
+        id="query_single_or_default_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.execute_scalar_async(
+            "select id from some_table where id = ?id?", params=params
+        ),
+        1,
+        id="execute_scalar_async",
+    ),
+]
+
+ASYNC_ALIAS_CONFLICT_CALLS = [
+    pytest.param(
+        lambda commands, params: commands.execute_async(
+            "insert into some_table (id) values (?id?)", param=params, params=params
+        ),
+        id="execute_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_async(
+            "select id, name from some_table where id = ?id?", param=params, params=params
+        ),
+        id="query_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_multiple_async(
+            ("select id, name from some_table where id = ?id?",), param=params, params=params
+        ),
+        id="query_multiple_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_first_async(
+            "select id, name from some_table where id = ?id?", param=params, params=params
+        ),
+        id="query_first_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_first_or_default_async(
+            "select id, name from some_table where id = ?id?", None, param=params, params=params
+        ),
+        id="query_first_or_default_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_single_async(
+            "select id, name from some_table where id = ?id?", param=params, params=params
+        ),
+        id="query_single_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.query_single_or_default_async(
+            "select id, name from some_table where id = ?id?", None, param=params, params=params
+        ),
+        id="query_single_or_default_async",
+    ),
+    pytest.param(
+        lambda commands, params: commands.execute_scalar_async(
+            "select id from some_table where id = ?id?", param=params, params=params
+        ),
+        id="execute_scalar_async",
+    ),
+]
+
+
 class TestParamHandler:
     def test__init__validation(self):
         with pytest.raises(ValueError):
@@ -23,6 +253,11 @@ class TestParamHandler:
     def test_get_param_placeholder(self):
         handler = MockParamHandler("sup", None)
         assert handler.get_param_placeholder("sup") == "%s"
+
+    def test_param_alias_unset_repr_matches_legacy_default_display(self):
+        from pydapper.commands import _PARAM_ALIAS_UNSET
+
+        assert repr(_PARAM_ALIAS_UNSET) == "None"
 
     def test_ordered_param_names(self):
         handler = MockParamHandler("?sup? ?hello? ?world? ?foo? ?bar?", None)
@@ -110,6 +345,59 @@ class TestCommands:
                 "insert into some_table (id, name), (?id?, ?name?)", param={"id": 1, "name": "Zach"}
             )
         assert affected_rows == 1
+
+    @pytest.mark.parametrize("call, expected_handler_count", SYNC_PARAMS_CALLS)
+    def test_public_methods_accept_params(
+        self, connection, captured_handler_params, set_fetchall_return_one, call, expected_handler_count
+    ):
+        params = {"id": 1}
+
+        with MockCommands(connection) as commands:
+            call(commands, params)
+
+        assert captured_handler_params == [params] * expected_handler_count
+
+    @pytest.mark.parametrize("call", SYNC_ALIAS_CONFLICT_CALLS)
+    def test_public_methods_reject_param_and_params(self, connection, call):
+        params = {"id": 1}
+
+        with MockCommands(connection) as commands, pytest.raises(ValueError, match="Pass either 'params' or 'param'"):
+            call(commands, params)
+
+    def test_or_default_methods_preserve_param_only_overrides(self, connection):
+        class ParamOnlyOverrideCommands(MockCommands):
+            def query_first(self, sql, model=dict, param=None):
+                assert param == {"id": 1}
+                raise NoResultException
+
+            def query_single(self, sql, model=dict, param=None):
+                assert param == {"id": 1}
+                raise NoResultException
+
+        default = object()
+
+        with ParamOnlyOverrideCommands(connection) as commands:
+            assert (
+                commands.query_first_or_default("select * from some_table where id = ?id?", default, params={"id": 1})
+                is default
+            )
+            assert (
+                commands.query_single_or_default("select * from some_table where id = ?id?", default, params={"id": 1})
+                is default
+            )
+
+    def test_mysql_query_first_accepts_params(self, connection, captured_handler_params):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        params = {"id": 1}
+
+        with MockMySqlConnectorPythonCommands(connection) as commands:
+            commands.query_first("select id, name from some_table where id = ?id?", params=params)
+
+        assert captured_handler_params == [params]
 
     def test_query(self, connection):
         with MockCommands(connection) as commands:
@@ -242,6 +530,54 @@ class TestCommandsAsync:
                 "insert into some_table (id, name), (?id?, ?name?)", param={"id": 1, "name": "Zach"}
             )
         assert affected_rows == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("call, expected_handler_count", ASYNC_PARAMS_CALLS)
+    async def test_public_methods_accept_params(
+        self, connection, captured_handler_params, set_fetchall_return_one, call, expected_handler_count
+    ):
+        params = {"id": 1}
+
+        async with MockAsyncCommands(connection) as commands:
+            await call(commands, params)
+
+        assert captured_handler_params == [params] * expected_handler_count
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("call", ASYNC_ALIAS_CONFLICT_CALLS)
+    async def test_public_methods_reject_param_and_params(self, connection, call):
+        params = {"id": 1}
+
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'params' or 'param'"):
+                await call(commands, params)
+
+    @pytest.mark.asyncio
+    async def test_or_default_methods_preserve_param_only_overrides(self, connection):
+        class ParamOnlyOverrideCommands(MockAsyncCommands):
+            async def query_first_async(self, sql, model=dict, param=None):
+                assert param == {"id": 1}
+                raise NoResultException
+
+            async def query_single_async(self, sql, model=dict, param=None):
+                assert param == {"id": 1}
+                raise NoResultException
+
+        default = object()
+
+        async with ParamOnlyOverrideCommands(connection) as commands:
+            assert (
+                await commands.query_first_or_default_async(
+                    "select * from some_table where id = ?id?", default, params={"id": 1}
+                )
+                is default
+            )
+            assert (
+                await commands.query_single_or_default_async(
+                    "select * from some_table where id = ?id?", default, params={"id": 1}
+                )
+                is default
+            )
 
     @pytest.mark.asyncio
     async def test_query(self, connection):

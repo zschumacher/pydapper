@@ -6,8 +6,10 @@ will throw a `ValueError` if you don't supply the same number of queries and mod
 | name  | type        | description                                                                                   | optional     | default |
 |-------|-------------|-----------------------------------------------------------------------------------------------|--------------|---------|
 | sql   | `str`       | the sql query str to execute                                                                  | :thumbsdown: |         |
-| param | `ParamType` | params to substitute in the query                                                             | :thumbsup:   | `None`  |
+| params | `ParamType` | params to substitute in the query                                                             | :thumbsup:   | `None`  |
  | model | `Any`       | the callable to serialize the model;  callable must be able to accept column names as kwargs. | :thumbsup:   | `dict`  |
+
+`param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 
 ## Example
 Query two tables and return the serialized results.

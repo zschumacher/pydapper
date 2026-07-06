@@ -65,7 +65,7 @@ class QueryTestSuite:
     def test_param(self, commands: Commands, task_table_name):
         data = commands.query(
             f"select * from {task_table_name} where due_date = ?due_date?",
-            param={"due_date": datetime.date(2021, 12, 31)},
+            params={"due_date": datetime.date(2021, 12, 31)},
         )
         assert len(data) == 2
         assert all(isinstance(record, dict) for record in data)
@@ -92,7 +92,7 @@ class QueryAsyncTestSuite:
     async def test_param(self, commands: CommandsAsync, task_table_name):
         data = await commands.query_async(
             f"select * from {task_table_name} where due_date = ?due_date?",
-            param={"due_date": datetime.date(2021, 12, 31)},
+            params={"due_date": datetime.date(2021, 12, 31)},
         )
         assert len(data) == 2
         assert all(isinstance(record, dict) for record in data)
@@ -120,7 +120,7 @@ class QueryMultipleTestSuite:
                 f"select * from {owner_table_name} where id = ?id?",
                 f"select * from {task_table_name} where due_date = ?due_date?",
             ),
-            param={"id": 1, "due_date": datetime.date(2021, 12, 31)},
+            params={"id": 1, "due_date": datetime.date(2021, 12, 31)},
         )
         assert len(owner) == 1
         assert len(task) == 2
@@ -172,7 +172,7 @@ class QueryMultipleAsyncTestSuite:
                 f"select * from {owner_table_name} where id = ?id?",
                 f"select * from {task_table_name} where due_date = ?due_date?",
             ),
-            param={"id": 1, "due_date": datetime.date(2021, 12, 31)},
+            params={"id": 1, "due_date": datetime.date(2021, 12, 31)},
         )
         assert len(owner) == 1
         assert len(task) == 2
@@ -213,6 +213,10 @@ class QueryFirstTestSuite:
         assert isinstance(task, dict)
 
     def test_param(self, commands: Commands, task_table_name):
+        task = commands.query_first(f"select id from {task_table_name} where id = ?id?", params={"id": 1})
+        assert task["id"] == 1
+
+    def test_param_alias(self, commands: Commands, task_table_name):
         task = commands.query_first(f"select id from {task_table_name} where id = ?id?", param={"id": 1})
         assert task["id"] == 1
 
@@ -225,6 +229,11 @@ class QueryFirstAsyncTestSuite:
 
     @pytest.mark.asyncio
     async def test_param(self, commands: CommandsAsync, task_table_name):
+        task = await commands.query_first_async(f"select id from {task_table_name} where id = ?id?", params={"id": 1})
+        assert task["id"] == 1
+
+    @pytest.mark.asyncio
+    async def test_param_alias(self, commands: CommandsAsync, task_table_name):
         task = await commands.query_first_async(f"select id from {task_table_name} where id = ?id?", param={"id": 1})
         assert task["id"] == 1
 
@@ -238,7 +247,7 @@ class QueryFirstOrDefaultTestSuite:
     def test_param(self, commands: Commands, task_table_name):
         sentinel = object()
         task = commands.query_first_or_default(
-            f"select * from {task_table_name} where id = ?id?", param={"id": 1000}, default=sentinel
+            f"select * from {task_table_name} where id = ?id?", params={"id": 1000}, default=sentinel
         )
         assert task is sentinel
 
@@ -256,7 +265,7 @@ class QueryFirstOrDefaultAsyncTestSuite:
     async def test_param(self, commands: CommandsAsync, task_table_name):
         sentinel = object()
         task = await commands.query_first_or_default_async(
-            f"select * from {task_table_name} where id = ?id?", param={"id": 1000}, default=sentinel
+            f"select * from {task_table_name} where id = ?id?", params={"id": 1000}, default=sentinel
         )
         assert task is sentinel
 
@@ -267,7 +276,7 @@ class QuerySingleTestSuite:
         assert task["id"] == 1
 
     def test_param(self, commands: Commands, task_table_name):
-        task = commands.query_single(f"select id from {task_table_name} where id = ?id?", param={"id": 1})
+        task = commands.query_single(f"select id from {task_table_name} where id = ?id?", params={"id": 1})
         assert task["id"] == 1
 
 
@@ -279,7 +288,7 @@ class QuerySingleAsyncTestSuite:
 
     @pytest.mark.asyncio
     async def test_param(self, commands: CommandsAsync, task_table_name):
-        task = await commands.query_single_async(f"select id from {task_table_name} where id = ?id?", param={"id": 1})
+        task = await commands.query_single_async(f"select id from {task_table_name} where id = ?id?", params={"id": 1})
         assert task["id"] == 1
 
 
@@ -292,7 +301,7 @@ class QuerySingleOrDefaultTestSuite:
     def test_param(self, commands: Commands, task_table_name):
         sentinel = object()
         task = commands.query_single_or_default(
-            f"select * from {task_table_name} where id = ?id?", param={"id": 1000}, default=sentinel
+            f"select * from {task_table_name} where id = ?id?", params={"id": 1000}, default=sentinel
         )
         assert task is sentinel
 
@@ -310,7 +319,7 @@ class QuerySingleOrDefaultAsyncTestSuite:
     async def test_param(self, commands: CommandsAsync, task_table_name):
         sentinel = object()
         task = await commands.query_single_or_default_async(
-            f"select * from {task_table_name} where id = ?id?", param={"id": 1000}, default=sentinel
+            f"select * from {task_table_name} where id = ?id?", params={"id": 1000}, default=sentinel
         )
         assert task is sentinel
 
@@ -322,7 +331,7 @@ class ExecuteScalarTestSuite:
 
     def test_param(self, commands: Commands, task_table_name):
         first_task_description = commands.execute_scalar(
-            f"select description from {task_table_name} where id = ?id?", param={"id": 1}
+            f"select description from {task_table_name} where id = ?id?", params={"id": 1}
         )
         assert first_task_description == "Set up a test database"
 
@@ -336,6 +345,6 @@ class ExecuteScalarAsyncTestSuite:
     @pytest.mark.asyncio
     async def test_param(self, commands: CommandsAsync, task_table_name):
         first_task_description = await commands.execute_scalar_async(
-            f"select description from {task_table_name} where id = ?id?", param={"id": 1}
+            f"select description from {task_table_name} where id = ?id?", params={"id": 1}
         )
         assert first_task_description == "Set up a test database"

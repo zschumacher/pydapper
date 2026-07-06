@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* docs: add AI development guidance. PR [#504](https://github.com/zschumacher/pydapper/pull/504) by [@zschumacher](https://github.com/zschumacher).
 
 ## 0.13.1
 ### Internal

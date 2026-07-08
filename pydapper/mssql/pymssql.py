@@ -19,7 +19,7 @@ class PymssqlCommands(Commands):
     class SqlParamHandler(BaseSqlParamHandler):
         def get_param_placeholder(self, param_name) -> str:
             if isinstance(self._param, list):
-                test_param = self._param[0]
+                test_param = self._param[0] if self._param else None
             else:
                 test_param = self._param
             if test_param is None:

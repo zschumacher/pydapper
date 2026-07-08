@@ -354,7 +354,7 @@ class TestPublicExceptions:
 
 
 class TestParamHandler:
-    @pytest.mark.parametrize("param", [1, "task", ("id", 1), {"id"}, object(), [1]])
+    @pytest.mark.parametrize("param", [1, "task", ("id", 1), {"id"}, object(), [1], TaskParams])
     def test__init__rejects_invalid_param_shapes(self, param):
         with pytest.raises(InvalidParameterShapeException):
             MockParamHandler("select * from table where id = ?id?", param=param)
@@ -413,6 +413,43 @@ class TestParamHandler:
         )
 
         assert handler.ordered_param_values == (0, False, "", [])
+
+    def test_ordered_param_values_are_resolved_once_for_single_record(self):
+        class LazyParams:
+            def __init__(self):
+                self.id_calls = 0
+
+            @property
+            def id(self):
+                self.id_calls += 1
+                return 1
+
+        params = LazyParams()
+        handler = MockParamHandler("?id?", params)
+
+        assert params.id_calls == 1
+        assert handler.ordered_param_values == (1,)
+        assert handler.ordered_param_values == (1,)
+        assert params.id_calls == 1
+
+    def test_ordered_param_values_are_resolved_once_for_executemany_records(self):
+        class LazyParams:
+            def __init__(self, id_):
+                self._id = id_
+                self.id_calls = 0
+
+            @property
+            def id(self):
+                self.id_calls += 1
+                return self._id
+
+        params = [LazyParams(1), LazyParams(2)]
+        handler = MockParamHandler("?id?", params)
+
+        assert [param.id_calls for param in params] == [1, 1]
+        assert handler.ordered_param_values == [(1,), (2,)]
+        assert handler.ordered_param_values == [(1,), (2,)]
+        assert [param.id_calls for param in params] == [1, 1]
 
     @pytest.mark.parametrize("param", [None, {}, SimpleNamespace()])
     def test_missing_params_raise_missing_parameter_exception(self, param):

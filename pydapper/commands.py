@@ -127,7 +127,9 @@ class BaseSqlParamHandler(ABC):
     def __init__(self, sql: str, param: Union["ParamType", "ListParamType"] = None):
         self._sql = sql
         self._param = param
-        self._validate_param_shape()
+        self.ordered_param_values: Union[Tuple[Any, ...], List[Tuple[Any, ...]], Tuple] = (
+            self._resolve_ordered_param_values()
+        )
 
     @abstractmethod
     def get_param_placeholder(self, param_name: str) -> str: ...
@@ -135,25 +137,19 @@ class BaseSqlParamHandler(ABC):
     def get_param_value(self, param: Any, param_name: str) -> Any:
         return _get_param_value(param, param_name)
 
-    def _validate_param_shape(self) -> None:
+    def _resolve_ordered_param_values(self) -> Union[Tuple[Any, ...], List[Tuple[Any, ...]], Tuple]:
         if isinstance(self._param, list):
-            for index, param in enumerate(self._param):
-                self._validate_param_record(param, f"params[{index}]")
-            return
+            return [
+                self._ordered_param_values_for_record(param, f"params[{index}]")
+                for index, param in enumerate(self._param)
+            ]
 
         if self._param is None:
             if self.ordered_param_names:
                 raise MissingParameterException(f"Missing SQL parameter {self.ordered_param_names[0]!r}.")
-            return
+            return tuple()
 
-        self._validate_param_record(self._param, "params")
-
-    def _validate_param_record(self, param: Any, location: str) -> None:
-        if not _is_param_record(param):
-            _raise_invalid_param_record(param, location)
-
-        for param_name in self.ordered_param_names:
-            self.get_param_value(param, param_name)
+        return self._ordered_param_values_for_record(self._param, "params")
 
     @cached_property
     def ordered_param_names(self) -> Tuple[str, ...]:
@@ -163,16 +159,10 @@ class BaseSqlParamHandler(ABC):
     def _placeholder_spans(self) -> Tuple[PlaceholderSpan, ...]:
         return scan_placeholder_spans(self._sql)
 
-    @cached_property
-    def ordered_param_values(self) -> Union[Tuple[Any, ...], List[Tuple[Any, ...]], Tuple]:
-        if isinstance(self._param, list):
-            return [self._ordered_param_values_for_record(param) for param in self._param]
+    def _ordered_param_values_for_record(self, param: Any, location: str) -> Tuple[Any, ...]:
+        if not _is_param_record(param):
+            _raise_invalid_param_record(param, location)
 
-        if self._param is not None:
-            return self._ordered_param_values_for_record(self._param)
-        return tuple()
-
-    def _ordered_param_values_for_record(self, param: Any) -> Tuple[Any, ...]:
         return tuple(self.get_param_value(param, name) for name in self.ordered_param_names)
 
     @cached_property

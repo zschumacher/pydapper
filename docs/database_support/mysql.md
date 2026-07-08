@@ -10,10 +10,15 @@ Supported drivers:
 because that is the name of the actual package that is installed.
 
 !!! note
-    Because of the build in behavior of `mysql-connector-python`, it is currently required to run `cursor.fetchall()`
-    in the `query_first` implementation in order to flush the result set from the server 
+    Because of the built-in behavior of `mysql-connector-python`, it is currently required to run `cursor.fetchall()`
+    in the `query_first` implementation in order to flush the result set from the server.
     When using `query_first` with MySQL, it is advisable to use `LIMIT 1` in your query to prevent downloading
     unneeded rows.
+
+    `query_single` reads only enough rows to detect that more than one row exists. If `mysql-connector-python`
+    cannot discard the unread rows with its driver-level reset behavior, pydapper drains the remaining rows before
+    raising `MoreThanOneResultException` so the connection remains usable. Use `LIMIT 2` with `query_single` to cap
+    the cleanup cost for queries that may return many rows.
 
 ### Installation
 === "pip"
@@ -58,5 +63,4 @@ Use *pydapper* with a `mysql-connector-python` connection pool.
 ```python
 {!docs/../docs_src/connections/mysql_connector_python_using.py!}
 ```
-
 

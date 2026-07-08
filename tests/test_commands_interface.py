@@ -1116,6 +1116,297 @@ class TestCommands:
         with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(InvalidParameterShapeException):
             commands.query_first("select id, name from some_table where id = ?id?", params=[])
 
+    def test_mysql_query_single_accepts_params(self, connection, captured_handler_params, set_fetchall_return_one):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        params = {"id": 1}
+
+        with MockMySqlConnectorPythonCommands(connection) as commands:
+            commands.query_single("select id, name from some_table where id = ?id?", params=params)
+
+        assert captured_handler_params == [params]
+
+    def test_mysql_query_single_discards_unread_result_before_many_result_exception(self):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class UnreadResultCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.fetchall_calls = 0
+                self.fetchmany_calls = []
+                self.reset_calls = 0
+                self.unread_result = False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                assert not self.unread_result
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchall(self):
+                self.fetchall_calls += 1
+                return tuple()
+
+            def fetchmany(self, size=None):
+                self.fetchmany_calls.append(size)
+                self.unread_result = True
+                return [(1, "Zach"), (2, "Bob")]
+
+            def reset(self):
+                self.reset_calls += 1
+                self.unread_result = False
+
+        class UnreadResultConnection:
+            def __init__(self):
+                self.cursor_instance = UnreadResultCursor()
+
+            def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        connection = UnreadResultConnection()
+
+        with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(MoreThanOneResultException):
+            commands.query_single("select id, name from some_table")
+
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.reset_calls == 1
+        assert connection.cursor_instance.fetchall_calls == 0
+
+    def test_mysql_query_single_drains_when_reset_does_not_clear_unread_result(self):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class UnreadResultState:
+            def __init__(self):
+                self.close_calls = 0
+                self.consume_results_calls = 0
+                self.unread_result = False
+
+            def close(self):
+                self.close_calls += 1
+                raise AssertionError("connection close should not be called")
+
+            def consume_results(self):
+                raise AssertionError("consume_results should not be called")
+
+        class UnreadResultCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.connection_state = UnreadResultState()
+                self._connection = self.connection_state
+                self.close_calls = 0
+                self.fetchall_calls = 0
+                self.fetchmany_calls = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.close()
+
+            def close(self):
+                self.close_calls += 1
+                if self._connection is not None and self._connection.unread_result:
+                    raise AssertionError("unread result found")
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchall(self):
+                self.fetchall_calls += 1
+                self._connection.unread_result = False
+                return tuple()
+
+            def fetchmany(self, size=None):
+                self.fetchmany_calls.append(size)
+                self._connection.unread_result = True
+                return [(1, "Zach"), (2, "Bob")]
+
+            def reset(self):
+                pass
+
+        class UnreadResultConnection:
+            def __init__(self):
+                self.cursor_instance = UnreadResultCursor()
+
+            def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        connection = UnreadResultConnection()
+
+        with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(MoreThanOneResultException):
+            commands.query_single("select id, name from some_table")
+
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.connection_state.close_calls == 0
+        assert connection.cursor_instance.connection_state.consume_results_calls == 0
+        assert connection.cursor_instance._connection is connection.cursor_instance.connection_state
+        assert connection.cursor_instance.close_calls == 1
+        assert connection.cursor_instance.fetchall_calls == 1
+
+    def test_mysql_query_single_cleanup_errors_do_not_mask_many_result_exception(self):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class UnreadResultState:
+            def __init__(self):
+                self.consume_results_calls = 0
+                self.unread_result = True
+
+            def consume_results(self):
+                self.consume_results_calls += 1
+                raise RuntimeError("cleanup failed")
+
+        class UnreadResultCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self._connection = UnreadResultState()
+                self.fetchall_calls = 0
+                self.fetchmany_calls = []
+
+            def close(self):
+                raise RuntimeError("cursor close failed")
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchall(self):
+                self.fetchall_calls += 1
+                raise RuntimeError("fetchall failed")
+
+            def fetchmany(self, size=None):
+                self.fetchmany_calls.append(size)
+                return [(1, "Zach"), (2, "Bob")]
+
+            def reset(self):
+                raise RuntimeError("reset failed")
+
+        class UnreadResultConnection:
+            def __init__(self):
+                self.cursor_instance = UnreadResultCursor()
+
+            def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        connection = UnreadResultConnection()
+
+        with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(MoreThanOneResultException):
+            commands.query_single("select id, name from some_table")
+
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.fetchall_calls == 1
+        assert connection.cursor_instance._connection.consume_results_calls == 1
+
+    def test_mysql_query_single_missing_cleanup_hooks_do_not_mask_many_result_exception(self):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class UnreadResultCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.fetchall_calls = 0
+                self.fetchmany_calls = []
+                self.unread_result = False
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchall(self):
+                self.fetchall_calls += 1
+                raise RuntimeError("fetchall failed")
+
+            def fetchmany(self, size=None):
+                self.fetchmany_calls.append(size)
+                self.unread_result = True
+                return [(1, "Zach"), (2, "Bob")]
+
+        class UnreadResultConnection:
+            def __init__(self):
+                self.cursor_instance = UnreadResultCursor()
+
+            def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        connection = UnreadResultConnection()
+
+        with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(MoreThanOneResultException):
+            commands.query_single("select id, name from some_table")
+
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.fetchall_calls == 1
+
+    def test_mysql_query_single_drains_cursor_without_connection_reference(self):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class UnreadResultCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.fetchall_calls = 0
+                self.fetchmany_calls = []
+                self.unread_result = False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                assert not self.unread_result
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchall(self):
+                self.fetchall_calls += 1
+                self.unread_result = False
+                return tuple()
+
+            def fetchmany(self, size=None):
+                self.fetchmany_calls.append(size)
+                self.unread_result = True
+                return [(1, "Zach"), (2, "Bob")]
+
+        class UnreadResultConnection:
+            def __init__(self):
+                self.cursor_instance = UnreadResultCursor()
+
+            def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        connection = UnreadResultConnection()
+
+        with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(MoreThanOneResultException):
+            commands.query_single("select id, name from some_table")
+
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.fetchall_calls == 1
+
     def test_query(self, connection):
         with MockCommands(connection) as commands:
             data = commands.query("select id, name from some_table", model=SimpleNamespace)
@@ -1277,6 +1568,20 @@ class TestCommands:
 
         assert connection.cursor_instance.fetchone_calls == 2
         assert connection.cursor_instance.fetchall_calls == 0
+
+    def test_query_single_calls_more_than_one_hook_before_raising(self):
+        calls = []
+
+        class HookedCommands(MockCommands):
+            def _on_query_single_more_than_one_result(self, cursor):
+                calls.append(cursor)
+
+        connection = _QuerySingleConnection(_QuerySingleFetchOneCursor([(1, "Zach"), (2, "Bob")]))
+
+        with pytest.raises(MoreThanOneResultException):
+            HookedCommands(connection).query_single("select * from some_table")
+
+        assert calls == [connection.cursor_instance]
 
     def test_query_single_or_default(self, connection, set_fetchone_to_return_none):
         default = SimpleNamespace(id=10, name="default")

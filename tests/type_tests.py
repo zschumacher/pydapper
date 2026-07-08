@@ -1,5 +1,6 @@
 import datetime
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 from typing import AsyncGenerator
 from typing import Dict
@@ -12,6 +13,7 @@ import pytest
 from typing_extensions import assert_type
 
 import pydapper
+from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
 from pydapper.exceptions import MoreThanOneResultException
 from pydapper.exceptions import NoResultException
@@ -32,6 +34,10 @@ class Task:
     owner_id: int
 
 
+class ParamsDict(dict[str, Any]):
+    pass
+
+
 def default_callable() -> str:
     return "sup"
 
@@ -41,6 +47,7 @@ def public_exceptions() -> None:
     assert_type(NoResultException(), NoResultException)
     assert_type(MoreThanOneResultException(), MoreThanOneResultException)
     assert_type(MissingParameterException(), MissingParameterException)
+    assert_type(InvalidParameterShapeException(), InvalidParameterShapeException)
     assert_type(UnsupportedFeatureError(), UnsupportedFeatureError)
     assert_type(RowMappingException(), RowMappingException)
 
@@ -49,11 +56,17 @@ class Commands:
     @staticmethod
     def execute(query: str) -> None:
         params = {"id": 1}
+        mapping_subclass_params = ParamsDict({"id": 1})
+        dataclass_params = Task(1, "task", datetime.date.today(), 1)
+        object_params = SimpleNamespace(id=1)
         batch_params = [{"id": 1}, {"id": 2}]
 
         with pydapper.connect() as commands:
             assert_type(commands.execute(query, param=params), int)
             assert_type(commands.execute(query, params=params), int)
+            assert_type(commands.execute(query, params=mapping_subclass_params), int)
+            assert_type(commands.execute(query, params=dataclass_params), int)
+            assert_type(commands.execute(query, params=object_params), int)
             assert_type(commands.execute(query, params=[]), int)
             assert_type(commands.execute(query, params=batch_params), int)
             assert_type(commands.execute_scalar(query, param=params), Any)
@@ -64,6 +77,9 @@ class Commands:
     @staticmethod
     def query(query: str) -> None:
         params = {"id": 1}
+        mapping_subclass_params = ParamsDict({"id": 1})
+        dataclass_params = Task(1, "task", datetime.date.today(), 1)
+        object_params = SimpleNamespace(id=1)
 
         with pydapper.connect() as commands:
             assert_type(commands.query(query, buffered=True), List[Dict[str, Any]])
@@ -77,6 +93,9 @@ class Commands:
             assert_type(commands.query(query, model=Task, buffered=False), Generator[Task, None, None])
             assert_type(commands.query(query, param=params), List[Dict[str, Any]])
             assert_type(commands.query(query, params=params), List[Dict[str, Any]])
+            assert_type(commands.query(query, params=mapping_subclass_params), List[Dict[str, Any]])
+            assert_type(commands.query(query, params=dataclass_params), List[Dict[str, Any]])
+            assert_type(commands.query(query, params=object_params), List[Dict[str, Any]])
             assert_type(commands.query(query, params=params, model=Task), List[Task])
 
     @staticmethod
@@ -134,11 +153,17 @@ class CommandsAsync:
     @staticmethod
     async def execute(query: str) -> None:
         params = {"id": 1}
+        mapping_subclass_params = ParamsDict({"id": 1})
+        dataclass_params = Task(1, "task", datetime.date.today(), 1)
+        object_params = SimpleNamespace(id=1)
         batch_params = [{"id": 1}, {"id": 2}]
 
         async with pydapper.connect_async() as commands:
             assert_type(await commands.execute_async(query, param=params), int)
             assert_type(await commands.execute_async(query, params=params), int)
+            assert_type(await commands.execute_async(query, params=mapping_subclass_params), int)
+            assert_type(await commands.execute_async(query, params=dataclass_params), int)
+            assert_type(await commands.execute_async(query, params=object_params), int)
             assert_type(await commands.execute_async(query, params=[]), int)
             assert_type(await commands.execute_async(query, params=batch_params), int)
             assert_type(await commands.execute_scalar_async(query, param=params), Any)
@@ -149,6 +174,9 @@ class CommandsAsync:
     @staticmethod
     async def query(query: str):
         params = {"id": 1}
+        mapping_subclass_params = ParamsDict({"id": 1})
+        dataclass_params = Task(1, "task", datetime.date.today(), 1)
+        object_params = SimpleNamespace(id=1)
 
         async with pydapper.connect_async() as commands:
             assert_type(await commands.query_async(query, buffered=True), List[Dict[str, Any]])
@@ -157,6 +185,9 @@ class CommandsAsync:
             assert_type(await commands.query_async(query, model=Task, buffered=False), AsyncGenerator[Task, None])
             assert_type(await commands.query_async(query, param=params), List[Dict[str, Any]])
             assert_type(await commands.query_async(query, params=params), List[Dict[str, Any]])
+            assert_type(await commands.query_async(query, params=mapping_subclass_params), List[Dict[str, Any]])
+            assert_type(await commands.query_async(query, params=dataclass_params), List[Dict[str, Any]])
+            assert_type(await commands.query_async(query, params=object_params), List[Dict[str, Any]])
             assert_type(await commands.query_async(query, params=params, model=Task), List[Task])
 
     @staticmethod

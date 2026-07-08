@@ -14,6 +14,10 @@ class MissingParameterException(PyDapperException):
     pass
 
 
+class InvalidParameterShapeException(PyDapperException):
+    pass
+
+
 class UnsupportedFeatureError(PyDapperException):
     pass
 

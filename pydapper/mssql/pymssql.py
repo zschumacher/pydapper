@@ -6,7 +6,6 @@ from pydapper.commands import BaseSqlParamHandler
 from pydapper.commands import Commands
 
 from ..utils import import_dbapi_module
-from ..utils import safe_getattr
 
 if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
@@ -23,7 +22,9 @@ class PymssqlCommands(Commands):
                 test_param = self._param[0]
             else:
                 test_param = self._param
-            param_value = safe_getattr(test_param, param_name)
+            if test_param is None:
+                return "%s"
+            param_value = self.get_param_value(test_param, param_name)
             return _PARAM_TYPE_LOOKUP.get(type(param_value), "%s")
 
     @classmethod

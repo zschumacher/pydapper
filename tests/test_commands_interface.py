@@ -1,7 +1,10 @@
+from collections import UserDict
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
 
+from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
 from pydapper.exceptions import MoreThanOneResultException
 from pydapper.exceptions import NoResultException
@@ -22,6 +25,14 @@ pytestmark = pytest.mark.core
 class FalsyRow(tuple):
     def __bool__(self):
         return False
+
+
+@dataclass
+class TaskParams:
+    id: int
+    active: bool = True
+    name: str = "task"
+    ids: list[int] | None = None
 
 
 @pytest.fixture
@@ -333,6 +344,7 @@ class TestPublicExceptions:
             NoResultException,
             MoreThanOneResultException,
             MissingParameterException,
+            InvalidParameterShapeException,
             UnsupportedFeatureError,
             RowMappingException,
         ],
@@ -342,9 +354,18 @@ class TestPublicExceptions:
 
 
 class TestParamHandler:
-    def test__init__validation(self):
-        with pytest.raises(ValueError):
-            MockParamHandler("sup", param=[SimpleNamespace(), dict()])
+    @pytest.mark.parametrize("param", [1, "task", ("id", 1), {"id"}, object(), [1]])
+    def test__init__rejects_invalid_param_shapes(self, param):
+        with pytest.raises(InvalidParameterShapeException):
+            MockParamHandler("select * from table where id = ?id?", param=param)
+
+    def test__init__allows_mixed_executemany_record_types(self):
+        handler = MockParamHandler(
+            "insert into table (id) values (?id?)",
+            [SimpleNamespace(id=1), {"id": 2}, TaskParams(id=3)],
+        )
+
+        assert handler.ordered_param_values == [(1,), (2,), (3,)]
 
     def test_default_param_handler_get_param_placeholder(self):
         from pydapper.commands import DefaultSqlParamHandler
@@ -362,7 +383,10 @@ class TestParamHandler:
         assert repr(_PARAM_ALIAS_UNSET) == "None"
 
     def test_ordered_param_names(self):
-        handler = MockParamHandler("?sup? ?hello? ?world? ?foo? ?bar?", None)
+        handler = MockParamHandler(
+            "?sup? ?hello? ?world? ?foo? ?bar?",
+            {"sup": 1, "hello": 2, "world": 3, "foo": 4, "bar": 5},
+        )
         assert handler.ordered_param_names == ("sup", "hello", "world", "foo", "bar")
 
     def test_ordered_param_values(self):
@@ -371,6 +395,29 @@ class TestParamHandler:
             {"sup": "dude", "hello": "world", "world": "hello", "foo": "bar", "bar": "foo"},
         )
         assert handler.ordered_param_values == ("dude", "world", "hello", "bar", "foo")
+
+    def test_ordered_param_values_supports_mapping_subclasses(self):
+        handler = MockParamHandler("?id? ?name?", UserDict({"id": 1, "name": "Zach"}))
+
+        assert handler.ordered_param_values == (1, "Zach")
+
+    def test_ordered_param_values_supports_attribute_objects(self):
+        handler = MockParamHandler("?id? ?name?", SimpleNamespace(id=1, name="Zach"))
+
+        assert handler.ordered_param_values == (1, "Zach")
+
+    def test_ordered_param_values_supports_dataclass_instances_and_falsey_values(self):
+        handler = MockParamHandler(
+            "?id? ?active? ?name? ?ids?",
+            TaskParams(id=0, active=False, name="", ids=[]),
+        )
+
+        assert handler.ordered_param_values == (0, False, "", [])
+
+    @pytest.mark.parametrize("param", [None, {}, SimpleNamespace()])
+    def test_missing_params_raise_missing_parameter_exception(self, param):
+        with pytest.raises(MissingParameterException, match="'id'"):
+            MockParamHandler("select * from table where id = ?id?", param)
 
     def test_ordered_param_values_empty_top_level_list_is_executemany_input(self):
         handler = MockParamHandler("insert into table (id) values (?id?)", [])
@@ -382,6 +429,12 @@ class TestParamHandler:
         assert handler.ordered_param_values == ([],)
         assert handler.prepared_sql == "select * from table where id in %s"
 
+    def test_non_empty_list_inside_mapping_is_single_parameter_value(self):
+        handler = MockParamHandler("select * from table where id in ?ids?", {"ids": [1, 2, 3]})
+        assert handler.ordered_param_names == ("ids",)
+        assert handler.ordered_param_values == ([1, 2, 3],)
+        assert handler.prepared_sql == "select * from table where id in %s"
+
     def test_prepared_sql(self):
         handler = MockParamHandler("select * from table where id = ?id? and name = ?name?", {"id": 1, "name": "Zach"})
         assert handler.prepared_sql == "select * from table where id = %s and name = %s"
@@ -391,9 +444,9 @@ class TestParamHandler:
         assert handler.prepared_sql == "select * from table"
 
     @pytest.mark.parametrize("param", [None, {}, []])
-    def test_prepared_sql_with_falsey_params_preserves_original_sql(self, param):
-        handler = MockParamHandler("select * from table where id = ?id?", param)
-        assert handler.prepared_sql == "select * from table where id = ?id?"
+    def test_prepared_sql_with_falsey_params_and_no_placeholders_preserves_original_sql(self, param):
+        handler = MockParamHandler("select * from table", param)
+        assert handler.prepared_sql == "select * from table"
 
     def test_prepared_sql_ignores_placeholders_inside_quoted_text(self):
         sql = """select '?ignored?', 'it''s ?still_ignored?', "?quoted?", "a "" ?still_quoted? "" b", ?active?"""
@@ -778,9 +831,73 @@ class TestCommands:
         with MockCommands(NoCursorConnection()) as commands:
             assert commands.execute("insert into some_table (id) values (?id?)", params=[]) == 0
 
+    def test_execute_uses_executemany_for_mixed_record_list_params(self):
+        class RecordingCursor:
+            rowcount = 2
+
+            def __init__(self):
+                self.calls = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+            def execute(self, *args, **kwargs):
+                raise AssertionError("execute should not be called")
+
+            def executemany(self, sql, params):
+                self.calls.append((sql, params))
+
+        class RecordingConnection(MockConnection):
+            def __init__(self):
+                super().__init__()
+                self.cursor_instance = RecordingCursor()
+
+            def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        connection = RecordingConnection()
+
+        with MockCommands(connection) as commands:
+            affected_rows = commands.execute(
+                "insert into some_table (id) values (?id?)",
+                params=[{"id": 1}, SimpleNamespace(id=2)],
+            )
+
+        assert affected_rows == 2
+        assert connection.cursor_instance.calls == [
+            ("insert into some_table (id) values (%s)", [(1,), (2,)]),
+        ]
+
+    @pytest.mark.parametrize(
+        "params, exception_type",
+        [
+            ([{"id": 1}, 2], InvalidParameterShapeException),
+            ([{"id": 1}, {}], MissingParameterException),
+        ],
+    )
+    def test_execute_rejects_invalid_executemany_records_before_opening_cursor(self, params, exception_type):
+        class NoCursorConnection(MockConnection):
+            def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        with MockCommands(NoCursorConnection()) as commands, pytest.raises(exception_type):
+            commands.execute("insert into some_table (id) values (?id?)", params=params)
+
+    @pytest.mark.parametrize("call", SYNC_READ_LIST_PARAMS_CALLS)
+    def test_read_methods_reject_top_level_list_params_before_opening_cursor(self, call):
+        class NoCursorConnection(MockConnection):
+            def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        with MockCommands(NoCursorConnection()) as commands, pytest.raises(InvalidParameterShapeException):
+            call(commands)
+
     @pytest.mark.parametrize("call", SYNC_READ_LIST_PARAMS_CALLS)
     def test_read_methods_reject_top_level_list_params(self, connection, call):
-        with MockCommands(connection) as commands, pytest.raises(ValueError):
+        with MockCommands(connection) as commands, pytest.raises(InvalidParameterShapeException):
             call(commands)
 
     @pytest.mark.parametrize("call, expected_handler_count", SYNC_PARAMS_CALLS)
@@ -862,7 +979,7 @@ class TestCommands:
         class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
             SqlParamHandler = MockParamHandler
 
-        with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(ValueError):
+        with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(InvalidParameterShapeException):
             commands.query_first("select id, name from some_table where id = ?id?", params=[])
 
     def test_query(self, connection):
@@ -1148,10 +1265,81 @@ class TestCommandsAsync:
             assert await commands.execute_async("insert into some_table (id) values (?id?)", params=[]) == 0
 
     @pytest.mark.asyncio
+    async def test_execute_async_uses_executemany_for_mixed_record_list_params(self):
+        class RecordingCursor:
+            rowcount = 2
+
+            def __init__(self):
+                self.calls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+            async def execute(self, *args, **kwargs):
+                raise AssertionError("execute should not be called")
+
+            async def executemany(self, sql, params):
+                self.calls.append((sql, params))
+
+        class RecordingConnection(MockAsyncConnection):
+            def __init__(self):
+                super().__init__()
+                self.cursor_instance = RecordingCursor()
+
+            async def cursor(self, *args, **kwargs):
+                return self.cursor_instance
+
+        connection = RecordingConnection()
+
+        async with MockAsyncCommands(connection) as commands:
+            affected_rows = await commands.execute_async(
+                "insert into some_table (id) values (?id?)",
+                params=[{"id": 1}, SimpleNamespace(id=2)],
+            )
+
+        assert affected_rows == 2
+        assert connection.cursor_instance.calls == [
+            ("insert into some_table (id) values (%s)", [(1,), (2,)]),
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "params, exception_type",
+        [
+            ([{"id": 1}, 2], InvalidParameterShapeException),
+            ([{"id": 1}, {}], MissingParameterException),
+        ],
+    )
+    async def test_execute_async_rejects_invalid_executemany_records_before_opening_cursor(
+        self, params, exception_type
+    ):
+        class NoCursorConnection(MockAsyncConnection):
+            async def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        async with MockAsyncCommands(NoCursorConnection()) as commands:
+            with pytest.raises(exception_type):
+                await commands.execute_async("insert into some_table (id) values (?id?)", params=params)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("call", ASYNC_READ_LIST_PARAMS_CALLS)
+    async def test_read_methods_reject_top_level_list_params_before_opening_cursor(self, call):
+        class NoCursorConnection(MockAsyncConnection):
+            async def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        async with MockAsyncCommands(NoCursorConnection()) as commands:
+            with pytest.raises(InvalidParameterShapeException):
+                await call(commands)
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("call", ASYNC_READ_LIST_PARAMS_CALLS)
     async def test_read_methods_reject_top_level_list_params(self, connection, call):
         async with MockAsyncCommands(connection) as commands:
-            with pytest.raises(ValueError):
+            with pytest.raises(InvalidParameterShapeException):
                 await call(commands)
 
     @pytest.mark.asyncio

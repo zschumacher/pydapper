@@ -1,8 +1,10 @@
 import typing
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Mapping
 from contextlib import ExitStack
 from contextlib import contextmanager
+from dataclasses import is_dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING
 from typing import Any
@@ -23,11 +25,12 @@ from typing import overload
 from ._context import CoroContextManager
 from ._sql_placeholders import PlaceholderSpan
 from ._sql_placeholders import scan_placeholder_spans
+from .exceptions import InvalidParameterShapeException
+from .exceptions import MissingParameterException
 from .exceptions import MoreThanOneResultException
 from .exceptions import NoResultException
 from .utils import database_row_to_dict
 from .utils import get_col_names
-from .utils import safe_getattr
 from .utils import serialize_dict_row
 
 if TYPE_CHECKING:
@@ -70,20 +73,87 @@ def _is_empty_executemany_params(param: Any) -> bool:
 
 def _raise_if_list_params_for_read(param: Any) -> None:
     if isinstance(param, list):
-        raise ValueError("Top-level list params are only supported by execute and execute_async.")
+        raise InvalidParameterShapeException("Top-level list params are only supported by execute and execute_async.")
+
+
+_INVALID_ATTRIBUTE_PARAM_TYPES = (
+    str,
+    bytes,
+    bytearray,
+    list,
+    tuple,
+    set,
+    frozenset,
+    range,
+    memoryview,
+)
+
+
+def _is_attribute_param_record(param: Any) -> bool:
+    if isinstance(param, type):
+        return False
+    if is_dataclass(param):
+        return True
+    if isinstance(param, _INVALID_ATTRIBUTE_PARAM_TYPES):
+        return False
+    return hasattr(param, "__dict__") or hasattr(type(param), "__slots__")
+
+
+def _is_param_record(param: Any) -> bool:
+    return isinstance(param, Mapping) or _is_attribute_param_record(param)
+
+
+def _raise_invalid_param_record(param: Any, location: str) -> None:
+    raise InvalidParameterShapeException(
+        f"{location} must be a mapping or an object with attributes matching SQL placeholders; "
+        f"got {type(param).__name__}."
+    )
+
+
+def _get_param_value(param: Any, param_name: str) -> Any:
+    if isinstance(param, Mapping):
+        try:
+            return param[param_name]
+        except KeyError:
+            raise MissingParameterException(f"Missing SQL parameter {param_name!r}.") from None
+
+    try:
+        return getattr(param, param_name)
+    except AttributeError:
+        raise MissingParameterException(f"Missing SQL parameter {param_name!r}.") from None
 
 
 class BaseSqlParamHandler(ABC):
     def __init__(self, sql: str, param: Union["ParamType", "ListParamType"] = None):
         self._sql = sql
         self._param = param
-        if isinstance(self._param, list) and self._param:
-            all_params_are_same_type = all(isinstance(param, type(self._param[0])) for param in self._param[1:])
-            if not all_params_are_same_type:
-                raise ValueError(f"All objects in params must be of type {type(self._param[0])}")
+        self._validate_param_shape()
 
     @abstractmethod
     def get_param_placeholder(self, param_name: str) -> str: ...
+
+    def get_param_value(self, param: Any, param_name: str) -> Any:
+        return _get_param_value(param, param_name)
+
+    def _validate_param_shape(self) -> None:
+        if isinstance(self._param, list):
+            for index, param in enumerate(self._param):
+                self._validate_param_record(param, f"params[{index}]")
+            return
+
+        if self._param is None:
+            if self.ordered_param_names:
+                raise MissingParameterException(f"Missing SQL parameter {self.ordered_param_names[0]!r}.")
+            return
+
+        self._validate_param_record(self._param, "params")
+
+    def _validate_param_record(self, param: Any, location: str) -> None:
+        if not _is_param_record(param):
+            _raise_invalid_param_record(param, location)
+
+        for param_name in self.ordered_param_names:
+            self.get_param_value(param, param_name)
 
     @cached_property
     def ordered_param_names(self) -> Tuple[str, ...]:
@@ -96,15 +166,18 @@ class BaseSqlParamHandler(ABC):
     @cached_property
     def ordered_param_values(self) -> Union[Tuple[Any, ...], List[Tuple[Any, ...]], Tuple]:
         if isinstance(self._param, list):
-            return [tuple(safe_getattr(p, name) for name in self.ordered_param_names) for p in self._param]
+            return [self._ordered_param_values_for_record(param) for param in self._param]
 
-        if self._param:
-            return tuple(safe_getattr(self._param, name) for name in self.ordered_param_names)
+        if self._param is not None:
+            return self._ordered_param_values_for_record(self._param)
         return tuple()
+
+    def _ordered_param_values_for_record(self, param: Any) -> Tuple[Any, ...]:
+        return tuple(self.get_param_value(param, name) for name in self.ordered_param_names)
 
     @cached_property
     def prepared_sql(self) -> str:
-        if self._param and self._placeholder_spans:
+        if self._placeholder_spans:
             prepared_sql_parts = []
             current_index = 0
 

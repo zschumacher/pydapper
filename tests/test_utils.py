@@ -1,3 +1,4 @@
+from collections import UserDict
 from contextlib import ExitStack
 from types import SimpleNamespace
 
@@ -17,6 +18,7 @@ pytestmark = pytest.mark.core
     "obj, key, expected",
     [
         ({"id": 1, "name": "Zach"}, "id", 1),
+        (UserDict({"id": 1, "name": "Zach"}), "id", 1),
         (SimpleNamespace(id=1, name="Zach"), "id", 1),
         ({"id": 1}, "name", KeyError),
         (SimpleNamespace(id=1), "name", AttributeError),

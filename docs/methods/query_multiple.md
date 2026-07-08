@@ -11,6 +11,8 @@ will throw a `ValueError` if you don't supply the same number of queries and mod
 
 `param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 
+{!docs/.parameter_shapes_read.md!}
+
 ## Example
 Query two tables and return the serialized results.
 ```python

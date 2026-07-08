@@ -10,6 +10,8 @@ to execute insert, update or delete operations.
 
 `param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 
+{!docs/.parameter_shapes_execute.md!}
+
 ## Example - Execute Insert
 ### Single
 Execute the INSERT statement a single time.

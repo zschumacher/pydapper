@@ -5,15 +5,16 @@ from typing import Mapping
 from typing import MutableMapping
 from typing import Optional
 from typing import Protocol
+from typing import TypeAlias
 from typing import Union
 
 
 class SupportsAttrAccess(Protocol):
-    def __getattribute__(self, item): ...
+    def __getattribute__(self, item: str) -> Any: ...
 
 
-ParamType = Union[SupportsAttrAccess, Mapping, MutableMapping]
-ListParamType = Union[List[SupportsAttrAccess], List[Mapping], List[MutableMapping]]
+ParamType: TypeAlias = Union[Mapping[str, Any], MutableMapping[str, Any], SupportsAttrAccess]
+ListParamType: TypeAlias = List[ParamType]
 
 
 class ConnectionType(Protocol):

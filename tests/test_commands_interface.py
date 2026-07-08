@@ -35,6 +35,96 @@ class TaskParams:
     ids: list[int] | None = None
 
 
+class _QuerySingleFetchOneCursor:
+    rowcount = 0
+    description = ("id", "int"), ("name", "text")
+
+    def __init__(self, rows):
+        self.fetchall_calls = 0
+        self.fetchone_calls = 0
+        self.rows = list(rows)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def execute(self, sql, parameters=None):
+        pass
+
+    def fetchall(self):
+        self.fetchall_calls += 1
+        return tuple()
+
+    def fetchone(self):
+        self.fetchone_calls += 1
+        return self.rows.pop(0) if self.rows else None
+
+
+class _QuerySingleFetchManyCursor(_QuerySingleFetchOneCursor):
+    def __init__(self, rows):
+        super().__init__(rows)
+        self.fetchmany_calls = []
+
+    def fetchmany(self, size=None):
+        self.fetchmany_calls.append(size)
+        return tuple(self.rows[:size])
+
+
+class _QuerySingleConnection:
+    def __init__(self, cursor):
+        self.cursor_instance = cursor
+
+    def cursor(self, *args, **kwargs):
+        return self.cursor_instance
+
+
+class _AsyncQuerySingleFetchOneCursor:
+    rowcount = 0
+    description = ("id", "int"), ("name", "text")
+
+    def __init__(self, rows):
+        self.fetchall_calls = 0
+        self.fetchone_calls = 0
+        self.rows = list(rows)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    async def execute(self, sql, parameters=None):
+        pass
+
+    async def fetchall(self):
+        self.fetchall_calls += 1
+        return tuple()
+
+    async def fetchone(self):
+        self.fetchone_calls += 1
+        return self.rows.pop(0) if self.rows else None
+
+
+class _AsyncQuerySingleFetchManyCursor(_AsyncQuerySingleFetchOneCursor):
+    def __init__(self, rows):
+        super().__init__(rows)
+        self.fetchmany_calls = []
+
+    async def fetchmany(self, size=None):
+        self.fetchmany_calls.append(size)
+        return tuple(self.rows[:size])
+
+
+class _AsyncQuerySingleConnection:
+    def __init__(self, cursor):
+        self.cursor_instance = cursor
+
+    async def cursor(self, *args, **kwargs):
+        return self.cursor_instance
+
+
 @pytest.fixture
 def captured_handler_params(monkeypatch):
     captured = []
@@ -759,6 +849,13 @@ class TestCommands:
     def set_fetchall_return_one(self, faker, monkeypatch):
         monkeypatch.setattr(MockCursor, "fetchall", lambda self_: ((1, faker.name()),))
 
+        rows = [(1, faker.name()), None]
+
+        def fetchone(self_):
+            return rows.pop(0) if rows else None
+
+        monkeypatch.setattr(MockCursor, "fetchone", fetchone)
+
     @pytest.fixture
     def set_fetchall_return_empty(self, monkeypatch):
         monkeypatch.setattr(MockCursor, "fetchall", lambda self_: tuple())
@@ -1135,7 +1232,7 @@ class TestCommands:
         assert record["id"]
         assert record["name"]
 
-    def test_query_single_raises_on_no_result(self, connection, set_fetchall_return_empty):
+    def test_query_single_raises_on_no_result(self, connection, set_fetchone_to_return_none):
         with MockCommands(connection) as commands, pytest.raises(NoResultException):
             commands.query_single("select * from some_table")
 
@@ -1143,13 +1240,51 @@ class TestCommands:
         with MockCommands(connection) as commands, pytest.raises(MoreThanOneResultException):
             commands.query_single("select * from some_table")
 
-    def test_query_single_or_default(self, connection, set_fetchall_return_empty):
+    def test_query_single_uses_fetchmany_when_available(self):
+        connection = _QuerySingleConnection(_QuerySingleFetchManyCursor([(1, "Zach")]))
+
+        record = MockCommands(connection).query_single("select * from some_table")
+
+        assert record == {"id": 1, "name": "Zach"}
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.fetchone_calls == 0
+        assert connection.cursor_instance.fetchall_calls == 0
+
+    def test_query_single_fetchmany_raises_on_no_result(self):
+        connection = _QuerySingleConnection(_QuerySingleFetchManyCursor([]))
+
+        with pytest.raises(NoResultException):
+            MockCommands(connection).query_single("select * from some_table")
+
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.fetchone_calls == 0
+        assert connection.cursor_instance.fetchall_calls == 0
+
+    def test_query_single_fetchmany_consumes_at_most_two_rows_before_raising(self):
+        connection = _QuerySingleConnection(_QuerySingleFetchManyCursor([(1, "Zach"), (2, "Bob"), (3, "Alice")]))
+
+        with pytest.raises(MoreThanOneResultException):
+            MockCommands(connection).query_single("select * from some_table")
+
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.fetchall_calls == 0
+
+    def test_query_single_fetchone_fallback_consumes_at_most_two_rows_before_raising(self):
+        connection = _QuerySingleConnection(_QuerySingleFetchOneCursor([(1, "Zach"), (2, "Bob"), (3, "Alice")]))
+
+        with pytest.raises(MoreThanOneResultException):
+            MockCommands(connection).query_single("select * from some_table")
+
+        assert connection.cursor_instance.fetchone_calls == 2
+        assert connection.cursor_instance.fetchall_calls == 0
+
+    def test_query_single_or_default(self, connection, set_fetchone_to_return_none):
         default = SimpleNamespace(id=10, name="default")
         with MockCommands(connection) as commands:
             record = commands.query_single_or_default("select * from some_table", default=default)
         assert record is default
 
-    def test_query_single_or_default_calls_callable_default_on_no_result(self, connection, set_fetchall_return_empty):
+    def test_query_single_or_default_calls_callable_default_on_no_result(self, connection, set_fetchone_to_return_none):
         sentinel = object()
         calls = []
 
@@ -1221,6 +1356,13 @@ class TestCommandsAsync:
             return ((1, faker.name()),)
 
         mocker.patch("tests.mocks.MockAsyncCursor.fetchall", fetchall)
+
+        rows = [(1, faker.name()), None]
+
+        async def fetchone(s):
+            return rows.pop(0) if rows else None
+
+        mocker.patch("tests.mocks.MockAsyncCursor.fetchone", fetchone)
 
     @pytest.fixture
     def set_fetchall_return_empty(self, mocker):
@@ -1575,7 +1717,7 @@ class TestCommandsAsync:
         assert record["name"]
 
     @pytest.mark.asyncio
-    async def test_query_single_raises_on_no_result(self, connection, set_fetchall_return_empty):
+    async def test_query_single_raises_on_no_result(self, connection, set_fetchone_to_return_none):
         async with MockAsyncCommands(connection) as commands:
             with pytest.raises(NoResultException):
                 await commands.query_single_async("select * from some_table")
@@ -1587,7 +1729,53 @@ class TestCommandsAsync:
                 await commands.query_single_async("select * from some_table")
 
     @pytest.mark.asyncio
-    async def test_query_single_or_default(self, connection, set_fetchall_return_empty):
+    async def test_query_single_async_uses_fetchmany_when_available(self):
+        connection = _AsyncQuerySingleConnection(_AsyncQuerySingleFetchManyCursor([(1, "Zach")]))
+
+        record = await MockAsyncCommands(connection).query_single_async("select * from some_table")
+
+        assert record == {"id": 1, "name": "Zach"}
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.fetchone_calls == 0
+        assert connection.cursor_instance.fetchall_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_query_single_async_fetchmany_raises_on_no_result(self):
+        connection = _AsyncQuerySingleConnection(_AsyncQuerySingleFetchManyCursor([]))
+
+        with pytest.raises(NoResultException):
+            await MockAsyncCommands(connection).query_single_async("select * from some_table")
+
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.fetchone_calls == 0
+        assert connection.cursor_instance.fetchall_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_query_single_async_fetchmany_consumes_at_most_two_rows_before_raising(self):
+        connection = _AsyncQuerySingleConnection(
+            _AsyncQuerySingleFetchManyCursor([(1, "Zach"), (2, "Bob"), (3, "Alice")])
+        )
+
+        with pytest.raises(MoreThanOneResultException):
+            await MockAsyncCommands(connection).query_single_async("select * from some_table")
+
+        assert connection.cursor_instance.fetchmany_calls == [2]
+        assert connection.cursor_instance.fetchall_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_query_single_async_fetchone_fallback_consumes_at_most_two_rows_before_raising(self):
+        connection = _AsyncQuerySingleConnection(
+            _AsyncQuerySingleFetchOneCursor([(1, "Zach"), (2, "Bob"), (3, "Alice")])
+        )
+
+        with pytest.raises(MoreThanOneResultException):
+            await MockAsyncCommands(connection).query_single_async("select * from some_table")
+
+        assert connection.cursor_instance.fetchone_calls == 2
+        assert connection.cursor_instance.fetchall_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default(self, connection, set_fetchone_to_return_none):
         default = SimpleNamespace(id=10, name="default")
         async with MockAsyncCommands(connection) as commands:
             record = await commands.query_single_or_default_async("select * from some_table", default=default)
@@ -1595,7 +1783,7 @@ class TestCommandsAsync:
 
     @pytest.mark.asyncio
     async def test_query_single_or_default_calls_callable_default_on_no_result(
-        self, connection, set_fetchall_return_empty
+        self, connection, set_fetchone_to_return_none
     ):
         sentinel = object()
         calls = []

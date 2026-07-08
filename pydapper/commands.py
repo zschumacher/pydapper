@@ -76,6 +76,38 @@ def _raise_if_list_params_for_read(param: Any) -> None:
         raise InvalidParameterShapeException("Top-level list params are only supported by execute and execute_async.")
 
 
+def _fetch_at_most_two_rows(cursor: "CursorType") -> Tuple[Any, ...]:
+    fetchmany = getattr(cursor, "fetchmany", None)
+    if callable(fetchmany):
+        return tuple(fetchmany(2))
+
+    first_row = cursor.fetchone()
+    if first_row is None:
+        return tuple()
+
+    second_row = cursor.fetchone()
+    if second_row is None:
+        return (first_row,)
+
+    return first_row, second_row
+
+
+async def _fetch_at_most_two_rows_async(cursor: "AsyncCursorType") -> Tuple[Any, ...]:
+    fetchmany = getattr(cursor, "fetchmany", None)
+    if callable(fetchmany):
+        return tuple(await fetchmany(2))
+
+    first_row = await cursor.fetchone()
+    if first_row is None:
+        return tuple()
+
+    second_row = await cursor.fetchone()
+    if second_row is None:
+        return (first_row,)
+
+    return first_row, second_row
+
+
 _INVALID_ATTRIBUTE_PARAM_TYPES = (
     str,
     bytes,
@@ -581,13 +613,13 @@ class Commands(BaseCommands, ABC):
         with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
-            data = cursor.fetchall()
+            data = _fetch_at_most_two_rows(cursor)
 
         num_records = len(data)
         if num_records == 0:
             raise NoResultException("Expected exactly one record, got zero")
         elif num_records > 1:
-            raise MoreThanOneResultException(f"Expected exactly one record, got {num_records}")
+            raise MoreThanOneResultException("Expected exactly one record, got at least two")
 
         return serialize_dict_row(model, database_row_to_dict(headers, data[0]))
 
@@ -1054,13 +1086,13 @@ class CommandsAsync(BaseCommands, ABC):
         async with self.cursor() as cursor:
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
-            data = await cursor.fetchall()
+            data = await _fetch_at_most_two_rows_async(cursor)
 
         num_records = len(data)
         if num_records == 0:
             raise NoResultException("Expected exactly one record, got zero")
         elif num_records > 1:
-            raise MoreThanOneResultException(f"Expected exactly one record, got {num_records}")
+            raise MoreThanOneResultException("Expected exactly one record, got at least two")
 
         return serialize_dict_row(model, database_row_to_dict(headers, data[0]))
 

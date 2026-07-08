@@ -1709,6 +1709,23 @@ class TestCommands:
 
         assert data is default
 
+    def test_query_first_or_default_returns_uninspectable_callable_default(
+        self, connection, set_fetchone_to_return_none, mocker
+    ):
+        calls = []
+
+        def default():
+            calls.append(None)
+            raise TypeError("factory failed")
+
+        mocker.patch("pydapper.commands.signature", side_effect=ValueError("no signature"))
+
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=default)
+
+        assert data is default
+        assert calls == []
+
     def test_query_first_or_default_returns_first_row(self, connection):
         calls = []
 

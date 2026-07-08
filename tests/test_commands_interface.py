@@ -1726,6 +1726,23 @@ class TestCommands:
         assert data is default
         assert calls == []
 
+    @pytest.mark.parametrize(
+        "default_factory, expected",
+        [
+            (list, []),
+            (tuple, ()),
+        ],
+    )
+    def test_query_first_or_default_calls_common_factory_when_signature_is_unavailable(
+        self, connection, set_fetchone_to_return_none, mocker, default_factory, expected
+    ):
+        mocker.patch("pydapper.commands.signature", side_effect=ValueError("no signature"))
+
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=default_factory)
+
+        assert data == expected
+
     def test_query_first_or_default_returns_first_row(self, connection):
         calls = []
 

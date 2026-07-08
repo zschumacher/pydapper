@@ -147,9 +147,11 @@ _UNINSPECTABLE_NO_ARG_DEFAULT_FACTORIES = (
     float,
     frozenset,
     int,
+    list,
     object,
     set,
     str,
+    tuple,
 )
 
 

@@ -31,6 +31,7 @@ from .exceptions import InvalidParameterShapeException
 from .exceptions import MissingParameterException
 from .exceptions import MoreThanOneResultException
 from .exceptions import NoResultException
+from .rows import RawRow
 from .utils import database_row_to_dict
 from .utils import get_col_names
 from .utils import serialize_dict_row
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
 
     _T = TypeVar("_T")
     _Default = TypeVar("_Default")
+    _MapperT = TypeVar("_MapperT")
 
 
 class _ParamAliasUnset:
@@ -55,6 +57,21 @@ class _ParamAliasUnset:
 
 
 _PARAM_ALIAS_UNSET = _ParamAliasUnset()
+
+
+class _ModelUnset:
+    def __repr__(self) -> str:
+        return "dict"
+
+
+_MODEL_UNSET = _ModelUnset()
+
+
+class _MapperUnset:
+    pass
+
+
+_MAPPER_UNSET = _MapperUnset()
 
 
 def _resolve_param_aliases(param=_PARAM_ALIAS_UNSET, params=_PARAM_ALIAS_UNSET):
@@ -68,6 +85,33 @@ def _resolve_param_aliases(param=_PARAM_ALIAS_UNSET, params=_PARAM_ALIAS_UNSET):
         return param
 
     return None
+
+
+def _resolve_row_projector(model=_MODEL_UNSET, mapper=_MAPPER_UNSET):
+    if mapper is not _MAPPER_UNSET:
+        if model is not _MODEL_UNSET:
+            raise ValueError("Pass either 'model' or 'mapper', not both.")
+        return mapper, True
+
+    return dict if model is _MODEL_UNSET else model, False
+
+
+def _project_row(projector, maps_raw_row: bool, headers, row):
+    if maps_raw_row:
+        return projector(RawRow(headers, row))
+    return serialize_dict_row(projector, database_row_to_dict(headers, row))
+
+
+def _normalize_query_multiple_mappers(queries: Tuple[str, ...], mapper):
+    if isinstance(mapper, tuple):
+        mappers = mapper
+    else:
+        mappers = tuple(mapper for _ in queries)
+
+    if len(queries) != len(mappers):
+        raise ValueError("Number of queries must equal number of mappers")
+
+    return mappers
 
 
 def _is_empty_executemany_params(param: Any) -> bool:
@@ -313,40 +357,50 @@ class Commands(BaseCommands, ABC):
         return rowcount
 
     def _buffered_query(
-        self, handler: BaseSqlParamHandler, model: Union[Type["_T"], Callable[..., "_T"]]
+        self,
+        handler: BaseSqlParamHandler,
+        projector: Union[Type["_T"], Callable[..., "_T"]],
+        maps_raw_row: bool,
     ) -> List["_T"]:
         with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
-            try:
-                validate_no_duplicate_columns(headers)
-            except DuplicateColumnException:
-                self._on_duplicate_columns(cursor)
-                raise
+            if not maps_raw_row:
+                try:
+                    validate_no_duplicate_columns(headers)
+                except DuplicateColumnException:
+                    self._on_duplicate_columns(cursor)
+                    raise
             data = cursor.fetchall()
-            return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
+            return [_project_row(projector, maps_raw_row, headers, row) for row in data]
 
-    def _unbuffered_query(self, handler: BaseSqlParamHandler, model: "Type[_T]") -> Generator["_T", None, None]:
+    def _unbuffered_query(
+        self,
+        handler: BaseSqlParamHandler,
+        projector: Union[Type["_T"], Callable[..., "_T"]],
+        maps_raw_row: bool,
+    ) -> Generator["_T", None, None]:
         with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
-            try:
-                validate_no_duplicate_columns(headers)
-            except DuplicateColumnException:
-                self._on_duplicate_columns(cursor)
-                raise
+            if not maps_raw_row:
+                try:
+                    validate_no_duplicate_columns(headers)
+                except DuplicateColumnException:
+                    self._on_duplicate_columns(cursor)
+                    raise
 
             row = cursor.fetchone()
             if row is None:
                 return
 
-            yield serialize_dict_row(model, database_row_to_dict(headers, row))
+            yield _project_row(projector, maps_raw_row, headers, row)
 
             while True:
                 row = cursor.fetchone()
                 if row is None:
                     break
-                yield serialize_dict_row(model, database_row_to_dict(headers, row))
+                yield _project_row(projector, maps_raw_row, headers, row)
 
     def _on_duplicate_columns(self, cursor: "CursorType") -> None:
         pass
@@ -434,11 +488,63 @@ class Commands(BaseCommands, ABC):
         params: Optional["ParamType"],
     ) -> Generator["_T", None, None]: ...
 
-    def query(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, buffered=True, *, params=_PARAM_ALIAS_UNSET):
+    @overload
+    def query(
+        self,
+        sql: str,
+        param: Optional["ParamType"] = ...,
+        buffered: "Literal[True]" = True,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> List["_MapperT"]: ...
+
+    @overload
+    def query(
+        self,
+        sql: str,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+        buffered: "Literal[True]" = True,
+    ) -> List["_MapperT"]: ...
+
+    @overload
+    def query(
+        self,
+        sql: str,
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        buffered: "Literal[False]",
+    ) -> Generator["_MapperT", None, None]: ...
+
+    @overload
+    def query(
+        self,
+        sql: str,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        buffered: "Literal[False]",
+        params: Optional["ParamType"],
+    ) -> Generator["_MapperT", None, None]: ...
+
+    def query(
+        self,
+        sql,
+        model=_MODEL_UNSET,
+        param=_PARAM_ALIAS_UNSET,
+        buffered=True,
+        *,
+        params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
+    ):
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
+        projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
-        return self._buffered_query(handler, model) if buffered else self._unbuffered_query(handler, model)
+        if buffered:
+            return self._buffered_query(handler, projector, maps_raw_row)
+        return self._unbuffered_query(handler, projector, maps_raw_row)
 
     # endregion
 
@@ -452,6 +558,26 @@ class Commands(BaseCommands, ABC):
         self, queries: Tuple[str, ...], models: Tuple[Any, ...] = None, *, params: Optional["ParamType"] = None
     ) -> Tuple[List[Any], ...]: ...
 
+    @overload
+    def query_multiple(
+        self,
+        queries: Tuple[str, ...],
+        models: None = None,
+        param: Optional["ParamType"] = None,
+        *,
+        mapper: Union[Callable[[RawRow], Any], Tuple[Callable[[RawRow], Any], ...]],
+    ) -> Tuple[List[Any], ...]: ...
+
+    @overload
+    def query_multiple(
+        self,
+        queries: Tuple[str, ...],
+        models: None = None,
+        *,
+        mapper: Union[Callable[[RawRow], Any], Tuple[Callable[[RawRow], Any], ...]],
+        params: Optional["ParamType"] = None,
+    ) -> Tuple[List[Any], ...]: ...
+
     def query_multiple(
         self,
         queries: Tuple[str, ...],
@@ -459,6 +585,7 @@ class Commands(BaseCommands, ABC):
         param=_PARAM_ALIAS_UNSET,
         *,
         params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
     ) -> Tuple[List[Any], ...]:
         """
         :todo use TypeVarTuple for the variadic types of models once the mypy support is better such that type checkers
@@ -467,15 +594,24 @@ class Commands(BaseCommands, ABC):
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
 
-        if models is None:
-            models = tuple(dict for _ in queries)
+        if mapper is not _MAPPER_UNSET:
+            if models is not None:
+                raise ValueError("Pass either 'models' or 'mapper', not both.")
+            projectors = _normalize_query_multiple_mappers(queries, mapper)
+            maps_raw_row = True
+        else:
+            if models is None:
+                models = tuple(dict for _ in queries)
 
-        if len(queries) != len(models):
-            raise ValueError("Number of queries must equal number of models")
+            if len(queries) != len(models):
+                raise ValueError("Number of queries must equal number of models")
+
+            projectors = models
+            maps_raw_row = False
 
         results = list()
         with self._cursor_context_proxy() as cursor:
-            for query, model in zip(queries, models):
+            for query, projector in zip(queries, projectors):
                 handler = self.SqlParamHandler(query, resolved_params)
                 handler.execute(cursor)
                 headers = get_col_names(cursor)
@@ -484,8 +620,9 @@ class Commands(BaseCommands, ABC):
                 if not data:
                     raise NoResultException(f"No results returned from query {query}")
 
-                validate_no_duplicate_columns(headers)
-                serialized_data = [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
+                if not maps_raw_row:
+                    validate_no_duplicate_columns(headers)
+                serialized_data = [_project_row(projector, maps_raw_row, headers, row) for row in data]
                 results.append(serialized_data)
 
         return tuple(results)
@@ -519,9 +656,36 @@ class Commands(BaseCommands, ABC):
         params: Optional["ParamType"],
     ) -> "_T": ...
 
-    def query_first(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET):
+    @overload
+    def query_first(
+        self,
+        sql: str,
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> "_MapperT": ...
+
+    @overload
+    def query_first(
+        self,
+        sql: str,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> "_MapperT": ...
+
+    def query_first(
+        self,
+        sql,
+        model=_MODEL_UNSET,
+        param=_PARAM_ALIAS_UNSET,
+        *,
+        params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
+    ):
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
+        projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         with self._cursor_context_proxy() as cursor:
@@ -530,8 +694,9 @@ class Commands(BaseCommands, ABC):
             row = cursor.fetchone()
             if row is None:
                 raise NoResultException("Query returned no results")
-            validate_no_duplicate_columns(headers)
-        return serialize_dict_row(model, database_row_to_dict(headers, row))
+            if not maps_raw_row:
+                validate_no_duplicate_columns(headers)
+        return _project_row(projector, maps_raw_row, headers, row)
 
     @overload
     def query_first_or_default(
@@ -611,9 +776,63 @@ class Commands(BaseCommands, ABC):
         params: Optional["ParamType"],
     ) -> Union["_Default", "_T"]: ...
 
-    def query_first_or_default(self, sql, default, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET):
+    @overload
+    def query_first_or_default(
+        self,
+        sql: str,
+        default: Callable[[], "_Default"],
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    def query_first_or_default(
+        self,
+        sql: str,
+        default: Callable[[], "_Default"],
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    def query_first_or_default(
+        self,
+        sql: str,
+        default: "_Default",
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    def query_first_or_default(
+        self,
+        sql: str,
+        default: "_Default",
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    def query_first_or_default(
+        self,
+        sql,
+        default,
+        model=_MODEL_UNSET,
+        param=_PARAM_ALIAS_UNSET,
+        *,
+        params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
+    ):
         resolved_params = self._resolve_params(param, params)
+        _resolve_row_projector(model, mapper)
         try:
+            if mapper is not _MAPPER_UNSET:
+                return self.query_first(sql, param=resolved_params, mapper=mapper)
+            if model is _MODEL_UNSET:
+                return self.query_first(sql, param=resolved_params)
             return self.query_first(sql, model=model, param=resolved_params)
         except NoResultException:
             return _resolve_default_value(default)
@@ -647,9 +866,36 @@ class Commands(BaseCommands, ABC):
         params: Optional["ParamType"],
     ) -> "_T": ...
 
-    def query_single(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET):
+    @overload
+    def query_single(
+        self,
+        sql: str,
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> "_MapperT": ...
+
+    @overload
+    def query_single(
+        self,
+        sql: str,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> "_MapperT": ...
+
+    def query_single(
+        self,
+        sql,
+        model=_MODEL_UNSET,
+        param=_PARAM_ALIAS_UNSET,
+        *,
+        params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
+    ):
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
+        projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         with self._cursor_context_proxy() as cursor:
@@ -664,9 +910,10 @@ class Commands(BaseCommands, ABC):
                 self._on_query_single_more_than_one_result(cursor)
                 raise MoreThanOneResultException("Expected exactly one record, got at least two")
 
-            validate_no_duplicate_columns(headers)
+            if not maps_raw_row:
+                validate_no_duplicate_columns(headers)
 
-        return serialize_dict_row(model, database_row_to_dict(headers, data[0]))
+        return _project_row(projector, maps_raw_row, headers, data[0])
 
     @overload
     def query_single_or_default(
@@ -746,9 +993,63 @@ class Commands(BaseCommands, ABC):
         params: Optional["ParamType"],
     ) -> Union["_Default", "_T"]: ...
 
-    def query_single_or_default(self, sql, default, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET):
+    @overload
+    def query_single_or_default(
+        self,
+        sql: str,
+        default: Callable[[], "_Default"],
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    def query_single_or_default(
+        self,
+        sql: str,
+        default: Callable[[], "_Default"],
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    def query_single_or_default(
+        self,
+        sql: str,
+        default: "_Default",
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    def query_single_or_default(
+        self,
+        sql: str,
+        default: "_Default",
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    def query_single_or_default(
+        self,
+        sql,
+        default,
+        model=_MODEL_UNSET,
+        param=_PARAM_ALIAS_UNSET,
+        *,
+        params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
+    ):
         resolved_params = self._resolve_params(param, params)
+        _resolve_row_projector(model, mapper)
         try:
+            if mapper is not _MAPPER_UNSET:
+                return self.query_single(sql, param=resolved_params, mapper=mapper)
+            if model is _MODEL_UNSET:
+                return self.query_single(sql, param=resolved_params)
             return self.query_single(sql, model=model, param=resolved_params)
         except NoResultException:
             return _resolve_default_value(default)
@@ -805,42 +1106,50 @@ class CommandsAsync(BaseCommands, ABC):
             return await handler.execute_async(cursor)
 
     async def _buffered_query(
-        self, handler: BaseSqlParamHandler, model: Union[Type["_T"], Callable[..., "_T"]]
+        self,
+        handler: BaseSqlParamHandler,
+        projector: Union[Type["_T"], Callable[..., "_T"]],
+        maps_raw_row: bool,
     ) -> List["_T"]:
         async with self.cursor() as cursor:
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
-            try:
-                validate_no_duplicate_columns(headers)
-            except DuplicateColumnException:
-                await self._on_duplicate_columns_async(cursor)
-                raise
+            if not maps_raw_row:
+                try:
+                    validate_no_duplicate_columns(headers)
+                except DuplicateColumnException:
+                    await self._on_duplicate_columns_async(cursor)
+                    raise
             data = await cursor.fetchall()
-            return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
+            return [_project_row(projector, maps_raw_row, headers, row) for row in data]
 
     async def _unbuffered_query(
-        self, handler: BaseSqlParamHandler, model: Union[Type["_T"], Callable[..., "_T"]]
+        self,
+        handler: BaseSqlParamHandler,
+        projector: Union[Type["_T"], Callable[..., "_T"]],
+        maps_raw_row: bool,
     ) -> AsyncGenerator["_T", None]:
         async with self.cursor() as cursor:
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
-            try:
-                validate_no_duplicate_columns(headers)
-            except DuplicateColumnException:
-                await self._on_duplicate_columns_async(cursor)
-                raise
+            if not maps_raw_row:
+                try:
+                    validate_no_duplicate_columns(headers)
+                except DuplicateColumnException:
+                    await self._on_duplicate_columns_async(cursor)
+                    raise
 
             row = await cursor.fetchone()
             if row is None:
                 return
 
-            yield serialize_dict_row(model, database_row_to_dict(headers, row))
+            yield _project_row(projector, maps_raw_row, headers, row)
 
             while True:
                 row = await cursor.fetchone()
                 if row is None:
                     break
-                yield serialize_dict_row(model, database_row_to_dict(headers, row))
+                yield _project_row(projector, maps_raw_row, headers, row)
 
     async def _on_duplicate_columns_async(self, cursor: "AsyncCursorType") -> None:
         pass
@@ -925,14 +1234,64 @@ class CommandsAsync(BaseCommands, ABC):
         params: Optional["ParamType"],
     ) -> AsyncGenerator["_T", None]: ...
 
-    async def query_async(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, buffered=True, *, params=_PARAM_ALIAS_UNSET):
+    @overload
+    async def query_async(
+        self,
+        sql: str,
+        param: Optional["ParamType"] = ...,
+        buffered: "Literal[True]" = True,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> List["_MapperT"]: ...
+
+    @overload
+    async def query_async(
+        self,
+        sql: str,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+        buffered: "Literal[True]" = True,
+    ) -> List["_MapperT"]: ...
+
+    @overload
+    async def query_async(
+        self,
+        sql: str,
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        buffered: "Literal[False]",
+    ) -> AsyncGenerator["_MapperT", None]: ...
+
+    @overload
+    async def query_async(
+        self,
+        sql: str,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        buffered: "Literal[False]",
+        params: Optional["ParamType"],
+    ) -> AsyncGenerator["_MapperT", None]: ...
+
+    async def query_async(
+        self,
+        sql,
+        model=_MODEL_UNSET,
+        param=_PARAM_ALIAS_UNSET,
+        buffered=True,
+        *,
+        params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
+    ):
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
+        projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
         if buffered:
-            records = await self._buffered_query(handler, model)
+            records = await self._buffered_query(handler, projector, maps_raw_row)
             return records
-        return self._unbuffered_query(handler, model)
+        return self._unbuffered_query(handler, projector, maps_raw_row)
 
     @overload
     async def query_multiple_async(
@@ -944,6 +1303,26 @@ class CommandsAsync(BaseCommands, ABC):
         self, queries: Tuple[str, ...], models: Tuple[Any, ...] = None, *, params: Optional["ParamType"] = None
     ) -> Tuple[List[Any], ...]: ...
 
+    @overload
+    async def query_multiple_async(
+        self,
+        queries: Tuple[str, ...],
+        models: None = None,
+        param: Optional["ParamType"] = None,
+        *,
+        mapper: Union[Callable[[RawRow], Any], Tuple[Callable[[RawRow], Any], ...]],
+    ) -> Tuple[List[Any], ...]: ...
+
+    @overload
+    async def query_multiple_async(
+        self,
+        queries: Tuple[str, ...],
+        models: None = None,
+        *,
+        mapper: Union[Callable[[RawRow], Any], Tuple[Callable[[RawRow], Any], ...]],
+        params: Optional["ParamType"] = None,
+    ) -> Tuple[List[Any], ...]: ...
+
     async def query_multiple_async(
         self,
         queries: Tuple[str, ...],
@@ -951,6 +1330,7 @@ class CommandsAsync(BaseCommands, ABC):
         param=_PARAM_ALIAS_UNSET,
         *,
         params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
     ) -> Tuple[List[Any], ...]:
         """
         :todo use TypeVarTuple for the variadic types of models once the mypy support is better such that type checkers
@@ -959,15 +1339,24 @@ class CommandsAsync(BaseCommands, ABC):
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
 
-        if models is None:
-            models = cast(Tuple[dict], tuple(dict for _ in queries))
+        if mapper is not _MAPPER_UNSET:
+            if models is not None:
+                raise ValueError("Pass either 'models' or 'mapper', not both.")
+            projectors = _normalize_query_multiple_mappers(queries, mapper)
+            maps_raw_row = True
+        else:
+            if models is None:
+                models = cast(Tuple[dict], tuple(dict for _ in queries))
 
-        if len(queries) != len(models):
-            raise ValueError("Number of queries must equal number of models")
+            if len(queries) != len(models):
+                raise ValueError("Number of queries must equal number of models")
+
+            projectors = models
+            maps_raw_row = False
 
         results = list()
         async with self.cursor() as cursor:
-            for query, model in zip(queries, models):
+            for query, projector in zip(queries, projectors):
                 handler = self.SqlParamHandler(query, resolved_params)
                 await handler.execute_async(cursor)
                 headers = get_col_names(cursor)
@@ -976,8 +1365,9 @@ class CommandsAsync(BaseCommands, ABC):
                 if not data:
                     raise NoResultException(f"No results returned from query {query}")
 
-                validate_no_duplicate_columns(headers)
-                serialized_data = [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
+                if not maps_raw_row:
+                    validate_no_duplicate_columns(headers)
+                serialized_data = [_project_row(projector, maps_raw_row, headers, row) for row in data]
                 results.append(serialized_data)
 
         return cast(Tuple[List[Any]], tuple(results))
@@ -1013,9 +1403,36 @@ class CommandsAsync(BaseCommands, ABC):
         params: Optional["ParamType"],
     ) -> "_T": ...
 
-    async def query_first_async(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET):
+    @overload
+    async def query_first_async(
+        self,
+        sql: str,
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> "_MapperT": ...
+
+    @overload
+    async def query_first_async(
+        self,
+        sql: str,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> "_MapperT": ...
+
+    async def query_first_async(
+        self,
+        sql,
+        model=_MODEL_UNSET,
+        param=_PARAM_ALIAS_UNSET,
+        *,
+        params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
+    ):
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
+        projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         async with self.cursor() as cursor:
@@ -1024,8 +1441,9 @@ class CommandsAsync(BaseCommands, ABC):
             row = await cursor.fetchone()
             if row is None:
                 raise NoResultException("Query returned no results")
-            validate_no_duplicate_columns(headers)
-            return serialize_dict_row(model, database_row_to_dict(headers, row))
+            if not maps_raw_row:
+                validate_no_duplicate_columns(headers)
+            return _project_row(projector, maps_raw_row, headers, row)
 
     @overload
     async def query_first_or_default_async(
@@ -1105,11 +1523,63 @@ class CommandsAsync(BaseCommands, ABC):
         params: Optional["ParamType"],
     ) -> Union["_Default", "_T"]: ...
 
+    @overload
     async def query_first_or_default_async(
-        self, sql, default, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET
+        self,
+        sql: str,
+        default: Callable[[], "_Default"],
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    async def query_first_or_default_async(
+        self,
+        sql: str,
+        default: Callable[[], "_Default"],
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    async def query_first_or_default_async(
+        self,
+        sql: str,
+        default: "_Default",
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    async def query_first_or_default_async(
+        self,
+        sql: str,
+        default: "_Default",
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    async def query_first_or_default_async(
+        self,
+        sql,
+        default,
+        model=_MODEL_UNSET,
+        param=_PARAM_ALIAS_UNSET,
+        *,
+        params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
     ):
         resolved_params = self._resolve_params(param, params)
+        _resolve_row_projector(model, mapper)
         try:
+            if mapper is not _MAPPER_UNSET:
+                return await self.query_first_async(sql, param=resolved_params, mapper=mapper)
+            if model is _MODEL_UNSET:
+                return await self.query_first_async(sql, param=resolved_params)
             return await self.query_first_async(sql, model=model, param=resolved_params)
         except NoResultException:
             return _resolve_default_value(default)
@@ -1145,9 +1615,36 @@ class CommandsAsync(BaseCommands, ABC):
         params: Optional["ParamType"],
     ) -> "_T": ...
 
-    async def query_single_async(self, sql, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET):
+    @overload
+    async def query_single_async(
+        self,
+        sql: str,
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> "_MapperT": ...
+
+    @overload
+    async def query_single_async(
+        self,
+        sql: str,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> "_MapperT": ...
+
+    async def query_single_async(
+        self,
+        sql,
+        model=_MODEL_UNSET,
+        param=_PARAM_ALIAS_UNSET,
+        *,
+        params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
+    ):
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
+        projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         async with self.cursor() as cursor:
@@ -1161,8 +1658,9 @@ class CommandsAsync(BaseCommands, ABC):
         elif num_records > 1:
             raise MoreThanOneResultException("Expected exactly one record, got at least two")
 
-        validate_no_duplicate_columns(headers)
-        return serialize_dict_row(model, database_row_to_dict(headers, data[0]))
+        if not maps_raw_row:
+            validate_no_duplicate_columns(headers)
+        return _project_row(projector, maps_raw_row, headers, data[0])
 
     @overload
     async def query_single_or_default_async(
@@ -1242,11 +1740,63 @@ class CommandsAsync(BaseCommands, ABC):
         params: Optional["ParamType"],
     ) -> Union["_Default", "_T"]: ...
 
+    @overload
     async def query_single_or_default_async(
-        self, sql, default, model=dict, param=_PARAM_ALIAS_UNSET, *, params=_PARAM_ALIAS_UNSET
+        self,
+        sql: str,
+        default: Callable[[], "_Default"],
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    async def query_single_or_default_async(
+        self,
+        sql: str,
+        default: Callable[[], "_Default"],
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    async def query_single_or_default_async(
+        self,
+        sql: str,
+        default: "_Default",
+        param: Optional["ParamType"] = ...,
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    @overload
+    async def query_single_or_default_async(
+        self,
+        sql: str,
+        default: "_Default",
+        *,
+        mapper: Callable[[RawRow], "_MapperT"],
+        params: Optional["ParamType"],
+    ) -> Union["_Default", "_MapperT"]: ...
+
+    async def query_single_or_default_async(
+        self,
+        sql,
+        default,
+        model=_MODEL_UNSET,
+        param=_PARAM_ALIAS_UNSET,
+        *,
+        params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
     ):
         resolved_params = self._resolve_params(param, params)
+        _resolve_row_projector(model, mapper)
         try:
+            if mapper is not _MAPPER_UNSET:
+                return await self.query_single_async(sql, param=resolved_params, mapper=mapper)
+            if model is _MODEL_UNSET:
+                return await self.query_single_async(sql, param=resolved_params)
             return await self.query_single_async(sql, model=model, param=resolved_params)
         except NoResultException:
             return _resolve_default_value(default)

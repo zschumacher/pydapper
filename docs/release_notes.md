@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* fix: bound query_single row fetching. PR [#522](https://github.com/zschumacher/pydapper/pull/522) by [@zschumacher](https://github.com/zschumacher).
 * fix: harden parameter shapes and executemany behavior. PR [#521](https://github.com/zschumacher/pydapper/pull/521) by [@zschumacher](https://github.com/zschumacher).
 * v1: replace placeholder regex with SQL-aware scanner. PR [#509](https://github.com/zschumacher/pydapper/pull/509) by [@zschumacher](https://github.com/zschumacher).
 * v1: define public exceptions and cardinality semantics. PR [#505](https://github.com/zschumacher/pydapper/pull/505) by [@zschumacher](https://github.com/zschumacher).

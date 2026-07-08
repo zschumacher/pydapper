@@ -13,6 +13,41 @@ from ..utils import serialize_dict_row
 
 if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
+    from ..types import CursorType
+
+
+def _discard_unread_result(cursor: "CursorType") -> None:
+    reset = getattr(cursor, "reset", None)
+    if callable(reset):
+        try:
+            try:
+                reset(free=True)
+            except TypeError:
+                reset()
+        except Exception:
+            pass
+
+    connection = getattr(cursor, "_connection", None)
+    has_unread_result = getattr(cursor, "unread_result", False) or (
+        connection is not None and getattr(connection, "unread_result", False)
+    )
+    if not has_unread_result:
+        return
+
+    # Pure mysql-connector-python has no no-drain discard API. Once the second
+    # row proves this is an error, drain the remainder so the connection stays usable.
+    try:
+        cursor.fetchall()
+        return
+    except Exception:
+        pass
+
+    consume_results = getattr(connection, "consume_results", None)
+    if callable(consume_results):
+        try:
+            consume_results()
+        except Exception:
+            pass
 
 
 @register("mysql")
@@ -54,3 +89,6 @@ class MySqlConnectorPythonCommands(Commands):
                 raise NoResultException("Query returned no results")
             cursor.fetchall()
         return serialize_dict_row(model, database_row_to_dict(headers, row))
+
+    def _on_query_single_more_than_one_result(self, cursor: "CursorType") -> None:
+        _discard_unread_result(cursor)

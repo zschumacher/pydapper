@@ -314,6 +314,9 @@ class Commands(BaseCommands, ABC):
                     break
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
 
+    def _on_query_single_more_than_one_result(self, cursor: "CursorType") -> None:
+        pass
+
     @overload
     def query(
         self,
@@ -615,11 +618,12 @@ class Commands(BaseCommands, ABC):
             headers = get_col_names(cursor)
             data = _fetch_at_most_two_rows(cursor)
 
-        num_records = len(data)
-        if num_records == 0:
-            raise NoResultException("Expected exactly one record, got zero")
-        elif num_records > 1:
-            raise MoreThanOneResultException("Expected exactly one record, got at least two")
+            num_records = len(data)
+            if num_records == 0:
+                raise NoResultException("Expected exactly one record, got zero")
+            elif num_records > 1:
+                self._on_query_single_more_than_one_result(cursor)
+                raise MoreThanOneResultException("Expected exactly one record, got at least two")
 
         return serialize_dict_row(model, database_row_to_dict(headers, data[0]))
 

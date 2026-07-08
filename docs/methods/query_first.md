@@ -12,6 +12,8 @@
 
 {!docs/.parameter_shapes_read.md!}
 
+{!docs/.row_mapping.md!}
+
 ## First, Single and Default
 {!docs/.first_single_default.md!}
 

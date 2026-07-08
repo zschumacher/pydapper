@@ -14,9 +14,11 @@
 
 {!docs/.parameter_shapes_read.md!}
 
+{!docs/.row_mapping.md!}
+
 ## Cardinality
-- 0 rows with `buffered=True`: returns an empty list.
-- 0 rows with `buffered=False`: returns a generator that yields no rows.
+- 0 rows with unique column names and `buffered=True`: returns an empty list.
+- 0 rows with unique column names and `buffered=False`: returns a generator that yields no rows.
 
 ## Example - Serialize to a dataclass
 The raw sql query can be executed using the `query` method and map the results to a list of dataclasses.

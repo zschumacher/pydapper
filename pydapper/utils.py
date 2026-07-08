@@ -11,6 +11,8 @@ from typing import TypeVar
 from typing import Union
 from typing import overload
 
+from .exceptions import DuplicateColumnException
+
 if TYPE_CHECKING:
     _T = TypeVar("_T")
 
@@ -24,6 +26,27 @@ def safe_getattr(obj: Any, key: str) -> Any:
         raise AttributeError(f"Attribute {key!r} can not be accessed on {obj!r} or does not exist")
     except KeyError:
         raise KeyError(f"Key {key!r} can not be accessed on {obj!r} or does not exist")
+
+
+def _get_duplicate_column_data(col_names: List[str]) -> Tuple[Tuple[str, ...], Tuple[int, ...]]:
+    column_indexes: Dict[str, List[int]] = {}
+    for index, col_name in enumerate(col_names):
+        column_indexes.setdefault(col_name, []).append(index)
+
+    duplicate_columns = tuple(col_name for col_name, indexes in column_indexes.items() if len(indexes) > 1)
+    duplicate_column_set = set(duplicate_columns)
+    duplicate_indexes = tuple(index for index, col_name in enumerate(col_names) if col_name in duplicate_column_set)
+    return duplicate_columns, duplicate_indexes
+
+
+def validate_no_duplicate_columns(col_names: List[str]) -> None:
+    duplicate_columns, duplicate_indexes = _get_duplicate_column_data(col_names)
+    if duplicate_columns:
+        raise DuplicateColumnException(
+            columns=tuple(col_names),
+            duplicate_columns=duplicate_columns,
+            duplicate_indexes=duplicate_indexes,
+        )
 
 
 def database_row_to_dict(col_names: List[str], row: Tuple[Any]) -> Dict[str, Any]:

@@ -13,6 +13,8 @@ will throw a `ValueError` if you don't supply the same number of queries and mod
 
 {!docs/.parameter_shapes_read.md!}
 
+{!docs/.row_mapping.md!}
+
 ## Example
 Query two tables and return the serialized results.
 ```python

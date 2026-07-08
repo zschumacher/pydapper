@@ -15,6 +15,8 @@ set is empty; this method throws an exception if there is more than one element 
 
 {!docs/.parameter_shapes_read.md!}
 
+{!docs/.row_mapping.md!}
+
 ## First, Single and Default
 {!docs/.first_single_default.md!}
 

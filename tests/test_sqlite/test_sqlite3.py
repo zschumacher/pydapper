@@ -5,6 +5,7 @@ import pytest
 
 from pydapper import connect
 from pydapper import using
+from pydapper.exceptions import DuplicateColumnException
 from pydapper.sqlite import Sqlite3Commands
 from tests.test_suites.commands import ExecuteScalarTestSuite
 from tests.test_suites.commands import ExecuteTestSuite
@@ -38,6 +39,28 @@ def test_connect_subfolder(driver, database_name, setup_sql_dir):
 def test_connect(driver, database_name):
     with connect(f"{driver}://{database_name}.db") as commands:
         assert isinstance(commands, Sqlite3Commands)
+
+
+def test_join_with_duplicate_id_columns_raises(commands, owner_table_name, task_table_name):
+    with pytest.raises(DuplicateColumnException) as exc_info:
+        commands.query(
+            f"select {task_table_name}.id, {owner_table_name}.id "
+            f"from {task_table_name} join {owner_table_name} on {task_table_name}.owner_id = {owner_table_name}.id"
+        )
+
+    assert exc_info.value.columns == ("id", "id")
+    assert exc_info.value.duplicate_columns == ("id",)
+    assert exc_info.value.duplicate_indexes == (0, 1)
+
+
+def test_join_with_aliased_id_columns_succeeds(commands, owner_table_name, task_table_name):
+    rows = commands.query(
+        f"select {task_table_name}.id as task_id, {owner_table_name}.id as owner_id "
+        f"from {task_table_name} join {owner_table_name} on {task_table_name}.owner_id = {owner_table_name}.id"
+    )
+
+    assert rows[0] == {"task_id": 1, "owner_id": 1}
+    assert list(rows[0]) == ["task_id", "owner_id"]
 
 
 class TestExecute(ExecuteTestSuite): ...

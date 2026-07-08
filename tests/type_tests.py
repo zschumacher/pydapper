@@ -52,7 +52,11 @@ def to_task(row: pydapper.RawRow) -> Task:
     )
 
 
+task_mapper: pydapper.Mapper[Task] = to_task
+
+
 def public_exceptions() -> None:
+    assert_type(task_mapper, pydapper.Mapper[Task])
     assert_type(pydapper.RawRow(("id",), (1,)), pydapper.RawRow)
     assert_type(pydapper.RawRow(("id",), (1,)).columns, Tuple[str, ...])
     assert_type(pydapper.RawRow(("id",), (1,)).values, Tuple[Any, ...])
@@ -110,6 +114,7 @@ class Commands:
             assert_type(commands.query(query, model=Task, buffered=True), List[Task])
             assert_type(commands.query(query, model=lambda **kwargs: Task(**kwargs)), List[Task])
             assert_type(commands.query(query, mapper=to_task), List[Task])
+            assert_type(commands.query(query, param=params, mapper=to_task), List[Task])
             assert_type(commands.query(query, params=params, mapper=to_task), List[Task])
             assert_type(
                 commands.query(query, model=lambda **kwargs: Task(**kwargs), buffered=False),
@@ -117,6 +122,10 @@ class Commands:
             )
             assert_type(commands.query(query, model=Task, buffered=False), Generator[Task, None, None])
             assert_type(commands.query(query, mapper=to_task, buffered=False), Generator[Task, None, None])
+            assert_type(
+                commands.query(query, param=params, mapper=to_task, buffered=False),
+                Generator[Task, None, None],
+            )
             assert_type(commands.query(query, param=params), List[Dict[str, Any]])
             assert_type(commands.query(query, params=params), List[Dict[str, Any]])
             assert_type(commands.query(query, params=mapping_subclass_params), List[Dict[str, Any]])
@@ -132,6 +141,7 @@ class Commands:
             assert_type(commands.query_first(query), Dict[str, Any])
             assert_type(commands.query_first(query, model=Task), Task)
             assert_type(commands.query_first(query, mapper=to_task), Task)
+            assert_type(commands.query_first(query, param=params, mapper=to_task), Task)
             assert_type(commands.query_first(query, param=params), Dict[str, Any])
             assert_type(commands.query_first(query, params=params), Dict[str, Any])
             assert_type(commands.query_first(query, params=params, model=Task), Task)
@@ -161,6 +171,7 @@ class Commands:
             assert_type(commands.query_single(query), Dict[str, Any])
             assert_type(commands.query_single(query, model=Task), Task)
             assert_type(commands.query_single(query, mapper=to_task), Task)
+            assert_type(commands.query_single(query, param=params, mapper=to_task), Task)
             assert_type(commands.query_single(query, param=params), Dict[str, Any])
             assert_type(commands.query_single(query, params=params), Dict[str, Any])
             assert_type(commands.query_single(query, params=params, model=Task), Task)
@@ -219,7 +230,12 @@ class CommandsAsync:
             assert_type(await commands.query_async(query, model=Task, buffered=True), List[Task])
             assert_type(await commands.query_async(query, model=Task, buffered=False), AsyncGenerator[Task, None])
             assert_type(await commands.query_async(query, mapper=to_task), List[Task])
+            assert_type(await commands.query_async(query, param=params, mapper=to_task), List[Task])
             assert_type(await commands.query_async(query, mapper=to_task, buffered=False), AsyncGenerator[Task, None])
+            assert_type(
+                await commands.query_async(query, param=params, mapper=to_task, buffered=False),
+                AsyncGenerator[Task, None],
+            )
             assert_type(await commands.query_async(query, param=params), List[Dict[str, Any]])
             assert_type(await commands.query_async(query, params=params), List[Dict[str, Any]])
             assert_type(await commands.query_async(query, params=mapping_subclass_params), List[Dict[str, Any]])
@@ -235,6 +251,7 @@ class CommandsAsync:
             assert_type(await commands.query_first_async(query), Dict[str, Any])
             assert_type(await commands.query_first_async(query, model=Task), Task)
             assert_type(await commands.query_first_async(query, mapper=to_task), Task)
+            assert_type(await commands.query_first_async(query, param=params, mapper=to_task), Task)
             assert_type(await commands.query_first_async(query, param=params), Dict[str, Any])
             assert_type(await commands.query_first_async(query, params=params), Dict[str, Any])
             assert_type(await commands.query_first_async(query, params=params, model=Task), Task)
@@ -274,6 +291,7 @@ class CommandsAsync:
             assert_type(await commands.query_single_async(query), Dict[str, Any])
             assert_type(await commands.query_single_async(query, model=Task), Task)
             assert_type(await commands.query_single_async(query, mapper=to_task), Task)
+            assert_type(await commands.query_single_async(query, param=params, mapper=to_task), Task)
             assert_type(await commands.query_single_async(query, param=params), Dict[str, Any])
             assert_type(await commands.query_single_async(query, params=params), Dict[str, Any])
             assert_type(await commands.query_single_async(query, params=params, model=Task), Task)

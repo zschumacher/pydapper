@@ -642,9 +642,11 @@ class TestParamHandler:
         assert handler.get_param_placeholder("sup") == "%s"
 
     def test_param_alias_unset_repr_matches_legacy_default_display(self):
+        from pydapper.commands import _MODEL_UNSET
         from pydapper.commands import _PARAM_ALIAS_UNSET
 
         assert repr(_PARAM_ALIAS_UNSET) == "None"
+        assert repr(_MODEL_UNSET) == "dict"
 
     def test_ordered_param_names(self):
         handler = MockParamHandler(
@@ -1703,6 +1705,18 @@ class TestCommands:
 
             assert list(generator) == [(1, "Zach", 2)]
 
+    def test_query_unbuffered_mapper_yields_multiple_rows(self):
+        connection = _CursorConnection(_QuerySingleFetchOneCursor([(1, "Zach"), (2, "Bob")]))
+
+        with MockCommands(connection) as commands:
+            generator = commands.query(
+                "select id, name from some_table",
+                mapper=lambda row: row[0],
+                buffered=False,
+            )
+
+            assert list(generator) == [1, 2]
+
     @pytest.mark.parametrize("buffered", [True, False])
     def test_query_mapper_exceptions_are_not_masked_by_cursor_context_proxy(self, buffered):
         cursor = _TrackingContextCursor()
@@ -1990,6 +2004,13 @@ class TestCommands:
         assert data["id"] == 1
         assert calls == []
 
+    def test_query_first_or_default_model_returns_first_row(self, connection):
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=None, model=SimpleNamespace)
+
+        assert isinstance(data, SimpleNamespace)
+        assert data.id == 1
+
     def test_query_first_or_default_mapper_returns_first_row(self, connection):
         with MockCommands(connection) as commands:
             data = commands.query_first_or_default("select * from some_table", default=None, mapper=lambda row: row[0])
@@ -2162,6 +2183,13 @@ class TestCommands:
 
         assert record["id"] == 1
         assert calls == []
+
+    def test_query_single_or_default_model_returns_single_row(self, connection, set_fetchall_return_one):
+        with MockCommands(connection) as commands:
+            record = commands.query_single_or_default("select * from some_table", default=None, model=SimpleNamespace)
+
+        assert isinstance(record, SimpleNamespace)
+        assert record.id == 1
 
     def test_query_single_or_default_mapper_returns_single_row(self, connection, set_fetchall_return_one):
         with MockCommands(connection) as commands:
@@ -2492,6 +2520,19 @@ class TestCommandsAsync:
             assert [row async for row in generator] == [(1, "Zach", 2)]
 
     @pytest.mark.asyncio
+    async def test_query_unbuffered_mapper_yields_multiple_rows(self):
+        connection = _AsyncCursorConnection(_AsyncQuerySingleFetchOneCursor([(1, "Zach"), (2, "Bob")]))
+
+        async with MockAsyncCommands(connection) as commands:
+            generator = await commands.query_async(
+                "select id, name from some_table",
+                mapper=lambda row: row[0],
+                buffered=False,
+            )
+
+            assert [row async for row in generator] == [1, 2]
+
+    @pytest.mark.asyncio
     async def test_query_rejects_model_and_mapper(self, connection):
         async with MockAsyncCommands(connection) as commands:
             with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
@@ -2780,6 +2821,18 @@ class TestCommandsAsync:
         assert calls == []
 
     @pytest.mark.asyncio
+    async def test_query_first_or_default_model_returns_first_row(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_first_or_default_async(
+                "select * from some_table",
+                default=None,
+                model=SimpleNamespace,
+            )
+
+        assert isinstance(data, SimpleNamespace)
+        assert data.id == 1
+
+    @pytest.mark.asyncio
     async def test_query_first_or_default_mapper_returns_first_row(self, connection):
         async with MockAsyncCommands(connection) as commands:
             data = await commands.query_first_or_default_async(
@@ -2972,6 +3025,18 @@ class TestCommandsAsync:
 
         assert record["id"] == 1
         assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default_model_returns_single_row(self, connection, set_fetchall_return_one):
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_or_default_async(
+                "select * from some_table",
+                default=None,
+                model=SimpleNamespace,
+            )
+
+        assert isinstance(record, SimpleNamespace)
+        assert record.id == 1
 
     @pytest.mark.asyncio
     async def test_query_single_or_default_mapper_returns_single_row(self, connection, set_fetchall_return_one):

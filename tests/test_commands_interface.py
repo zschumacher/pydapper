@@ -1690,6 +1690,25 @@ class TestCommands:
         assert data is sentinel
         assert calls == [None]
 
+    def test_query_first_or_default_calls_builtin_default_factory_on_no_result(
+        self, connection, set_fetchone_to_return_none
+    ):
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=dict)
+
+        assert data == {}
+
+    def test_query_first_or_default_returns_callable_default_that_requires_args(
+        self, connection, set_fetchone_to_return_none
+    ):
+        def default(row):
+            return row
+
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=default)
+
+        assert data is default
+
     def test_query_first_or_default_returns_first_row(self, connection):
         calls = []
 
@@ -1808,6 +1827,25 @@ class TestCommands:
 
         assert record is sentinel
         assert calls == [None]
+
+    def test_query_single_or_default_calls_builtin_default_factory_on_no_result(
+        self, connection, set_fetchone_to_return_none
+    ):
+        with MockCommands(connection) as commands:
+            record = commands.query_single_or_default("select * from some_table", default=set)
+
+        assert record == set()
+
+    def test_query_single_or_default_returns_callable_default_that_requires_args(
+        self, connection, set_fetchone_to_return_none
+    ):
+        def default(row):
+            return row
+
+        with MockCommands(connection) as commands:
+            record = commands.query_single_or_default("select * from some_table", default=default)
+
+        assert record is default
 
     def test_query_single_or_default_returns_single_row(self, connection, set_fetchall_return_one):
         calls = []
@@ -2260,6 +2298,27 @@ class TestCommandsAsync:
         assert calls == [None]
 
     @pytest.mark.asyncio
+    async def test_query_first_or_default_calls_builtin_default_factory_on_no_result(
+        self, connection, set_fetchone_to_return_none
+    ):
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_first_or_default_async("select * from some_table", default=dict)
+
+        assert data == {}
+
+    @pytest.mark.asyncio
+    async def test_query_first_or_default_returns_callable_default_that_requires_args(
+        self, connection, set_fetchone_to_return_none
+    ):
+        def default(row):
+            return row
+
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_first_or_default_async("select * from some_table", default=default)
+
+        assert data is default
+
+    @pytest.mark.asyncio
     async def test_query_first_or_default_returns_first_row(self, connection):
         calls = []
 
@@ -2384,6 +2443,27 @@ class TestCommandsAsync:
 
         assert record is sentinel
         assert calls == [None]
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default_calls_builtin_default_factory_on_no_result(
+        self, connection, set_fetchone_to_return_none
+    ):
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_or_default_async("select * from some_table", default=set)
+
+        assert record == set()
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default_returns_callable_default_that_requires_args(
+        self, connection, set_fetchone_to_return_none
+    ):
+        def default(row):
+            return row
+
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_or_default_async("select * from some_table", default=default)
+
+        assert record is default
 
     @pytest.mark.asyncio
     async def test_query_single_or_default_returns_single_row(self, connection, set_fetchall_return_one):

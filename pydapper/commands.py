@@ -6,6 +6,7 @@ from contextlib import ExitStack
 from contextlib import contextmanager
 from dataclasses import is_dataclass
 from functools import cached_property
+from inspect import signature
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import AsyncGenerator
@@ -135,6 +136,23 @@ def _is_attribute_param_record(param: Any) -> bool:
 
 def _is_param_record(param: Any) -> bool:
     return isinstance(param, Mapping) or _is_attribute_param_record(param)
+
+
+def _resolve_default_value(default):
+    if not callable(default):
+        return default
+
+    try:
+        signature(default).bind()
+    except TypeError:
+        return default
+    except ValueError:
+        try:
+            return default()
+        except TypeError:
+            return default
+
+    return default()
 
 
 def _raise_invalid_param_record(param: Any, location: str) -> None:
@@ -601,7 +619,7 @@ class Commands(BaseCommands, ABC):
         try:
             return self.query_first(sql, model=model, param=resolved_params)
         except NoResultException:
-            return default() if callable(default) else default
+            return _resolve_default_value(default)
 
     @overload
     def query_single(
@@ -736,7 +754,7 @@ class Commands(BaseCommands, ABC):
         try:
             return self.query_single(sql, model=model, param=resolved_params)
         except NoResultException:
-            return default() if callable(default) else default
+            return _resolve_default_value(default)
 
     @overload
     def execute_scalar(self, sql: str, params: Optional["ParamType"] = None) -> Any: ...
@@ -1097,7 +1115,7 @@ class CommandsAsync(BaseCommands, ABC):
         try:
             return await self.query_first_async(sql, model=model, param=resolved_params)
         except NoResultException:
-            return default() if callable(default) else default
+            return _resolve_default_value(default)
 
     @overload
     async def query_single_async(
@@ -1234,7 +1252,7 @@ class CommandsAsync(BaseCommands, ABC):
         try:
             return await self.query_single_async(sql, model=model, param=resolved_params)
         except NoResultException:
-            return default() if callable(default) else default
+            return _resolve_default_value(default)
 
     @overload
     async def execute_scalar_async(self, sql: str, params: Optional["ParamType"] = None) -> Any: ...

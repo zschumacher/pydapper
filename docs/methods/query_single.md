@@ -8,6 +8,7 @@ record in the result set.
 | sql   | `str`       | the sql query str to execute                                                                  | :thumbsdown: |         |
 | params | `ParamType` | params to substitute in the query                                                             | :thumbsup:   | `None`  |
  | model | `Any`       | the callable to serialize the model;  callable must be able to accept column names as kwargs. | :thumbsup:   | `dict`  |
+ | mapper | `Callable[[RawRow], Any]` | callable that receives a `RawRow` and returns a projected value. Mutually exclusive with `model`. | :thumbsup: | `None` |
 
 `param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 

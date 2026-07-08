@@ -1,4 +1,5 @@
 import importlib
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 
 def safe_getattr(obj: Any, key: str) -> Any:
     try:
-        if isinstance(obj, dict):
+        if isinstance(obj, Mapping):
             return obj[key]
         return getattr(obj, key)
     except AttributeError:

@@ -10,6 +10,8 @@
 
 `param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 
+{!docs/.parameter_shapes_read.md!}
+
 ## First, Single and Default
 {!docs/.first_single_default.md!}
 

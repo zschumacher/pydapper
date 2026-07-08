@@ -91,6 +91,13 @@ def test_pymssql_param_handler_uses_parameter_type_for_placeholder(param, expect
     assert handler.get_param_placeholder("value") == expected_placeholder
 
 
+def test_pymssql_param_handler_uses_default_placeholder_for_empty_executemany_params():
+    handler = mssql_module.PymssqlCommands.SqlParamHandler("select ?value?", [])
+
+    assert handler.get_param_placeholder("value") == "%s"
+    assert handler.prepared_sql == "select %s"
+
+
 def test_pymssql_connect_imports_dbapi_and_wraps_connection(monkeypatch):
     dbapi = RecordingDbApi()
     import_calls = patch_dbapi_import(monkeypatch, mssql_module, "pymssql", dbapi)

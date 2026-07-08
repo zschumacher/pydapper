@@ -25,6 +25,7 @@ from typing import overload
 from ._context import CoroContextManager
 from ._sql_placeholders import PlaceholderSpan
 from ._sql_placeholders import scan_placeholder_spans
+from .exceptions import DuplicateColumnException
 from .exceptions import InvalidParameterShapeException
 from .exceptions import MissingParameterException
 from .exceptions import MoreThanOneResultException
@@ -32,6 +33,7 @@ from .exceptions import NoResultException
 from .utils import database_row_to_dict
 from .utils import get_col_names
 from .utils import serialize_dict_row
+from .utils import validate_no_duplicate_columns
 
 if TYPE_CHECKING:
     from .dsn_parser import PydapperParseResult
@@ -301,6 +303,11 @@ class Commands(BaseCommands, ABC):
         with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
+            try:
+                validate_no_duplicate_columns(headers)
+            except DuplicateColumnException:
+                self._on_duplicate_columns(cursor)
+                raise
             data = cursor.fetchall()
             return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
 
@@ -308,11 +315,26 @@ class Commands(BaseCommands, ABC):
         with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
+            try:
+                validate_no_duplicate_columns(headers)
+            except DuplicateColumnException:
+                self._on_duplicate_columns(cursor)
+                raise
+
+            row = cursor.fetchone()
+            if row is None:
+                return
+
+            yield serialize_dict_row(model, database_row_to_dict(headers, row))
+
             while True:
                 row = cursor.fetchone()
                 if row is None:
                     break
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
+
+    def _on_duplicate_columns(self, cursor: "CursorType") -> None:
+        pass
 
     def _on_query_single_more_than_one_result(self, cursor: "CursorType") -> None:
         pass
@@ -447,6 +469,7 @@ class Commands(BaseCommands, ABC):
                 if not data:
                     raise NoResultException(f"No results returned from query {query}")
 
+                validate_no_duplicate_columns(headers)
                 serialized_data = [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
                 results.append(serialized_data)
 
@@ -492,6 +515,7 @@ class Commands(BaseCommands, ABC):
             row = cursor.fetchone()
             if row is None:
                 raise NoResultException("Query returned no results")
+            validate_no_duplicate_columns(headers)
         return serialize_dict_row(model, database_row_to_dict(headers, row))
 
     @overload
@@ -624,6 +648,8 @@ class Commands(BaseCommands, ABC):
             elif num_records > 1:
                 self._on_query_single_more_than_one_result(cursor)
                 raise MoreThanOneResultException("Expected exactly one record, got at least two")
+
+            validate_no_duplicate_columns(headers)
 
         return serialize_dict_row(model, database_row_to_dict(headers, data[0]))
 
@@ -769,6 +795,11 @@ class CommandsAsync(BaseCommands, ABC):
         async with self.cursor() as cursor:
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
+            try:
+                validate_no_duplicate_columns(headers)
+            except DuplicateColumnException:
+                await self._on_duplicate_columns_async(cursor)
+                raise
             data = await cursor.fetchall()
             return [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
 
@@ -778,11 +809,26 @@ class CommandsAsync(BaseCommands, ABC):
         async with self.cursor() as cursor:
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
+            try:
+                validate_no_duplicate_columns(headers)
+            except DuplicateColumnException:
+                await self._on_duplicate_columns_async(cursor)
+                raise
+
+            row = await cursor.fetchone()
+            if row is None:
+                return
+
+            yield serialize_dict_row(model, database_row_to_dict(headers, row))
+
             while True:
                 row = await cursor.fetchone()
                 if row is None:
                     break
                 yield serialize_dict_row(model, database_row_to_dict(headers, row))
+
+    async def _on_duplicate_columns_async(self, cursor: "AsyncCursorType") -> None:
+        pass
 
     @overload
     async def query_async(
@@ -915,6 +961,7 @@ class CommandsAsync(BaseCommands, ABC):
                 if not data:
                     raise NoResultException(f"No results returned from query {query}")
 
+                validate_no_duplicate_columns(headers)
                 serialized_data = [serialize_dict_row(model, database_row_to_dict(headers, row)) for row in data]
                 results.append(serialized_data)
 
@@ -962,6 +1009,7 @@ class CommandsAsync(BaseCommands, ABC):
             row = await cursor.fetchone()
             if row is None:
                 raise NoResultException("Query returned no results")
+            validate_no_duplicate_columns(headers)
             return serialize_dict_row(model, database_row_to_dict(headers, row))
 
     @overload
@@ -1098,6 +1146,7 @@ class CommandsAsync(BaseCommands, ABC):
         elif num_records > 1:
             raise MoreThanOneResultException("Expected exactly one record, got at least two")
 
+        validate_no_duplicate_columns(headers)
         return serialize_dict_row(model, database_row_to_dict(headers, data[0]))
 
     @overload

@@ -13,6 +13,7 @@ import pytest
 from typing_extensions import assert_type
 
 import pydapper
+from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
 from pydapper.exceptions import MoreThanOneResultException
@@ -44,6 +45,14 @@ def default_callable() -> str:
 
 def public_exceptions() -> None:
     assert_type(PyDapperException(), PyDapperException)
+    assert_type(
+        DuplicateColumnException(
+            columns=("id", "id"),
+            duplicate_columns=("id",),
+            duplicate_indexes=(0, 1),
+        ),
+        DuplicateColumnException,
+    )
     assert_type(NoResultException(), NoResultException)
     assert_type(MoreThanOneResultException(), MoreThanOneResultException)
     assert_type(MissingParameterException(), MissingParameterException)

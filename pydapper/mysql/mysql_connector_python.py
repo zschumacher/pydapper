@@ -10,6 +10,7 @@ from ..utils import database_row_to_dict
 from ..utils import get_col_names
 from ..utils import import_dbapi_module
 from ..utils import serialize_dict_row
+from ..utils import validate_no_duplicate_columns
 
 if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
@@ -88,7 +89,11 @@ class MySqlConnectorPythonCommands(Commands):
             if row is None:
                 raise NoResultException("Query returned no results")
             cursor.fetchall()
+            validate_no_duplicate_columns(headers)
         return serialize_dict_row(model, database_row_to_dict(headers, row))
+
+    def _on_duplicate_columns(self, cursor: "CursorType") -> None:
+        _discard_unread_result(cursor)
 
     def _on_query_single_more_than_one_result(self, cursor: "CursorType") -> None:
         _discard_unread_result(cursor)

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
 from pydapper.exceptions import MoreThanOneResultException
@@ -80,6 +81,40 @@ class _QuerySingleConnection:
         return self.cursor_instance
 
 
+class _DuplicateColumnCursor:
+    rowcount = 0
+    description = ("id", "int"), ("name", "text"), ("id", "int")
+
+    def __init__(self, rows=((1, "Zach", 2),)):
+        self.rows = list(rows)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def execute(self, sql, parameters=None):
+        pass
+
+    def fetchall(self):
+        return tuple(self.rows)
+
+    def fetchmany(self, size=None):
+        return tuple(self.rows[:size])
+
+    def fetchone(self):
+        return self.rows.pop(0) if self.rows else None
+
+
+class _CursorConnection:
+    def __init__(self, cursor):
+        self.cursor_instance = cursor
+
+    def cursor(self, *args, **kwargs):
+        return self.cursor_instance
+
+
 class _AsyncQuerySingleFetchOneCursor:
     rowcount = 0
     description = ("id", "int"), ("name", "text")
@@ -123,6 +158,56 @@ class _AsyncQuerySingleConnection:
 
     async def cursor(self, *args, **kwargs):
         return self.cursor_instance
+
+
+class _AsyncDuplicateColumnCursor:
+    rowcount = 0
+    description = ("id", "int"), ("name", "text"), ("id", "int")
+
+    def __init__(self, rows=((1, "Zach", 2),)):
+        self.rows = list(rows)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    async def execute(self, sql, parameters=None):
+        pass
+
+    async def fetchall(self):
+        return tuple(self.rows)
+
+    async def fetchmany(self, size=None):
+        return tuple(self.rows[:size])
+
+    async def fetchone(self):
+        return self.rows.pop(0) if self.rows else None
+
+
+class _AsyncCursorConnection:
+    def __init__(self, cursor):
+        self.closed = 0
+        self.cursor_instance = cursor
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+
+    async def cursor(self, *args, **kwargs):
+        return self.cursor_instance
+
+    async def close(self):
+        self.closed = 1
+
+
+def _assert_duplicate_column_exception(exc_info):
+    assert exc_info.value.columns == ("id", "name", "id")
+    assert exc_info.value.duplicate_columns == ("id",)
+    assert exc_info.value.duplicate_indexes == (0, 2)
 
 
 @pytest.fixture
@@ -431,6 +516,7 @@ class TestPublicExceptions:
     @pytest.mark.parametrize(
         "exception_type",
         [
+            DuplicateColumnException,
             NoResultException,
             MoreThanOneResultException,
             MissingParameterException,
@@ -441,6 +527,9 @@ class TestPublicExceptions:
     )
     def test_public_exceptions_subclass_pydapper_exception(self, exception_type):
         assert issubclass(exception_type, PyDapperException)
+
+    def test_duplicate_column_exception_subclasses_row_mapping_exception(self):
+        assert issubclass(DuplicateColumnException, RowMappingException)
 
 
 class TestParamHandler:
@@ -1116,6 +1205,60 @@ class TestCommands:
         with MockMySqlConnectorPythonCommands(connection) as commands, pytest.raises(InvalidParameterShapeException):
             commands.query_first("select id, name from some_table where id = ?id?", params=[])
 
+    def test_mysql_query_first_rejects_duplicate_columns(self):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        with MockMySqlConnectorPythonCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                commands.query_first("select id, name, id from some_table")
+
+        _assert_duplicate_column_exception(exc_info)
+
+    def test_mysql_query_unbuffered_duplicate_columns_are_not_masked_by_unread_result_cleanup(self):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class UnreadResultCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text"), ("id", "int")
+
+            def __init__(self):
+                self.fetchall_calls = 0
+                self.unread_result = False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                assert not self.unread_result
+
+            def execute(self, sql, parameters=None):
+                self.unread_result = True
+
+            def fetchall(self):
+                self.fetchall_calls += 1
+                self.unread_result = False
+                return tuple()
+
+            def fetchone(self):
+                self.unread_result = True
+                return 1, "Zach", 2
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        cursor = UnreadResultCursor()
+
+        with MockMySqlConnectorPythonCommands(_CursorConnection(cursor)) as commands:
+            generator = commands.query("select id, name, id from some_table", buffered=False)
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                list(generator)
+
+        _assert_duplicate_column_exception(exc_info)
+        assert cursor.fetchall_calls == 1
+
     def test_mysql_query_single_accepts_params(self, connection, captured_handler_params, set_fetchall_return_one):
         from pydapper.mysql import MySqlConnectorPythonCommands
 
@@ -1413,6 +1556,20 @@ class TestCommands:
         assert len(data) == 2
         assert all(isinstance(row, SimpleNamespace) for row in data)
 
+    def test_query_rejects_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                commands.query("select id, name, id from some_table")
+
+        _assert_duplicate_column_exception(exc_info)
+
+    def test_query_rejects_duplicate_columns_with_no_rows(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor(rows=()))) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                commands.query("select id, name, id from some_table")
+
+        _assert_duplicate_column_exception(exc_info)
+
     def test_query_returns_empty_list_on_no_results(self, connection, set_fetchall_return_empty):
         with MockCommands(connection) as commands:
             data = commands.query("select id, name from some_table")
@@ -1422,6 +1579,22 @@ class TestCommands:
         with MockCommands(connection) as commands:
             generator = commands.query("select id, name from some_table", buffered=False)
             assert list(generator) == []
+
+    def test_query_unbuffered_rejects_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            generator = commands.query("select id, name, id from some_table", buffered=False)
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                list(generator)
+
+        _assert_duplicate_column_exception(exc_info)
+
+    def test_query_unbuffered_rejects_duplicate_columns_with_no_rows(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor(rows=()))) as commands:
+            generator = commands.query("select id, name, id from some_table", buffered=False)
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                list(generator)
+
+        _assert_duplicate_column_exception(exc_info)
 
     def test_query_unbuffered_yields_rows_until_none(self):
         class OneRowCursor(MockCursor):
@@ -1456,6 +1629,13 @@ class TestCommands:
         assert all(isinstance(row, SimpleNamespace) for row in data1)
         assert all(isinstance(row, dict) for row in data2)
 
+    def test_query_multiple_rejects_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                commands.query_multiple(("select id, name, id from some_table",))
+
+        _assert_duplicate_column_exception(exc_info)
+
     @pytest.mark.parametrize(
         "sql, models",
         [
@@ -1478,6 +1658,13 @@ class TestCommands:
         assert isinstance(record, SimpleNamespace)
         assert record.id
         assert record.name
+
+    def test_query_first_rejects_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                commands.query_first("select id, name, id from some_table")
+
+        _assert_duplicate_column_exception(exc_info)
 
     def test_query_first_raises_on_no_result(self, connection, set_fetchone_to_return_none):
         with MockCommands(connection) as commands, pytest.raises(NoResultException):
@@ -1523,6 +1710,13 @@ class TestCommands:
         assert record["id"]
         assert record["name"]
 
+    def test_query_single_rejects_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                commands.query_single("select id, name, id from some_table")
+
+        _assert_duplicate_column_exception(exc_info)
+
     def test_query_single_raises_on_no_result(self, connection, set_fetchone_to_return_none):
         with MockCommands(connection) as commands, pytest.raises(NoResultException):
             commands.query_single("select * from some_table")
@@ -1530,6 +1724,18 @@ class TestCommands:
     def test_query_single_raises_on_many_results(self, connection):
         with MockCommands(connection) as commands, pytest.raises(MoreThanOneResultException):
             commands.query_single("select * from some_table")
+
+    def test_query_single_no_result_precedes_duplicate_column_mapping(self):
+        connection = _CursorConnection(_DuplicateColumnCursor(rows=()))
+
+        with pytest.raises(NoResultException):
+            MockCommands(connection).query_single("select id, name, id from some_table")
+
+    def test_query_single_many_results_precede_duplicate_column_mapping(self):
+        connection = _CursorConnection(_DuplicateColumnCursor(rows=((1, "Zach", 2), (3, "Bob", 4))))
+
+        with pytest.raises(MoreThanOneResultException):
+            MockCommands(connection).query_single("select id, name, id from some_table")
 
     def test_query_single_uses_fetchmany_when_available(self):
         connection = _QuerySingleConnection(_QuerySingleFetchManyCursor([(1, "Zach")]))
@@ -1624,6 +1830,10 @@ class TestCommands:
         with MockCommands(connection) as commands:
             id_ = commands.execute_scalar("select id, name from some_table")
         assert id_ == 1
+
+    def test_execute_scalar_ignores_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            assert commands.execute_scalar("select id, name, id from some_table") == 1
 
     def test_execute_scalar_raises_on_no_result(self, connection, set_fetchone_to_return_none):
         with MockCommands(connection) as commands, pytest.raises(NoResultException):
@@ -1882,6 +2092,22 @@ class TestCommandsAsync:
         assert all(isinstance(row, SimpleNamespace) for row in data)
 
     @pytest.mark.asyncio
+    async def test_query_rejects_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                await commands.query_async("select id, name, id from some_table")
+
+        _assert_duplicate_column_exception(exc_info)
+
+    @pytest.mark.asyncio
+    async def test_query_rejects_duplicate_columns_with_no_rows(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor(rows=()))) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                await commands.query_async("select id, name, id from some_table")
+
+        _assert_duplicate_column_exception(exc_info)
+
+    @pytest.mark.asyncio
     async def test_query_returns_empty_list_on_no_results(self, connection, set_fetchall_return_empty):
         async with MockAsyncCommands(connection) as commands:
             data = await commands.query_async("select id, name from some_table")
@@ -1892,6 +2118,24 @@ class TestCommandsAsync:
         async with MockAsyncCommands(connection) as commands:
             generator = await commands.query_async("select id, name from some_table", buffered=False)
             assert [row async for row in generator] == []
+
+    @pytest.mark.asyncio
+    async def test_query_unbuffered_rejects_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            generator = await commands.query_async("select id, name, id from some_table", buffered=False)
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                [row async for row in generator]
+
+        _assert_duplicate_column_exception(exc_info)
+
+    @pytest.mark.asyncio
+    async def test_query_unbuffered_rejects_duplicate_columns_with_no_rows(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor(rows=()))) as commands:
+            generator = await commands.query_async("select id, name, id from some_table", buffered=False)
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                [row async for row in generator]
+
+        _assert_duplicate_column_exception(exc_info)
 
     @pytest.mark.asyncio
     async def test_query_unbuffered_yields_rows_until_none(self):
@@ -1931,6 +2175,14 @@ class TestCommandsAsync:
         assert all(isinstance(row, dict) for row in data2)
 
     @pytest.mark.asyncio
+    async def test_query_multiple_rejects_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                await commands.query_multiple_async(("select id, name, id from some_table",))
+
+        _assert_duplicate_column_exception(exc_info)
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "sql, models",
         [
@@ -1956,6 +2208,14 @@ class TestCommandsAsync:
         assert isinstance(record, SimpleNamespace)
         assert record.id
         assert record.name
+
+    @pytest.mark.asyncio
+    async def test_query_first_rejects_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                await commands.query_first_async("select id, name, id from some_table")
+
+        _assert_duplicate_column_exception(exc_info)
 
     @pytest.mark.asyncio
     async def test_query_first_treats_falsy_row_as_result(self, connection, mocker):
@@ -2022,6 +2282,14 @@ class TestCommandsAsync:
         assert record["name"]
 
     @pytest.mark.asyncio
+    async def test_query_single_rejects_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            with pytest.raises(DuplicateColumnException) as exc_info:
+                await commands.query_single_async("select id, name, id from some_table")
+
+        _assert_duplicate_column_exception(exc_info)
+
+    @pytest.mark.asyncio
     async def test_query_single_raises_on_no_result(self, connection, set_fetchone_to_return_none):
         async with MockAsyncCommands(connection) as commands:
             with pytest.raises(NoResultException):
@@ -2032,6 +2300,20 @@ class TestCommandsAsync:
         async with MockAsyncCommands(connection) as commands:
             with pytest.raises(MoreThanOneResultException):
                 await commands.query_single_async("select * from some_table")
+
+    @pytest.mark.asyncio
+    async def test_query_single_no_result_precedes_duplicate_column_mapping(self):
+        connection = _AsyncCursorConnection(_AsyncDuplicateColumnCursor(rows=()))
+
+        with pytest.raises(NoResultException):
+            await MockAsyncCommands(connection).query_single_async("select id, name, id from some_table")
+
+    @pytest.mark.asyncio
+    async def test_query_single_many_results_precede_duplicate_column_mapping(self):
+        connection = _AsyncCursorConnection(_AsyncDuplicateColumnCursor(rows=((1, "Zach", 2), (3, "Bob", 4))))
+
+        with pytest.raises(MoreThanOneResultException):
+            await MockAsyncCommands(connection).query_single_async("select id, name, id from some_table")
 
     @pytest.mark.asyncio
     async def test_query_single_async_uses_fetchmany_when_available(self):
@@ -2128,6 +2410,11 @@ class TestCommandsAsync:
         async with MockAsyncCommands(connection) as commands:
             id_ = await commands.execute_scalar_async("select id, name from some_table")
         assert id_ == 1
+
+    @pytest.mark.asyncio
+    async def test_execute_scalar_ignores_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            assert await commands.execute_scalar_async("select id, name, id from some_table") == 1
 
     @pytest.mark.asyncio
     async def test_execute_scalar_raises_on_no_result(self, connection, set_fetchone_to_return_none):

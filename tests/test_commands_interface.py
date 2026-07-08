@@ -117,6 +117,32 @@ class _CursorConnection:
         return self.cursor_instance
 
 
+class _TrackingContextCursor:
+    rowcount = 0
+    description = ("id", "int"), ("name", "text")
+
+    def __init__(self):
+        self.entered = False
+        self.exited = False
+        self.rows = [(1, "Zach")]
+
+    def __enter__(self):
+        self.entered = True
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.exited = True
+
+    def execute(self, sql, parameters=None):
+        pass
+
+    def fetchall(self):
+        return tuple(self.rows)
+
+    def fetchone(self):
+        return self.rows.pop(0) if self.rows else None
+
+
 class _AsyncQuerySingleFetchOneCursor:
     rowcount = 0
     description = ("id", "int"), ("name", "text")
@@ -1235,6 +1261,32 @@ class TestCommands:
 
         assert captured_handler_params == [params]
 
+    def test_mysql_query_first_accepts_mapper(self, connection):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        with MockMySqlConnectorPythonCommands(connection) as commands:
+            data = commands.query_first("select id, name from some_table", mapper=lambda row: row["id"])
+
+        assert data == 1
+
+    def test_mysql_query_first_or_default_accepts_mapper(self, connection):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        with MockMySqlConnectorPythonCommands(connection) as commands:
+            data = commands.query_first_or_default(
+                "select id, name from some_table",
+                default=None,
+                mapper=lambda row: row["id"],
+            )
+
+        assert data == 1
+
     def test_mysql_query_first_treats_only_none_as_no_result(self, connection, set_fetchone_to_return_falsy_row):
         from pydapper.mysql import MySqlConnectorPythonCommands
 
@@ -1650,6 +1702,22 @@ class TestCommands:
             )
 
             assert list(generator) == [(1, "Zach", 2)]
+
+    @pytest.mark.parametrize("buffered", [True, False])
+    def test_query_mapper_exceptions_are_not_masked_by_cursor_context_proxy(self, buffered):
+        cursor = _TrackingContextCursor()
+
+        with pytest.raises(AttributeError, match="missing"):
+            result = MockCommands(_CursorConnection(cursor)).query(
+                "select id, name from some_table",
+                mapper=lambda row: row.missing,
+                buffered=buffered,
+            )
+            if not buffered:
+                list(result)
+
+        assert cursor.entered is True
+        assert cursor.exited is True
 
     def test_query_rejects_model_and_mapper(self, connection):
         with MockCommands(connection) as commands:

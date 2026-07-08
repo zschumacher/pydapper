@@ -333,9 +333,10 @@ class Commands(BaseCommands, ABC):
         """Not all dbapis implement the cursor as a context manager.  This function handles that polymorphism."""
         with ExitStack() as stack:
             try:
-                yield stack.enter_context(self.cursor())  # type: ignore
+                cursor = stack.enter_context(self.cursor())  # type: ignore
             except (AttributeError, TypeError):
-                yield self.cursor()
+                cursor = self.cursor()
+            yield cursor
 
     def cursor(self, *args, **kwargs) -> "CursorType":
         return self.connection.cursor(*args, **kwargs)

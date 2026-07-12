@@ -1709,39 +1709,41 @@ class TestCommands:
 
         assert data is default
 
-    def test_query_first_or_default_returns_uninspectable_callable_default(
+    def test_query_first_or_default_propagates_uninspectable_callable_default_error(
         self, connection, set_fetchone_to_return_none, mocker
     ):
+        calls = []
+        error = TypeError("factory failed")
+
+        def default():
+            calls.append(None)
+            raise error
+
+        mocker.patch("pydapper.commands.signature", side_effect=ValueError("no signature"))
+
+        with MockCommands(connection) as commands, pytest.raises(TypeError) as exc_info:
+            commands.query_first_or_default("select * from some_table", default=default)
+
+        assert exc_info.value is error
+        assert calls == [None]
+
+    def test_query_first_or_default_calls_uninspectable_callable_default(
+        self, connection, set_fetchone_to_return_none, mocker
+    ):
+        sentinel = object()
         calls = []
 
         def default():
             calls.append(None)
-            raise TypeError("factory failed")
+            return sentinel
 
         mocker.patch("pydapper.commands.signature", side_effect=ValueError("no signature"))
 
         with MockCommands(connection) as commands:
             data = commands.query_first_or_default("select * from some_table", default=default)
 
-        assert data is default
-        assert calls == []
-
-    @pytest.mark.parametrize(
-        "default_factory, expected",
-        [
-            (list, []),
-            (tuple, ()),
-        ],
-    )
-    def test_query_first_or_default_calls_common_factory_when_signature_is_unavailable(
-        self, connection, set_fetchone_to_return_none, mocker, default_factory, expected
-    ):
-        mocker.patch("pydapper.commands.signature", side_effect=ValueError("no signature"))
-
-        with MockCommands(connection) as commands:
-            data = commands.query_first_or_default("select * from some_table", default=default_factory)
-
-        assert data == expected
+        assert data is sentinel
+        assert calls == [None]
 
     def test_query_first_or_default_returns_first_row(self, connection):
         calls = []
@@ -2315,8 +2317,8 @@ class TestCommandsAsync:
         assert data is default
 
     @pytest.mark.asyncio
-    async def test_query_first_or_default_calls_callable_default_on_no_result(
-        self, connection, set_fetchone_to_return_none
+    async def test_query_first_or_default_calls_uninspectable_callable_default_on_no_result(
+        self, connection, set_fetchone_to_return_none, mocker
     ):
         sentinel = object()
         calls = []
@@ -2324,6 +2326,8 @@ class TestCommandsAsync:
         def default():
             calls.append(None)
             return sentinel
+
+        mocker.patch("pydapper.commands.signature", side_effect=ValueError("no signature"))
 
         async with MockAsyncCommands(connection) as commands:
             data = await commands.query_first_or_default_async("select * from some_table", default=default)

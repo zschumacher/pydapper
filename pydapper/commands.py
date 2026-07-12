@@ -138,23 +138,6 @@ def _is_param_record(param: Any) -> bool:
     return isinstance(param, Mapping) or _is_attribute_param_record(param)
 
 
-_UNINSPECTABLE_NO_ARG_DEFAULT_FACTORIES = (
-    bool,
-    bytearray,
-    bytes,
-    complex,
-    dict,
-    float,
-    frozenset,
-    int,
-    list,
-    object,
-    set,
-    str,
-    tuple,
-)
-
-
 def _resolve_default_value(default):
     if not callable(default):
         return default
@@ -164,9 +147,7 @@ def _resolve_default_value(default):
     except TypeError:
         return default
     except ValueError:
-        if any(default is factory for factory in _UNINSPECTABLE_NO_ARG_DEFAULT_FACTORIES):
-            return default()
-        return default
+        return default()
 
     return default()
 

@@ -39,6 +39,22 @@ class ParamsDict(dict[str, Any]):
     pass
 
 
+class Params:
+    id: int
+
+    def __init__(self, id: int) -> None:
+        self.id = id
+
+
+class SlottedParams:
+    __slots__ = ("id",)
+
+    id: int
+
+    def __init__(self, id: int) -> None:
+        self.id = id
+
+
 def default_callable() -> str:
     return "sup"
 
@@ -94,6 +110,8 @@ class Commands:
         mapping_subclass_params = ParamsDict({"id": 1})
         dataclass_params = Task(1, "task", datetime.date.today(), 1)
         object_params = SimpleNamespace(id=1)
+        attribute_params = Params(1)
+        slotted_params = SlottedParams(1)
         batch_params = [{"id": 1}, {"id": 2}]
 
         with pydapper.connect() as commands:
@@ -102,6 +120,8 @@ class Commands:
             assert_type(commands.execute(query, params=mapping_subclass_params), int)
             assert_type(commands.execute(query, params=dataclass_params), int)
             assert_type(commands.execute(query, params=object_params), int)
+            assert_type(commands.execute(query, params=attribute_params), int)
+            assert_type(commands.execute(query, params=slotted_params), int)
             assert_type(commands.execute(query, params=[]), int)
             assert_type(commands.execute(query, params=batch_params), int)
             assert_type(commands.execute_scalar(query, param=params), Any)
@@ -121,6 +141,8 @@ class Commands:
         mapping_subclass_params = ParamsDict({"id": 1})
         dataclass_params = Task(1, "task", datetime.date.today(), 1)
         object_params = SimpleNamespace(id=1)
+        attribute_params = Params(1)
+        slotted_params = SlottedParams(1)
         buffered: bool = bool(query)
 
         with pydapper.connect() as commands:
@@ -179,6 +201,8 @@ class Commands:
             assert_type(commands.query(query, params=mapping_subclass_params), List[Dict[str, Any]])
             assert_type(commands.query(query, params=dataclass_params), List[Dict[str, Any]])
             assert_type(commands.query(query, params=object_params), List[Dict[str, Any]])
+            assert_type(commands.query(query, params=attribute_params), List[Dict[str, Any]])
+            assert_type(commands.query(query, params=slotted_params), List[Dict[str, Any]])
             assert_type(commands.query(query, Task, params=params), List[Task])
             assert_type(commands.query(query, params=params, model=Task), List[Task])
 
@@ -264,6 +288,8 @@ class CommandsAsync:
         mapping_subclass_params = ParamsDict({"id": 1})
         dataclass_params = Task(1, "task", datetime.date.today(), 1)
         object_params = SimpleNamespace(id=1)
+        attribute_params = Params(1)
+        slotted_params = SlottedParams(1)
         batch_params = [{"id": 1}, {"id": 2}]
 
         async with pydapper.connect_async() as commands:
@@ -272,6 +298,8 @@ class CommandsAsync:
             assert_type(await commands.execute_async(query, params=mapping_subclass_params), int)
             assert_type(await commands.execute_async(query, params=dataclass_params), int)
             assert_type(await commands.execute_async(query, params=object_params), int)
+            assert_type(await commands.execute_async(query, params=attribute_params), int)
+            assert_type(await commands.execute_async(query, params=slotted_params), int)
             assert_type(await commands.execute_async(query, params=[]), int)
             assert_type(await commands.execute_async(query, params=batch_params), int)
             assert_type(await commands.execute_scalar_async(query, param=params), Any)
@@ -294,6 +322,8 @@ class CommandsAsync:
         mapping_subclass_params = ParamsDict({"id": 1})
         dataclass_params = Task(1, "task", datetime.date.today(), 1)
         object_params = SimpleNamespace(id=1)
+        attribute_params = Params(1)
+        slotted_params = SlottedParams(1)
         buffered: bool = bool(query)
 
         async with pydapper.connect_async() as commands:
@@ -347,6 +377,8 @@ class CommandsAsync:
             assert_type(await commands.query_async(query, params=mapping_subclass_params), List[Dict[str, Any]])
             assert_type(await commands.query_async(query, params=dataclass_params), List[Dict[str, Any]])
             assert_type(await commands.query_async(query, params=object_params), List[Dict[str, Any]])
+            assert_type(await commands.query_async(query, params=attribute_params), List[Dict[str, Any]])
+            assert_type(await commands.query_async(query, params=slotted_params), List[Dict[str, Any]])
             assert_type(await commands.query_async(query, Task, params=params), List[Task])
             assert_type(await commands.query_async(query, params=params, model=Task), List[Task])
 

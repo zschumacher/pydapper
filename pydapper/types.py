@@ -1,7 +1,5 @@
 from abc import abstractmethod
-from types import SimpleNamespace
 from typing import Any
-from typing import ClassVar
 from typing import List
 from typing import Mapping
 from typing import MutableMapping
@@ -11,22 +9,12 @@ from typing import TypeAlias
 from typing import Union
 
 
-class SupportsDataclassFields(Protocol):
-    __dataclass_fields__: ClassVar[dict[str, Any]]
-
-
 class SupportsAttrAccess(Protocol):
-    def __getattr__(self, item: str) -> Any: ...
+    def __getattribute__(self, item: str) -> Any: ...
 
 
-ParamType: TypeAlias = Union[
-    Mapping[str, Any],
-    MutableMapping[str, Any],
-    SimpleNamespace,
-    SupportsDataclassFields,
-    SupportsAttrAccess,
-]
-ListParamType: TypeAlias = List[Any]
+ParamType: TypeAlias = Union[Mapping[str, Any], MutableMapping[str, Any], SupportsAttrAccess]
+ListParamType: TypeAlias = List[ParamType]
 
 
 class ConnectionType(Protocol):

@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* docs: clarify mapper references. PR [#528](https://github.com/zschumacher/pydapper/pull/528) by [@zschumacher](https://github.com/zschumacher).
 * fix: harden mapper typing ux. PR [#527](https://github.com/zschumacher/pydapper/pull/527) by [@zschumacher](https://github.com/zschumacher).
 * fix: handle callable default values safely. PR [#526](https://github.com/zschumacher/pydapper/pull/526) by [@zschumacher](https://github.com/zschumacher).
 * fix: reject duplicate query columns. PR [#524](https://github.com/zschumacher/pydapper/pull/524) by [@zschumacher](https://github.com/zschumacher).

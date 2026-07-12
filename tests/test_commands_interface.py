@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import pydapper
 from pydapper import RawRow
 from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
@@ -241,6 +242,20 @@ def _assert_duplicate_column_exception(exc_info):
 
 
 class TestRawRow:
+    def test_mapper_alias_resolves_runtime_type_hints_without_raw_row_import(self):
+        namespace = {}
+
+        exec(
+            "import pydapper\n"
+            "from typing import get_type_hints\n"
+            "def f(mapper: pydapper.Mapper[int]) -> None:\n"
+            "    pass\n"
+            "hints = get_type_hints(f)\n",
+            namespace,
+        )
+
+        assert namespace["hints"]["mapper"] == pydapper.Mapper[int]
+
     def test_columns_and_values_are_tuples_in_driver_order(self):
         row = RawRow(["id", "name"], [1, "Zach"])
 
@@ -289,6 +304,11 @@ class TestRawRow:
 
         with pytest.raises(TypeError):
             column_indexes["id"] = (2,)
+
+    def test_slice_access_returns_values_slice(self):
+        row = RawRow(("id", "name"), (1, "Zach"))
+
+        assert row[0:1] == (1,)
 
     def test_name_access_raises_for_duplicate_column_name(self):
         row = RawRow(("id", "name", "id"), (1, "Zach", 2))

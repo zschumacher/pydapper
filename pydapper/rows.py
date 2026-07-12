@@ -18,8 +18,6 @@ from .exceptions import DuplicateColumnException
 
 _MapperT = TypeVar("_MapperT")
 
-Mapper: TypeAlias = Callable[["RawRow"], _MapperT]
-
 
 @dataclass(frozen=True)
 class RawRow:
@@ -67,7 +65,10 @@ class RawRow:
     @overload
     def __getitem__(self, key: str) -> Any: ...
 
-    def __getitem__(self, key: Union[int, str]) -> Any:
+    @overload
+    def __getitem__(self, key: slice) -> Tuple[Any, ...]: ...
+
+    def __getitem__(self, key: Union[int, str, slice]) -> Any:
         if isinstance(key, str):
             return self._get_by_column_name(key)
         return self.values[key]
@@ -93,3 +94,6 @@ class RawRow:
             column_indexes = MappingProxyType({column: tuple(indexes) for column, indexes in index_lists.items()})
             object.__setattr__(self, "_column_indexes", column_indexes)
         return column_indexes
+
+
+Mapper: TypeAlias = Callable[[RawRow], _MapperT]

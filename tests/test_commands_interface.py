@@ -1,6 +1,7 @@
 from collections import UserDict
 from dataclasses import FrozenInstanceError
 from dataclasses import dataclass
+from types import MappingProxyType
 from types import SimpleNamespace
 
 import pytest
@@ -270,6 +271,23 @@ class TestRawRow:
         assert row[0] == 1
         assert row["name"] == "Zach"
 
+    def test_column_indexes_are_lazily_created_and_reused(self):
+        row = RawRow(("id", "name"), (1, "Zach"))
+
+        assert row._column_indexes is None
+        assert row[0] == 1
+        assert row._column_indexes is None
+
+        assert row["name"] == "Zach"
+        column_indexes = row._column_indexes
+        assert isinstance(column_indexes, MappingProxyType)
+        assert column_indexes == {"id": (0,), "name": (1,)}
+        assert row.as_dict() == {"id": 1, "name": "Zach"}
+        assert row._column_indexes is column_indexes
+
+        with pytest.raises(TypeError):
+            column_indexes["id"] = (2,)
+
     def test_name_access_raises_for_duplicate_column_name(self):
         row = RawRow(("id", "name", "id"), (1, "Zach", 2))
 
@@ -277,6 +295,16 @@ class TestRawRow:
             row["id"]
 
         _assert_duplicate_column_exception(exc_info)
+
+    def test_as_dict_duplicate_indexes_are_globally_ordered(self):
+        row = RawRow(("a", "b", "a", "b"), (1, 2, 3, 4))
+
+        with pytest.raises(DuplicateColumnException) as exc_info:
+            row.as_dict()
+
+        assert exc_info.value.columns == ("a", "b", "a", "b")
+        assert exc_info.value.duplicate_columns == ("a", "b")
+        assert exc_info.value.duplicate_indexes == (0, 1, 2, 3)
 
     def test_name_access_raises_key_error_for_missing_column_name(self):
         row = RawRow(("id", "name"), (1, "Zach"))

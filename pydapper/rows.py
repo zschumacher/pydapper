@@ -1,7 +1,12 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import field
+from types import MappingProxyType
 from typing import Any
 from typing import Callable
 from typing import Dict
+from typing import List
+from typing import Optional
 from typing import Sequence
 from typing import Tuple
 from typing import TypeAlias
@@ -10,7 +15,6 @@ from typing import Union
 from typing import overload
 
 from .exceptions import DuplicateColumnException
-from .utils import validate_no_duplicate_columns
 
 _MapperT = TypeVar("_MapperT")
 
@@ -21,6 +25,12 @@ Mapper: TypeAlias = Callable[["RawRow"], _MapperT]
 class RawRow:
     columns: Tuple[str, ...]
     values: Tuple[Any, ...]
+    _column_indexes: Optional[Mapping[str, Tuple[int, ...]]] = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __init__(self, columns: Sequence[str], values: Sequence[Any]) -> None:
         column_tuple = tuple(columns)
@@ -30,9 +40,20 @@ class RawRow:
 
         object.__setattr__(self, "columns", column_tuple)
         object.__setattr__(self, "values", value_tuple)
+        object.__setattr__(self, "_column_indexes", None)
 
     def as_dict(self) -> Dict[str, Any]:
-        validate_no_duplicate_columns(self.columns)
+        column_indexes = self._get_column_indexes()
+        duplicate_columns = tuple(column for column, indexes in column_indexes.items() if len(indexes) > 1)
+        if duplicate_columns:
+            duplicate_indexes = tuple(
+                index for index, column in enumerate(self.columns) if len(column_indexes[column]) > 1
+            )
+            raise DuplicateColumnException(
+                columns=self.columns,
+                duplicate_columns=duplicate_columns,
+                duplicate_indexes=duplicate_indexes,
+            )
         return dict(zip(self.columns, self.values))
 
     @overload
@@ -47,7 +68,7 @@ class RawRow:
         return self.values[key]
 
     def _get_by_column_name(self, key: str) -> Any:
-        indexes = tuple(index for index, column in enumerate(self.columns) if column == key)
+        indexes = self._get_column_indexes().get(key)
         if not indexes:
             raise KeyError(key)
         if len(indexes) > 1:
@@ -57,3 +78,13 @@ class RawRow:
                 duplicate_indexes=indexes,
             )
         return self.values[indexes[0]]
+
+    def _get_column_indexes(self) -> Mapping[str, Tuple[int, ...]]:
+        column_indexes = self._column_indexes
+        if column_indexes is None:
+            index_lists: Dict[str, List[int]] = {}
+            for index, column in enumerate(self.columns):
+                index_lists.setdefault(column, []).append(index)
+            column_indexes = MappingProxyType({column: tuple(indexes) for column, indexes in index_lists.items()})
+            object.__setattr__(self, "_column_indexes", column_indexes)
+        return column_indexes

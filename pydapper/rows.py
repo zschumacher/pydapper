@@ -39,10 +39,10 @@ class RawRow:
         object.__setattr__(self, "values", value_tuple)
         object.__setattr__(self, "_column_indexes", None)
 
-    def __getstate__(self) -> Dict[str, Any]:
+    def __getstate__(self) -> Dict[str, Any]:  # pragma: no cover
         return {"columns": self.columns, "values": self.values}
 
-    def __setstate__(self, state: Dict[str, Any]) -> None:
+    def __setstate__(self, state: Dict[str, Any]) -> None:  # pragma: no cover
         object.__setattr__(self, "columns", state["columns"])
         object.__setattr__(self, "values", state["values"])
         object.__setattr__(self, "_column_indexes", None)

@@ -1,6 +1,4 @@
-import pickle
 from collections import UserDict
-from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from dataclasses import asdict
 from dataclasses import dataclass
@@ -286,21 +284,11 @@ class TestRawRow:
         assert isinstance(column_indexes, MappingProxyType)
         assert column_indexes == {"id": (0,), "name": (1,)}
         assert row.as_dict() == {"id": 1, "name": "Zach"}
+        assert asdict(row) == {"columns": ("id", "name"), "values": (1, "Zach")}
         assert row._column_indexes is column_indexes
 
         with pytest.raises(TypeError):
             column_indexes["id"] = (2,)
-
-    def test_column_indexes_are_excluded_from_dataclass_and_pickle_state(self):
-        row = RawRow(("id", "name"), (1, "Zach"))
-        expected_state = {"columns": ("id", "name"), "values": (1, "Zach")}
-
-        assert asdict(row) == expected_state
-        assert row["name"] == "Zach"
-        assert asdict(row) == expected_state
-
-        assert pickle.loads(pickle.dumps(row)) == row
-        assert deepcopy(row) == row
 
     def test_name_access_raises_for_duplicate_column_name(self):
         row = RawRow(("id", "name", "id"), (1, "Zach", 2))

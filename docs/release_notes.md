@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* fix: handle callable default values safely. PR [#526](https://github.com/zschumacher/pydapper/pull/526) by [@zschumacher](https://github.com/zschumacher).
 * fix: reject duplicate query columns. PR [#524](https://github.com/zschumacher/pydapper/pull/524) by [@zschumacher](https://github.com/zschumacher).
 * fix: clean up mysql query_single unread results. PR [#523](https://github.com/zschumacher/pydapper/pull/523) by [@zschumacher](https://github.com/zschumacher).
 * fix: bound query_single row fetching. PR [#522](https://github.com/zschumacher/pydapper/pull/522) by [@zschumacher](https://github.com/zschumacher).

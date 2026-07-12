@@ -1,8 +1,10 @@
 import os
 import sqlite3
+from dataclasses import dataclass
 
 import pytest
 
+from pydapper import RawRow
 from pydapper import connect
 from pydapper import using
 from pydapper.exceptions import DuplicateColumnException
@@ -61,6 +63,62 @@ def test_join_with_aliased_id_columns_succeeds(commands, owner_table_name, task_
 
     assert rows[0] == {"task_id": 1, "owner_id": 1}
     assert list(rows[0]) == ["task_id", "owner_id"]
+
+
+def test_mapper_can_project_join_with_duplicate_columns(commands, owner_table_name, task_table_name):
+    @dataclass
+    class Owner:
+        id: int
+        name: str
+
+    @dataclass
+    class TaskWithOwner:
+        id: int
+        description: str
+        owner: Owner
+
+    def to_task(row: RawRow) -> TaskWithOwner:
+        return TaskWithOwner(
+            id=row.values[0],
+            description=row.values[1],
+            owner=Owner(id=row.values[2], name=row.values[3]),
+        )
+
+    rows = commands.query(
+        f"""
+        select
+            {task_table_name}.id,
+            {task_table_name}.description,
+            {owner_table_name}.id,
+            {owner_table_name}.name
+        from {task_table_name}
+        join {owner_table_name} on {task_table_name}.owner_id = {owner_table_name}.id
+        order by {task_table_name}.id
+        """,
+        mapper=to_task,
+    )
+
+    assert rows[0] == TaskWithOwner(
+        id=1,
+        description="Set up a test database",
+        owner=Owner(id=1, name="Zach Schumacher"),
+    )
+
+
+def test_mapper_can_use_aliases_by_name(commands, owner_table_name, task_table_name):
+    rows = commands.query(
+        f"""
+        select
+            {task_table_name}.id as task_id,
+            {owner_table_name}.name as owner_name
+        from {task_table_name}
+        join {owner_table_name} on {task_table_name}.owner_id = {owner_table_name}.id
+        order by {task_table_name}.id
+        """,
+        mapper=lambda row: {"task_id": row["task_id"], "owner_name": row.as_dict()["owner_name"]},
+    )
+
+    assert rows[0] == {"task_id": 1, "owner_name": "Zach Schumacher"}
 
 
 class TestExecute(ExecuteTestSuite): ...

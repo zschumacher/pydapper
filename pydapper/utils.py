@@ -5,6 +5,7 @@ from typing import Any
 from typing import Callable
 from typing import Dict
 from typing import List
+from typing import Sequence
 from typing import Tuple
 from typing import Type
 from typing import TypeVar
@@ -28,7 +29,7 @@ def safe_getattr(obj: Any, key: str) -> Any:
         raise KeyError(f"Key {key!r} can not be accessed on {obj!r} or does not exist")
 
 
-def _get_duplicate_column_data(col_names: List[str]) -> Tuple[Tuple[str, ...], Tuple[int, ...]]:
+def _get_duplicate_column_data(col_names: Sequence[str]) -> Tuple[Tuple[str, ...], Tuple[int, ...]]:
     column_indexes: Dict[str, List[int]] = {}
     for index, col_name in enumerate(col_names):
         column_indexes.setdefault(col_name, []).append(index)
@@ -39,7 +40,7 @@ def _get_duplicate_column_data(col_names: List[str]) -> Tuple[Tuple[str, ...], T
     return duplicate_columns, duplicate_indexes
 
 
-def validate_no_duplicate_columns(col_names: List[str]) -> None:
+def validate_no_duplicate_columns(col_names: Sequence[str]) -> None:
     duplicate_columns, duplicate_indexes = _get_duplicate_column_data(col_names)
     if duplicate_columns:
         raise DuplicateColumnException(

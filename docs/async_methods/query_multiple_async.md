@@ -1,13 +1,14 @@
 
 `query_multiple_async` can execute multiple queries with the same cursor and serialize the results. This method
-will throw a `ValueError` if you don't supply the same number of queries and models.
+will throw a `ValueError` if you don't supply the same number of queries and models or mapper functions.
 
 ## Parameters
 | name  | type        | description                                                                                   | optional     | default |
 |-------|-------------|-----------------------------------------------------------------------------------------------|--------------|---------|
 | sql   | `str`       | the sql query str to execute                                                                  | :thumbsdown: |         |
 | params | `ParamType` | params to substitute in the query                                                             | :thumbsup:   | `None`  |
- | model | `Any`       | the callable to serialize the model;  callable must be able to accept column names as kwargs. | :thumbsup:   | `dict`  |
+ | models | `tuple[Any, ...]` | callables to serialize each result set; each callable must accept column names as kwargs. | :thumbsup:   | `dict`  |
+ | mapper | `Callable[[RawRow], Any]` or tuple | one mapper for every result set, or a tuple of mapper functions. Mutually exclusive with `models`. | :thumbsup: | `None` |
 
 `param=` remains accepted as a 1.x compatibility alias for `params=`. Pass only one of the two names.
 
@@ -19,5 +20,13 @@ will throw a `ValueError` if you don't supply the same number of queries and mod
 Query two tables and return the serialized results.
 ```python
 {!docs/../docs_src/async_methods/query_multiple/example.py!}
+```
+(This script is complete, it should run "as is")
+
+
+## Example - Mapper Functions
+Project each result set with `RawRow` mapper functions.
+```python
+{!docs/../docs_src/async_methods/query_multiple/mapper.py!}
 ```
 (This script is complete, it should run "as is")

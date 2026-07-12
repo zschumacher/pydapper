@@ -1,9 +1,13 @@
 from collections import UserDict
+from dataclasses import FrozenInstanceError
+from dataclasses import asdict
 from dataclasses import dataclass
+from types import MappingProxyType
 from types import SimpleNamespace
 
 import pytest
 
+from pydapper import RawRow
 from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
@@ -115,6 +119,32 @@ class _CursorConnection:
         return self.cursor_instance
 
 
+class _TrackingContextCursor:
+    rowcount = 0
+    description = ("id", "int"), ("name", "text")
+
+    def __init__(self):
+        self.entered = False
+        self.exited = False
+        self.rows = [(1, "Zach")]
+
+    def __enter__(self):
+        self.entered = True
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.exited = True
+
+    def execute(self, sql, parameters=None):
+        pass
+
+    def fetchall(self):
+        return tuple(self.rows)
+
+    def fetchone(self):
+        return self.rows.pop(0) if self.rows else None
+
+
 class _AsyncQuerySingleFetchOneCursor:
     rowcount = 0
     description = ("id", "int"), ("name", "text")
@@ -208,6 +238,91 @@ def _assert_duplicate_column_exception(exc_info):
     assert exc_info.value.columns == ("id", "name", "id")
     assert exc_info.value.duplicate_columns == ("id",)
     assert exc_info.value.duplicate_indexes == (0, 2)
+
+
+class TestRawRow:
+    def test_columns_and_values_are_tuples_in_driver_order(self):
+        row = RawRow(["id", "name"], [1, "Zach"])
+
+        assert row.columns == ("id", "name")
+        assert row.values == (1, "Zach")
+
+    def test_duplicate_columns_are_preserved(self):
+        row = RawRow(("id", "name", "id"), (1, "Zach", 2))
+
+        assert row.columns == ("id", "name", "id")
+        assert row.values == (1, "Zach", 2)
+
+    def test_as_dict_returns_dict_for_unique_columns(self):
+        row = RawRow(("id", "name"), (1, "Zach"))
+
+        assert row.as_dict() == {"id": 1, "name": "Zach"}
+
+    def test_as_dict_raises_duplicate_column_exception_for_duplicate_columns(self):
+        row = RawRow(("id", "name", "id"), (1, "Zach", 2))
+
+        with pytest.raises(DuplicateColumnException) as exc_info:
+            row.as_dict()
+
+        _assert_duplicate_column_exception(exc_info)
+
+    def test_positional_and_name_access(self):
+        row = RawRow(("id", "name"), (1, "Zach"))
+
+        assert row[0] == 1
+        assert row["name"] == "Zach"
+
+    def test_column_indexes_are_lazily_created_and_reused(self):
+        row = RawRow(("id", "name"), (1, "Zach"))
+
+        assert row._column_indexes is None
+        assert row[0] == 1
+        assert row._column_indexes is None
+
+        assert row["name"] == "Zach"
+        column_indexes = row._column_indexes
+        assert isinstance(column_indexes, MappingProxyType)
+        assert column_indexes == {"id": (0,), "name": (1,)}
+        assert row.as_dict() == {"id": 1, "name": "Zach"}
+        assert asdict(row) == {"columns": ("id", "name"), "values": (1, "Zach")}
+        assert row._column_indexes is column_indexes
+
+        with pytest.raises(TypeError):
+            column_indexes["id"] = (2,)
+
+    def test_name_access_raises_for_duplicate_column_name(self):
+        row = RawRow(("id", "name", "id"), (1, "Zach", 2))
+
+        with pytest.raises(DuplicateColumnException) as exc_info:
+            row["id"]
+
+        _assert_duplicate_column_exception(exc_info)
+
+    def test_as_dict_duplicate_indexes_are_globally_ordered(self):
+        row = RawRow(("a", "b", "a", "b"), (1, 2, 3, 4))
+
+        with pytest.raises(DuplicateColumnException) as exc_info:
+            row.as_dict()
+
+        assert exc_info.value.columns == ("a", "b", "a", "b")
+        assert exc_info.value.duplicate_columns == ("a", "b")
+        assert exc_info.value.duplicate_indexes == (0, 1, 2, 3)
+
+    def test_name_access_raises_key_error_for_missing_column_name(self):
+        row = RawRow(("id", "name"), (1, "Zach"))
+
+        with pytest.raises(KeyError, match="missing"):
+            row["missing"]
+
+    def test_row_is_immutable(self):
+        row = RawRow(("id",), (1,))
+
+        with pytest.raises(FrozenInstanceError):
+            row.columns = ("other",)
+
+    def test_columns_and_values_must_have_same_length(self):
+        with pytest.raises(ValueError, match="same length"):
+            RawRow(("id",), ())
 
 
 @pytest.fixture
@@ -557,9 +672,11 @@ class TestParamHandler:
         assert handler.get_param_placeholder("sup") == "%s"
 
     def test_param_alias_unset_repr_matches_legacy_default_display(self):
+        from pydapper.commands import _MODEL_UNSET
         from pydapper.commands import _PARAM_ALIAS_UNSET
 
         assert repr(_PARAM_ALIAS_UNSET) == "None"
+        assert repr(_MODEL_UNSET) == "dict"
 
     def test_ordered_param_names(self):
         handler = MockParamHandler(
@@ -1176,6 +1293,32 @@ class TestCommands:
 
         assert captured_handler_params == [params]
 
+    def test_mysql_query_first_accepts_mapper(self, connection):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        with MockMySqlConnectorPythonCommands(connection) as commands:
+            data = commands.query_first("select id, name from some_table", mapper=lambda row: row["id"])
+
+        assert data == 1
+
+    def test_mysql_query_first_or_default_accepts_mapper(self, connection):
+        from pydapper.mysql import MySqlConnectorPythonCommands
+
+        class MockMySqlConnectorPythonCommands(MySqlConnectorPythonCommands):
+            SqlParamHandler = MockParamHandler
+
+        with MockMySqlConnectorPythonCommands(connection) as commands:
+            data = commands.query_first_or_default(
+                "select id, name from some_table",
+                default=None,
+                mapper=lambda row: row["id"],
+            )
+
+        assert data == 1
+
     def test_mysql_query_first_treats_only_none_as_no_result(self, connection, set_fetchone_to_return_falsy_row):
         from pydapper.mysql import MySqlConnectorPythonCommands
 
@@ -1556,6 +1699,75 @@ class TestCommands:
         assert len(data) == 2
         assert all(isinstance(row, SimpleNamespace) for row in data)
 
+    def test_query_mapper_receives_raw_rows(self, connection):
+        seen_rows = []
+
+        def mapper(row):
+            seen_rows.append(row)
+            return row.columns, row.values, row[0], row["name"]
+
+        with MockCommands(connection) as commands:
+            data = commands.query("select id, name from some_table", mapper=mapper)
+
+        assert len(data) == 2
+        assert data[0][0] == ("id", "name")
+        assert data[0][1][0] == 1
+        assert data[0][2] == 1
+        assert seen_rows
+        assert all(isinstance(row, RawRow) for row in seen_rows)
+
+    def test_query_mapper_can_handle_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            data = commands.query(
+                "select id, name, id from some_table",
+                mapper=lambda row: (row.columns, row.values[0], row.values[2]),
+            )
+
+        assert data == [(("id", "name", "id"), 1, 2)]
+
+    def test_query_unbuffered_mapper_can_handle_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            generator = commands.query(
+                "select id, name, id from some_table",
+                mapper=lambda row: row.values,
+                buffered=False,
+            )
+
+            assert list(generator) == [(1, "Zach", 2)]
+
+    def test_query_unbuffered_mapper_yields_multiple_rows(self):
+        connection = _CursorConnection(_QuerySingleFetchOneCursor([(1, "Zach"), (2, "Bob")]))
+
+        with MockCommands(connection) as commands:
+            generator = commands.query(
+                "select id, name from some_table",
+                mapper=lambda row: row[0],
+                buffered=False,
+            )
+
+            assert list(generator) == [1, 2]
+
+    @pytest.mark.parametrize("buffered", [True, False])
+    def test_query_mapper_exceptions_are_not_masked_by_cursor_context_proxy(self, buffered):
+        cursor = _TrackingContextCursor()
+
+        with pytest.raises(AttributeError, match="missing"):
+            result = MockCommands(_CursorConnection(cursor)).query(
+                "select id, name from some_table",
+                mapper=lambda row: row.missing,
+                buffered=buffered,
+            )
+            if not buffered:
+                list(result)
+
+        assert cursor.entered is True
+        assert cursor.exited is True
+
+    def test_query_rejects_model_and_mapper(self, connection):
+        with MockCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
+                commands.query("select id, name from some_table", model=SimpleNamespace, mapper=lambda row: row)
+
     def test_query_rejects_duplicate_columns(self):
         with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
             with pytest.raises(DuplicateColumnException) as exc_info:
@@ -1629,6 +1841,53 @@ class TestCommands:
         assert all(isinstance(row, SimpleNamespace) for row in data1)
         assert all(isinstance(row, dict) for row in data2)
 
+    def test_query_multiple_mapper(self, connection):
+        with MockCommands(connection) as commands:
+            data1, data2 = commands.query_multiple(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=(lambda row: row["id"], lambda row: row["name"]),
+            )
+
+        assert data1 == [1, 2]
+        assert len(data2) == 2
+        assert all(isinstance(name, str) for name in data2)
+
+    def test_query_multiple_single_mapper_applies_to_each_result_set(self, connection):
+        with MockCommands(connection) as commands:
+            data1, data2 = commands.query_multiple(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=lambda row: row.columns,
+            )
+
+        assert data1 == [("id", "name"), ("id", "name")]
+        assert data2 == [("id", "name"), ("id", "name")]
+
+    def test_query_multiple_mapper_can_handle_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            (data,) = commands.query_multiple(
+                ("select id, name, id from some_table",),
+                mapper=lambda row: row.values,
+            )
+
+        assert data == [(1, "Zach", 2)]
+
+    def test_query_multiple_rejects_models_and_mapper(self, connection):
+        with MockCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'models' or 'mapper'"):
+                commands.query_multiple(
+                    ("select id, name from some_table",),
+                    models=(dict,),
+                    mapper=lambda row: row,
+                )
+
+    def test_query_multiple_rejects_mapper_count_mismatch(self, connection):
+        with MockCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Number of queries must equal number of mappers"):
+                commands.query_multiple(
+                    ("select id, name from some_table", "select id, name from another_table"),
+                    mapper=(lambda row: row,),
+                )
+
     def test_query_multiple_rejects_duplicate_columns(self):
         with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
             with pytest.raises(DuplicateColumnException) as exc_info:
@@ -1658,6 +1917,23 @@ class TestCommands:
         assert isinstance(record, SimpleNamespace)
         assert record.id
         assert record.name
+
+    def test_query_first_mapper(self, connection):
+        with MockCommands(connection) as commands:
+            record = commands.query_first("select id, name from some_table", mapper=lambda row: row["id"])
+
+        assert record == 1
+
+    def test_query_first_mapper_can_handle_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            record = commands.query_first("select id, name, id from some_table", mapper=lambda row: row.values)
+
+        assert record == (1, "Zach", 2)
+
+    def test_query_first_rejects_model_and_mapper(self, connection):
+        with MockCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
+                commands.query_first("select id, name from some_table", model=dict, mapper=lambda row: row)
 
     def test_query_first_rejects_duplicate_columns(self):
         with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
@@ -1690,6 +1966,61 @@ class TestCommands:
         assert data is sentinel
         assert calls == [None]
 
+    def test_query_first_or_default_calls_builtin_default_factory_on_no_result(
+        self, connection, set_fetchone_to_return_none
+    ):
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=dict)
+
+        assert data == {}
+
+    def test_query_first_or_default_returns_callable_default_that_requires_args(
+        self, connection, set_fetchone_to_return_none
+    ):
+        def default(row):
+            return row
+
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=default)
+
+        assert data is default
+
+    def test_query_first_or_default_propagates_uninspectable_callable_default_error(
+        self, connection, set_fetchone_to_return_none, mocker
+    ):
+        calls = []
+        error = TypeError("factory failed")
+
+        def default():
+            calls.append(None)
+            raise error
+
+        mocker.patch("pydapper.commands.signature", side_effect=ValueError("no signature"))
+
+        with MockCommands(connection) as commands, pytest.raises(TypeError) as exc_info:
+            commands.query_first_or_default("select * from some_table", default=default)
+
+        assert exc_info.value is error
+        assert calls == [None]
+
+    def test_query_first_or_default_calls_uninspectable_callable_default(
+        self, connection, set_fetchone_to_return_none, mocker
+    ):
+        sentinel = object()
+        calls = []
+
+        def default():
+            calls.append(None)
+            return sentinel
+
+        mocker.patch("pydapper.commands.signature", side_effect=ValueError("no signature"))
+
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=default)
+
+        assert data is sentinel
+        assert calls == [None]
+
     def test_query_first_or_default_returns_first_row(self, connection):
         calls = []
 
@@ -1703,12 +2034,54 @@ class TestCommands:
         assert data["id"] == 1
         assert calls == []
 
+    def test_query_first_or_default_model_returns_first_row(self, connection):
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=None, model=SimpleNamespace)
+
+        assert isinstance(data, SimpleNamespace)
+        assert data.id == 1
+
+    def test_query_first_or_default_mapper_returns_first_row(self, connection):
+        with MockCommands(connection) as commands:
+            data = commands.query_first_or_default("select * from some_table", default=None, mapper=lambda row: row[0])
+
+        assert data == 1
+
+    def test_query_first_or_default_rejects_model_and_mapper_before_default(
+        self, connection, set_fetchone_to_return_none
+    ):
+        with MockCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
+                commands.query_first_or_default(
+                    "select * from some_table",
+                    default=None,
+                    model=dict,
+                    mapper=lambda row: row,
+                )
+
     def test_query_single(self, connection, set_fetchall_return_one):
         with MockCommands(connection) as commands:
             record = commands.query_single("select * from some_table")
         assert isinstance(record, dict)
         assert record["id"]
         assert record["name"]
+
+    def test_query_single_mapper(self, connection, set_fetchall_return_one):
+        with MockCommands(connection) as commands:
+            record = commands.query_single("select * from some_table", mapper=lambda row: row["id"])
+
+        assert record == 1
+
+    def test_query_single_mapper_can_handle_duplicate_columns(self):
+        with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
+            record = commands.query_single("select id, name, id from some_table", mapper=lambda row: row.values)
+
+        assert record == (1, "Zach", 2)
+
+    def test_query_single_rejects_model_and_mapper(self, connection, set_fetchall_return_one):
+        with MockCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
+                commands.query_single("select * from some_table", model=dict, mapper=lambda row: row)
 
     def test_query_single_rejects_duplicate_columns(self):
         with MockCommands(_CursorConnection(_DuplicateColumnCursor())) as commands:
@@ -1809,6 +2182,25 @@ class TestCommands:
         assert record is sentinel
         assert calls == [None]
 
+    def test_query_single_or_default_calls_builtin_default_factory_on_no_result(
+        self, connection, set_fetchone_to_return_none
+    ):
+        with MockCommands(connection) as commands:
+            record = commands.query_single_or_default("select * from some_table", default=set)
+
+        assert record == set()
+
+    def test_query_single_or_default_returns_callable_default_that_requires_args(
+        self, connection, set_fetchone_to_return_none
+    ):
+        def default(row):
+            return row
+
+        with MockCommands(connection) as commands:
+            record = commands.query_single_or_default("select * from some_table", default=default)
+
+        assert record is default
+
     def test_query_single_or_default_returns_single_row(self, connection, set_fetchall_return_one):
         calls = []
 
@@ -1821,6 +2213,33 @@ class TestCommands:
 
         assert record["id"] == 1
         assert calls == []
+
+    def test_query_single_or_default_model_returns_single_row(self, connection, set_fetchall_return_one):
+        with MockCommands(connection) as commands:
+            record = commands.query_single_or_default("select * from some_table", default=None, model=SimpleNamespace)
+
+        assert isinstance(record, SimpleNamespace)
+        assert record.id == 1
+
+    def test_query_single_or_default_mapper_returns_single_row(self, connection, set_fetchall_return_one):
+        with MockCommands(connection) as commands:
+            record = commands.query_single_or_default(
+                "select * from some_table", default=None, mapper=lambda row: row[0]
+            )
+
+        assert record == 1
+
+    def test_query_single_or_default_rejects_model_and_mapper_before_default(
+        self, connection, set_fetchone_to_return_none
+    ):
+        with MockCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
+                commands.query_single_or_default(
+                    "select * from some_table",
+                    default=None,
+                    model=dict,
+                    mapper=lambda row: row,
+                )
 
     def test_query_single_or_default_raises_on_many_results(self, connection):
         with MockCommands(connection) as commands, pytest.raises(MoreThanOneResultException):
@@ -2092,6 +2511,66 @@ class TestCommandsAsync:
         assert all(isinstance(row, SimpleNamespace) for row in data)
 
     @pytest.mark.asyncio
+    async def test_query_mapper_receives_raw_rows(self, connection):
+        seen_rows = []
+
+        def mapper(row):
+            seen_rows.append(row)
+            return row.columns, row.values, row[0], row["name"]
+
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_async("select id, name from some_table", mapper=mapper)
+
+        assert len(data) == 2
+        assert data[0][0] == ("id", "name")
+        assert data[0][1][0] == 1
+        assert data[0][2] == 1
+        assert seen_rows
+        assert all(isinstance(row, RawRow) for row in seen_rows)
+
+    @pytest.mark.asyncio
+    async def test_query_mapper_can_handle_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            data = await commands.query_async(
+                "select id, name, id from some_table",
+                mapper=lambda row: (row.columns, row.values[0], row.values[2]),
+            )
+
+        assert data == [(("id", "name", "id"), 1, 2)]
+
+    @pytest.mark.asyncio
+    async def test_query_unbuffered_mapper_can_handle_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            generator = await commands.query_async(
+                "select id, name, id from some_table",
+                mapper=lambda row: row.values,
+                buffered=False,
+            )
+
+            assert [row async for row in generator] == [(1, "Zach", 2)]
+
+    @pytest.mark.asyncio
+    async def test_query_unbuffered_mapper_yields_multiple_rows(self):
+        connection = _AsyncCursorConnection(_AsyncQuerySingleFetchOneCursor([(1, "Zach"), (2, "Bob")]))
+
+        async with MockAsyncCommands(connection) as commands:
+            generator = await commands.query_async(
+                "select id, name from some_table",
+                mapper=lambda row: row[0],
+                buffered=False,
+            )
+
+            assert [row async for row in generator] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_query_rejects_model_and_mapper(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
+                await commands.query_async(
+                    "select id, name from some_table", model=SimpleNamespace, mapper=lambda row: row
+                )
+
+    @pytest.mark.asyncio
     async def test_query_rejects_duplicate_columns(self):
         async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
             with pytest.raises(DuplicateColumnException) as exc_info:
@@ -2175,6 +2654,58 @@ class TestCommandsAsync:
         assert all(isinstance(row, dict) for row in data2)
 
     @pytest.mark.asyncio
+    async def test_query_multiple_mapper(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            data1, data2 = await commands.query_multiple_async(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=(lambda row: row["id"], lambda row: row["name"]),
+            )
+
+        assert data1 == [1, 2]
+        assert len(data2) == 2
+        assert all(isinstance(name, str) for name in data2)
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_single_mapper_applies_to_each_result_set(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            data1, data2 = await commands.query_multiple_async(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=lambda row: row.columns,
+            )
+
+        assert data1 == [("id", "name"), ("id", "name")]
+        assert data2 == [("id", "name"), ("id", "name")]
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_mapper_can_handle_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            (data,) = await commands.query_multiple_async(
+                ("select id, name, id from some_table",),
+                mapper=lambda row: row.values,
+            )
+
+        assert data == [(1, "Zach", 2)]
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_rejects_models_and_mapper(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'models' or 'mapper'"):
+                await commands.query_multiple_async(
+                    ("select id, name from some_table",),
+                    models=(dict,),
+                    mapper=lambda row: row,
+                )
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_rejects_mapper_count_mismatch(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Number of queries must equal number of mappers"):
+                await commands.query_multiple_async(
+                    ("select id, name from some_table", "select id, name from another_table"),
+                    mapper=(lambda row: row,),
+                )
+
+    @pytest.mark.asyncio
     async def test_query_multiple_rejects_duplicate_columns(self):
         async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
             with pytest.raises(DuplicateColumnException) as exc_info:
@@ -2210,6 +2741,29 @@ class TestCommandsAsync:
         assert record.name
 
     @pytest.mark.asyncio
+    async def test_query_first_mapper(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_first_async("select id, name from some_table", mapper=lambda row: row["id"])
+
+        assert record == 1
+
+    @pytest.mark.asyncio
+    async def test_query_first_mapper_can_handle_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            record = await commands.query_first_async(
+                "select id, name, id from some_table",
+                mapper=lambda row: row.values,
+            )
+
+        assert record == (1, "Zach", 2)
+
+    @pytest.mark.asyncio
+    async def test_query_first_rejects_model_and_mapper(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
+                await commands.query_first_async("select id, name from some_table", model=dict, mapper=lambda row: row)
+
+    @pytest.mark.asyncio
     async def test_query_first_rejects_duplicate_columns(self):
         async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
             with pytest.raises(DuplicateColumnException) as exc_info:
@@ -2243,8 +2797,8 @@ class TestCommandsAsync:
         assert data is default
 
     @pytest.mark.asyncio
-    async def test_query_first_or_default_calls_callable_default_on_no_result(
-        self, connection, set_fetchone_to_return_none
+    async def test_query_first_or_default_calls_uninspectable_callable_default_on_no_result(
+        self, connection, set_fetchone_to_return_none, mocker
     ):
         sentinel = object()
         calls = []
@@ -2253,11 +2807,34 @@ class TestCommandsAsync:
             calls.append(None)
             return sentinel
 
+        mocker.patch("pydapper.commands.signature", side_effect=ValueError("no signature"))
+
         async with MockAsyncCommands(connection) as commands:
             data = await commands.query_first_or_default_async("select * from some_table", default=default)
 
         assert data is sentinel
         assert calls == [None]
+
+    @pytest.mark.asyncio
+    async def test_query_first_or_default_calls_builtin_default_factory_on_no_result(
+        self, connection, set_fetchone_to_return_none
+    ):
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_first_or_default_async("select * from some_table", default=dict)
+
+        assert data == {}
+
+    @pytest.mark.asyncio
+    async def test_query_first_or_default_returns_callable_default_that_requires_args(
+        self, connection, set_fetchone_to_return_none
+    ):
+        def default(row):
+            return row
+
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_first_or_default_async("select * from some_table", default=default)
+
+        assert data is default
 
     @pytest.mark.asyncio
     async def test_query_first_or_default_returns_first_row(self, connection):
@@ -2274,12 +2851,71 @@ class TestCommandsAsync:
         assert calls == []
 
     @pytest.mark.asyncio
+    async def test_query_first_or_default_model_returns_first_row(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_first_or_default_async(
+                "select * from some_table",
+                default=None,
+                model=SimpleNamespace,
+            )
+
+        assert isinstance(data, SimpleNamespace)
+        assert data.id == 1
+
+    @pytest.mark.asyncio
+    async def test_query_first_or_default_mapper_returns_first_row(self, connection):
+        async with MockAsyncCommands(connection) as commands:
+            data = await commands.query_first_or_default_async(
+                "select * from some_table",
+                default=None,
+                mapper=lambda row: row[0],
+            )
+
+        assert data == 1
+
+    @pytest.mark.asyncio
+    async def test_query_first_or_default_rejects_model_and_mapper_before_default(
+        self, connection, set_fetchone_to_return_none
+    ):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
+                await commands.query_first_or_default_async(
+                    "select * from some_table",
+                    default=None,
+                    model=dict,
+                    mapper=lambda row: row,
+                )
+
+    @pytest.mark.asyncio
     async def test_query_single(self, connection, set_fetchall_return_one):
         async with MockAsyncCommands(connection) as commands:
             record = await commands.query_single_async("select * from some_table")
         assert isinstance(record, dict)
         assert record["id"]
         assert record["name"]
+
+    @pytest.mark.asyncio
+    async def test_query_single_mapper(self, connection, set_fetchall_return_one):
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_async("select * from some_table", mapper=lambda row: row["id"])
+
+        assert record == 1
+
+    @pytest.mark.asyncio
+    async def test_query_single_mapper_can_handle_duplicate_columns(self):
+        async with MockAsyncCommands(_AsyncCursorConnection(_AsyncDuplicateColumnCursor())) as commands:
+            record = await commands.query_single_async(
+                "select id, name, id from some_table",
+                mapper=lambda row: row.values,
+            )
+
+        assert record == (1, "Zach", 2)
+
+    @pytest.mark.asyncio
+    async def test_query_single_rejects_model_and_mapper(self, connection, set_fetchall_return_one):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
+                await commands.query_single_async("select * from some_table", model=dict, mapper=lambda row: row)
 
     @pytest.mark.asyncio
     async def test_query_single_rejects_duplicate_columns(self):
@@ -2386,6 +3022,27 @@ class TestCommandsAsync:
         assert calls == [None]
 
     @pytest.mark.asyncio
+    async def test_query_single_or_default_calls_builtin_default_factory_on_no_result(
+        self, connection, set_fetchone_to_return_none
+    ):
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_or_default_async("select * from some_table", default=set)
+
+        assert record == set()
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default_returns_callable_default_that_requires_args(
+        self, connection, set_fetchone_to_return_none
+    ):
+        def default(row):
+            return row
+
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_or_default_async("select * from some_table", default=default)
+
+        assert record is default
+
+    @pytest.mark.asyncio
     async def test_query_single_or_default_returns_single_row(self, connection, set_fetchall_return_one):
         calls = []
 
@@ -2398,6 +3055,42 @@ class TestCommandsAsync:
 
         assert record["id"] == 1
         assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default_model_returns_single_row(self, connection, set_fetchall_return_one):
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_or_default_async(
+                "select * from some_table",
+                default=None,
+                model=SimpleNamespace,
+            )
+
+        assert isinstance(record, SimpleNamespace)
+        assert record.id == 1
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default_mapper_returns_single_row(self, connection, set_fetchall_return_one):
+        async with MockAsyncCommands(connection) as commands:
+            record = await commands.query_single_or_default_async(
+                "select * from some_table",
+                default=None,
+                mapper=lambda row: row[0],
+            )
+
+        assert record == 1
+
+    @pytest.mark.asyncio
+    async def test_query_single_or_default_rejects_model_and_mapper_before_default(
+        self, connection, set_fetchone_to_return_none
+    ):
+        async with MockAsyncCommands(connection) as commands:
+            with pytest.raises(ValueError, match="Pass either 'model' or 'mapper'"):
+                await commands.query_single_or_default_async(
+                    "select * from some_table",
+                    default=None,
+                    model=dict,
+                    mapper=lambda row: row,
+                )
 
     @pytest.mark.asyncio
     async def test_query_single_or_default_raises_on_many_results(self, connection):

@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
-from dataclasses import field
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
 from typing import Dict
@@ -25,12 +25,9 @@ Mapper: TypeAlias = Callable[["RawRow"], _MapperT]
 class RawRow:
     columns: Tuple[str, ...]
     values: Tuple[Any, ...]
-    _column_indexes: Optional[Mapping[str, Tuple[int, ...]]] = field(
-        default=None,
-        init=False,
-        repr=False,
-        compare=False,
-    )
+
+    if TYPE_CHECKING:
+        _column_indexes: Optional[Mapping[str, Tuple[int, ...]]]
 
     def __init__(self, columns: Sequence[str], values: Sequence[Any]) -> None:
         column_tuple = tuple(columns)
@@ -40,6 +37,14 @@ class RawRow:
 
         object.__setattr__(self, "columns", column_tuple)
         object.__setattr__(self, "values", value_tuple)
+        object.__setattr__(self, "_column_indexes", None)
+
+    def __getstate__(self) -> Dict[str, Any]:
+        return {"columns": self.columns, "values": self.values}
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        object.__setattr__(self, "columns", state["columns"])
+        object.__setattr__(self, "values", state["values"])
         object.__setattr__(self, "_column_indexes", None)
 
     def as_dict(self) -> Dict[str, Any]:

@@ -1,5 +1,8 @@
+import pickle
 from collections import UserDict
+from copy import deepcopy
 from dataclasses import FrozenInstanceError
+from dataclasses import asdict
 from dataclasses import dataclass
 from types import MappingProxyType
 from types import SimpleNamespace
@@ -287,6 +290,17 @@ class TestRawRow:
 
         with pytest.raises(TypeError):
             column_indexes["id"] = (2,)
+
+    def test_column_indexes_are_excluded_from_dataclass_and_pickle_state(self):
+        row = RawRow(("id", "name"), (1, "Zach"))
+        expected_state = {"columns": ("id", "name"), "values": (1, "Zach")}
+
+        assert asdict(row) == expected_state
+        assert row["name"] == "Zach"
+        assert asdict(row) == expected_state
+
+        assert pickle.loads(pickle.dumps(row)) == row
+        assert deepcopy(row) == row
 
     def test_name_access_raises_for_duplicate_column_name(self):
         row = RawRow(("id", "name", "id"), (1, "Zach", 2))

@@ -7,6 +7,7 @@
 | sql      | `str`       | the sql query str to execute                                                                  | :thumbsdown: |         |
 | params    | `ParamType` | params to substitute in the query                                                             | :thumbsup:   | `None`  |
  | model    | `Any`       | the callable to serialize the model;  callable must be able to accept column names as kwargs. | :thumbsup:   | `dict`  |
+ | mapper   | `Callable[[RawRow], Any]` | callable that receives a `RawRow` and returns a projected value. Mutually exclusive with `model`. | :thumbsup: | `None` |
  | buffered | `bool`      | whether to buffer reading the results of the query                                            | :thumbsup:   | `True`  |
 
 
@@ -32,6 +33,22 @@ The raw sql query can be executed using the `query` method and map the results t
 You can get creative with what you pass in to the model kwarg of `query`
 ```python
 {!docs/../docs_src/methods/query/one_to_one_query.py!}
+```
+(This script is complete, it should run "as is")
+
+
+### Example - Project joined rows with duplicate column names
+Use `mapper=` when a join intentionally selects duplicate column names or when projection logic needs positional values.
+```python
+{!docs/../docs_src/methods/query/mapper_join.py!}
+```
+(This script is complete, it should run "as is")
+
+
+### Example - Project aliased rows by name
+`RawRow.as_dict()` and `row["column_name"]` are available when the referenced column names are unique.
+```python
+{!docs/../docs_src/methods/query/mapper_aliases.py!}
 ```
 (This script is complete, it should run "as is")
 

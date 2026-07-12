@@ -1,15 +1,17 @@
 from typing import TYPE_CHECKING
 
 from pydapper import register
+from pydapper.commands import _MAPPER_UNSET
+from pydapper.commands import _MODEL_UNSET
 from pydapper.commands import _PARAM_ALIAS_UNSET
 from pydapper.commands import Commands
+from pydapper.commands import _project_row
 from pydapper.commands import _raise_if_list_params_for_read
+from pydapper.commands import _resolve_row_projector
 
 from ..exceptions import NoResultException
-from ..utils import database_row_to_dict
 from ..utils import get_col_names
 from ..utils import import_dbapi_module
-from ..utils import serialize_dict_row
 from ..utils import validate_no_duplicate_columns
 
 if TYPE_CHECKING:
@@ -69,10 +71,11 @@ class MySqlConnectorPythonCommands(Commands):
     def query_first(
         self,
         sql,
-        model=dict,
+        model=_MODEL_UNSET,
         param=_PARAM_ALIAS_UNSET,
         *,
         params=_PARAM_ALIAS_UNSET,
+        mapper=_MAPPER_UNSET,
     ):
         """
         the mysql connector throws an exception if you only read one row from a cursor.  Unfortunately, we have to
@@ -80,6 +83,7 @@ class MySqlConnectorPythonCommands(Commands):
         """
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
+        projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         with self.cursor() as cursor:
@@ -89,8 +93,9 @@ class MySqlConnectorPythonCommands(Commands):
             if row is None:
                 raise NoResultException("Query returned no results")
             cursor.fetchall()
-            validate_no_duplicate_columns(headers)
-        return serialize_dict_row(model, database_row_to_dict(headers, row))
+            if not maps_raw_row:
+                validate_no_duplicate_columns(headers)
+        return _project_row(projector, maps_raw_row, headers, row)
 
     def _on_duplicate_columns(self, cursor: "CursorType") -> None:
         _discard_unread_result(cursor)

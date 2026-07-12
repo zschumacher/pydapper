@@ -1,11 +1,12 @@
 
 `query_multiple` can execute multiple queries with the same cursor and serialize the results. This method
-will throw a `ValueError` if you don't supply the same number of queries and models or mapper functions.
+will throw a `ValueError` if you don't supply the same number of queries and models, or if a tuple of mapper functions
+does not match the number of queries. A single mapper function applies to every result set.
 
 ## Parameters
 | name  | type        | description                                                                                   | optional     | default |
 |-------|-------------|-----------------------------------------------------------------------------------------------|--------------|---------|
-| sql   | `str`       | the sql query str to execute                                                                  | :thumbsdown: |         |
+| queries | `tuple[str, ...]` | the sql query strings to execute in order                                                | :thumbsdown: |         |
 | params | `ParamType` | params to substitute in the query                                                             | :thumbsup:   | `None`  |
  | models | `tuple[Any, ...]` | callables to serialize each result set; each callable must accept column names as kwargs. | :thumbsup:   | `dict`  |
  | mapper | `Callable[[RawRow], Any]` or tuple | one mapper for every result set, or a tuple of mapper functions. Mutually exclusive with `models`. | :thumbsup: | `None` |

@@ -54,10 +54,10 @@ Use `mapper=` when a join intentionally selects duplicate column names or when p
 
 
 ### Example - Buffering queries
-By default, `query` fetches all results and stores them in a list (buffered).  By setting `buffered=False`, you can
-instead have `query` act as a generator function, fetching one record from the result set at a time.  This may be useful
-if querying a large amount of data that would not fit into memory, but note that this keeps both the connection and
-cursor open while you're retrieving results.
+By default, `query_async` fetches all results and stores them in a list (buffered). By setting `buffered=False`, you can
+instead have `query_async` return an async generator that fetches one record from the result set at a time. This may be
+useful if querying a large amount of data that would not fit into memory, but note that this keeps both the connection
+and cursor open while you're retrieving results.
 ```python
 {!docs/../docs_src/async_methods/query/query_unbuffered.py!}
 ```

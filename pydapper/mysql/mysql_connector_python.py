@@ -76,11 +76,13 @@ class MySqlConnectorPythonCommands(Commands):
         *,
         params=_PARAM_ALIAS_UNSET,
         mapper=_MAPPER_UNSET,
+        options=None,
     ):
         """
         the mysql connector throws an exception if you only read one row from a cursor.  Unfortunately, we have to
         fetchall to make the lib happy.
         """
+        self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
         projector, maps_raw_row = _resolve_row_projector(model, mapper)

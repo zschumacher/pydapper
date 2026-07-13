@@ -4,6 +4,7 @@ will throw a `ValueError` if you don't supply the same number of queries and mod
 does not match the number of queries. A single mapper function applies to every result set.
 
 ## Parameters
+All command methods also accept keyword-only `options=`; see [Command options](../command_options.md).
 | name  | type        | description                                                                                   | optional     | default |
 |-------|-------------|-----------------------------------------------------------------------------------------------|--------------|---------|
 | queries | `tuple[str, ...]` | the sql query strings to execute in order                                                | :thumbsdown: |         |

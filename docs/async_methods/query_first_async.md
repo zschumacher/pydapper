@@ -2,6 +2,7 @@
 `query_first_async` can execute a query and map the first result.
 
 ## Parameters
+All command methods also accept keyword-only `options=`; see [Command options](../command_options.md).
 | name  | type        | description                                                                                   | optional     | default |
 |-------|-------------|-----------------------------------------------------------------------------------------------|--------------|---------|
 | sql   | `str`       | the sql query str to execute                                                                  | :thumbsdown: |         |

@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 from typing import Dict
 from typing import Generator
 from typing import List
+from typing import Literal
 from typing import Tuple
 from typing import Union
 
@@ -80,6 +81,8 @@ task_mapper: pydapper.Mapper[Task] = to_task
 
 
 def public_exceptions() -> None:
+    assert_type(pydapper.CommandKind.TEXT, Literal[pydapper.CommandKind.TEXT])
+    assert_type(pydapper.CommandOptions(), pydapper.CommandOptions)
     assert_type(task_mapper, pydapper.Mapper[Task])
     assert_type(pydapper.RawRow(("id",), (1,)), pydapper.RawRow)
     assert_type(pydapper.RawRow(("id",), (1,)).columns, Tuple[str, ...])
@@ -116,6 +119,7 @@ class Commands:
 
         with pydapper.connect() as commands:
             assert_type(commands.execute(query, param=params), int)
+            assert_type(commands.execute(query, options=pydapper.CommandOptions()), int)
             assert_type(commands.execute(query, params=params), int)
             assert_type(commands.execute(query, params=mapping_subclass_params), int)
             assert_type(commands.execute(query, params=dataclass_params), int)
@@ -126,6 +130,7 @@ class Commands:
             assert_type(commands.execute(query, params=batch_params), int)
             assert_type(commands.execute_scalar(query, param=params), Any)
             assert_type(commands.execute_scalar(query, params=params), Any)
+            assert_type(commands.execute_scalar(query, options=pydapper.CommandOptions()), Any)
             assert_type(commands.query_multiple((query,), param=params), Tuple[List[Any], ...])
             assert_type(commands.query_multiple((query,), params=params), Tuple[List[Any], ...])
             assert_type(commands.query_multiple((query,), mapper=to_task), Tuple[List[Task]])
@@ -147,6 +152,7 @@ class Commands:
 
         with pydapper.connect() as commands:
             assert_type(commands.query(query, buffered=True), List[Dict[str, Any]])
+            assert_type(commands.query(query, options=pydapper.CommandOptions()), List[Dict[str, Any]])
             assert_type(commands.query(query, buffered=False), Generator[Dict[str, Any], None, None])
             assert_type(
                 commands.query(query, buffered=buffered),
@@ -176,6 +182,7 @@ class Commands:
             )
             assert_type(commands.query(query, model=lambda **kwargs: Task(**kwargs)), List[Task])
             assert_type(commands.query(query, mapper=to_task), List[Task])
+            assert_type(commands.query(query, model=Task, options=pydapper.CommandOptions()), List[Task])
             assert_type(commands.query(query, param=params, mapper=to_task), List[Task])
             assert_type(commands.query(query, params=params, mapper=to_task), List[Task])
             assert_type(

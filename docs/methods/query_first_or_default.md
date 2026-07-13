@@ -3,6 +3,7 @@
 set contains no records.
 
 ## Parameters
+All command methods also accept keyword-only `options=`; see [Command options](../command_options.md).
 | name    | type        | description                                                                                   | optional     | default |
 |---------|-------------|-----------------------------------------------------------------------------------------------|--------------|---------|
 | sql     | `str`       | the sql query str to execute                                                                  | :thumbsdown: |         |

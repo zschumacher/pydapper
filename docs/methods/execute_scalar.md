@@ -4,6 +4,8 @@ the query.  The additional columns or rows are ignored.
 
 
 ## Parameters
+All command methods also accept keyword-only `options=`; see [Command options](../command_options.md).
+
 | name  | type        | description                       | optional     | default |
 |-------|-------------|-----------------------------------|--------------|---------|
 | sql   | `str`       | the sql query str to execute      | :thumbsdown: |         |

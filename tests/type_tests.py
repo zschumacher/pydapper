@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 from typing import Dict
 from typing import Generator
 from typing import List
+from typing import Literal
 from typing import Tuple
 from typing import Union
 
@@ -80,6 +81,8 @@ task_mapper: pydapper.Mapper[Task] = to_task
 
 
 def public_exceptions() -> None:
+    assert_type(pydapper.CommandKind.TEXT, Literal[pydapper.CommandKind.TEXT])
+    assert_type(pydapper.CommandOptions(), pydapper.CommandOptions)
     assert_type(task_mapper, pydapper.Mapper[Task])
     assert_type(pydapper.RawRow(("id",), (1,)), pydapper.RawRow)
     assert_type(pydapper.RawRow(("id",), (1,)).columns, Tuple[str, ...])
@@ -107,6 +110,7 @@ class Commands:
     @staticmethod
     def execute(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
         mapping_subclass_params = ParamsDict({"id": 1})
         dataclass_params = Task(1, "task", datetime.date.today(), 1)
         object_params = SimpleNamespace(id=1)
@@ -116,6 +120,7 @@ class Commands:
 
         with pydapper.connect() as commands:
             assert_type(commands.execute(query, param=params), int)
+            assert_type(commands.execute(query, options=pydapper.CommandOptions()), int)
             assert_type(commands.execute(query, params=params), int)
             assert_type(commands.execute(query, params=mapping_subclass_params), int)
             assert_type(commands.execute(query, params=dataclass_params), int)
@@ -126,8 +131,32 @@ class Commands:
             assert_type(commands.execute(query, params=batch_params), int)
             assert_type(commands.execute_scalar(query, param=params), Any)
             assert_type(commands.execute_scalar(query, params=params), Any)
+            assert_type(commands.execute_scalar(query, options=pydapper.CommandOptions()), Any)
             assert_type(commands.query_multiple((query,), param=params), Tuple[List[Any], ...])
             assert_type(commands.query_multiple((query,), params=params), Tuple[List[Any], ...])
+            assert_type(commands.query_multiple((query,), mapper=to_task, options=options), Tuple[List[Task]])
+            assert_type(
+                commands.query_multiple((query,), mapper=to_task, param=params, options=options), Tuple[List[Task]]
+            )
+            assert_type(
+                commands.query_multiple((query,), mapper=to_task, params=params, options=options), Tuple[List[Task]]
+            )
+            assert_type(
+                commands.query_multiple((query, query), mapper=to_task, options=options),
+                Tuple[List[Task], List[Task]],
+            )
+            assert_type(
+                commands.query_multiple((query, query, query), mapper=to_task, options=options),
+                Tuple[List[Task], List[Task], List[Task]],
+            )
+            assert_type(
+                commands.query_multiple((query, query), mapper=(to_id, to_description), options=options),
+                Tuple[List[int], List[str]],
+            )
+            assert_type(
+                commands.query_multiple((query, query), mapper=(to_id, to_description), param=params, options=options),
+                Tuple[List[int], List[str]],
+            )
             assert_type(commands.query_multiple((query,), mapper=to_task), Tuple[List[Task]])
             assert_type(commands.query_multiple((query, query), mapper=to_task), Tuple[List[Task], List[Task]])
             assert_type(
@@ -138,6 +167,7 @@ class Commands:
     @staticmethod
     def query(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
         mapping_subclass_params = ParamsDict({"id": 1})
         dataclass_params = Task(1, "task", datetime.date.today(), 1)
         object_params = SimpleNamespace(id=1)
@@ -147,6 +177,15 @@ class Commands:
 
         with pydapper.connect() as commands:
             assert_type(commands.query(query, buffered=True), List[Dict[str, Any]])
+            assert_type(commands.query(query, options=pydapper.CommandOptions()), List[Dict[str, Any]])
+            assert_type(commands.query(query, buffered=True, options=options), List[Dict[str, Any]])
+            assert_type(commands.query(query, param=params, options=options), List[Dict[str, Any]])
+            assert_type(commands.query(query, params=params, options=options), List[Dict[str, Any]])
+            assert_type(
+                commands.query(query, buffered=buffered, options=options),
+                Union[List[Dict[str, Any]], Generator[Dict[str, Any], None, None]],
+            )
+            assert_type(commands.query(query, buffered=False, options=options), Generator[Dict[str, Any], None, None])
             assert_type(commands.query(query, buffered=False), Generator[Dict[str, Any], None, None])
             assert_type(
                 commands.query(query, buffered=buffered),
@@ -176,6 +215,22 @@ class Commands:
             )
             assert_type(commands.query(query, model=lambda **kwargs: Task(**kwargs)), List[Task])
             assert_type(commands.query(query, mapper=to_task), List[Task])
+            assert_type(commands.query(query, model=Task, options=pydapper.CommandOptions()), List[Task])
+            assert_type(commands.query(query, model=Task, buffered=True, options=options), List[Task])
+            assert_type(
+                commands.query(query, model=Task, buffered=buffered, options=options),
+                Union[List[Task], Generator[Task, None, None]],
+            )
+            assert_type(commands.query(query, model=Task, buffered=False, options=options), Generator[Task, None, None])
+            assert_type(commands.query(query, mapper=to_task, options=options), List[Task])
+            assert_type(commands.query(query, mapper=to_task, buffered=True, options=options), List[Task])
+            assert_type(
+                commands.query(query, mapper=to_task, buffered=buffered, options=options),
+                Union[List[Task], Generator[Task, None, None]],
+            )
+            assert_type(
+                commands.query(query, mapper=to_task, buffered=False, options=options), Generator[Task, None, None]
+            )
             assert_type(commands.query(query, param=params, mapper=to_task), List[Task])
             assert_type(commands.query(query, params=params, mapper=to_task), List[Task])
             assert_type(
@@ -209,6 +264,7 @@ class Commands:
     @staticmethod
     def query_first(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
 
         with pydapper.connect() as commands:
             assert_type(commands.query_first(query), Dict[str, Any])
@@ -221,10 +277,15 @@ class Commands:
             assert_type(commands.query_first(query, params=params), Dict[str, Any])
             assert_type(commands.query_first(query, params=params, model=Task), Task)
             assert_type(commands.query_first(query, params=params, mapper=to_task), Task)
+            assert_type(commands.query_first(query, options=options), Dict[str, Any])
+            assert_type(commands.query_first(query, param=params, options=options), Dict[str, Any])
+            assert_type(commands.query_first(query, model=Task, options=options), Task)
+            assert_type(commands.query_first(query, mapper=to_task, options=options), Task)
 
     @staticmethod
     def query_first_or_default(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
 
         with pydapper.connect() as commands:
             # passing a callable, the return type of the callable is part of the return type
@@ -242,10 +303,21 @@ class Commands:
             assert_type(commands.query_first_or_default(query, "hello"), Union[str, Dict[str, Any]])
             assert_type(commands.query_first_or_default(query, "hello", param=params), Union[str, Dict[str, Any]])
             assert_type(commands.query_first_or_default(query, "hello", params=params), Union[str, Dict[str, Any]])
+            assert_type(
+                commands.query_first_or_default(query, default_callable, options=options), Union[str, Dict[str, Any]]
+            )
+            assert_type(commands.query_first_or_default(query, "hello", options=options), Union[str, Dict[str, Any]])
+            assert_type(
+                commands.query_first_or_default(query, default_callable, model=Task, options=options), Union[str, Task]
+            )
+            assert_type(
+                commands.query_first_or_default(query, "hello", mapper=to_task, options=options), Union[str, Task]
+            )
 
     @staticmethod
     def query_single(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
 
         with pydapper.connect() as commands:
             assert_type(commands.query_single(query), Dict[str, Any])
@@ -258,10 +330,15 @@ class Commands:
             assert_type(commands.query_single(query, params=params), Dict[str, Any])
             assert_type(commands.query_single(query, params=params, model=Task), Task)
             assert_type(commands.query_single(query, params=params, mapper=to_task), Task)
+            assert_type(commands.query_single(query, options=options), Dict[str, Any])
+            assert_type(commands.query_single(query, params=params, options=options), Dict[str, Any])
+            assert_type(commands.query_single(query, model=Task, options=options), Task)
+            assert_type(commands.query_single(query, mapper=to_task, options=options), Task)
 
     @staticmethod
     def query_single_or_default(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
 
         with pydapper.connect() as commands:
             # passing a callable, the return type of the callable is part of the return type
@@ -279,12 +356,23 @@ class Commands:
             assert_type(commands.query_single_or_default(query, "hello"), Union[str, Dict[str, Any]])
             assert_type(commands.query_single_or_default(query, "hello", param=params), Union[str, Dict[str, Any]])
             assert_type(commands.query_single_or_default(query, "hello", params=params), Union[str, Dict[str, Any]])
+            assert_type(
+                commands.query_single_or_default(query, default_callable, options=options), Union[str, Dict[str, Any]]
+            )
+            assert_type(commands.query_single_or_default(query, "hello", options=options), Union[str, Dict[str, Any]])
+            assert_type(
+                commands.query_single_or_default(query, default_callable, model=Task, options=options), Union[str, Task]
+            )
+            assert_type(
+                commands.query_single_or_default(query, "hello", mapper=to_task, options=options), Union[str, Task]
+            )
 
 
 class CommandsAsync:
     @staticmethod
     async def execute(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
         mapping_subclass_params = ParamsDict({"id": 1})
         dataclass_params = Task(1, "task", datetime.date.today(), 1)
         object_params = SimpleNamespace(id=1)
@@ -306,6 +394,35 @@ class CommandsAsync:
             assert_type(await commands.execute_scalar_async(query, params=params), Any)
             assert_type(await commands.query_multiple_async((query,), param=params), Tuple[List[Any], ...])
             assert_type(await commands.query_multiple_async((query,), params=params), Tuple[List[Any], ...])
+            assert_type(
+                await commands.query_multiple_async((query,), mapper=to_task, options=options), Tuple[List[Task]]
+            )
+            assert_type(
+                await commands.query_multiple_async((query,), mapper=to_task, param=params, options=options),
+                Tuple[List[Task]],
+            )
+            assert_type(
+                await commands.query_multiple_async((query,), mapper=to_task, params=params, options=options),
+                Tuple[List[Task]],
+            )
+            assert_type(
+                await commands.query_multiple_async((query, query), mapper=to_task, options=options),
+                Tuple[List[Task], List[Task]],
+            )
+            assert_type(
+                await commands.query_multiple_async((query, query, query), mapper=to_task, options=options),
+                Tuple[List[Task], List[Task], List[Task]],
+            )
+            assert_type(
+                await commands.query_multiple_async((query, query), mapper=(to_id, to_description), options=options),
+                Tuple[List[int], List[str]],
+            )
+            assert_type(
+                await commands.query_multiple_async(
+                    (query, query), mapper=(to_id, to_description), params=params, options=options
+                ),
+                Tuple[List[int], List[str]],
+            )
             assert_type(await commands.query_multiple_async((query,), mapper=to_task), Tuple[List[Task]])
             assert_type(
                 await commands.query_multiple_async((query, query), mapper=to_task),
@@ -319,6 +436,7 @@ class CommandsAsync:
     @staticmethod
     async def query(query: str):
         params = {"id": 1}
+        options = pydapper.CommandOptions()
         mapping_subclass_params = ParamsDict({"id": 1})
         dataclass_params = Task(1, "task", datetime.date.today(), 1)
         object_params = SimpleNamespace(id=1)
@@ -328,6 +446,18 @@ class CommandsAsync:
 
         async with pydapper.connect_async() as commands:
             assert_type(await commands.query_async(query, buffered=True), List[Dict[str, Any]])
+            assert_type(await commands.query_async(query, options=options), List[Dict[str, Any]])
+            assert_type(await commands.query_async(query, buffered=True, options=options), List[Dict[str, Any]])
+            assert_type(await commands.query_async(query, param=params, options=options), List[Dict[str, Any]])
+            assert_type(await commands.query_async(query, params=params, options=options), List[Dict[str, Any]])
+            assert_type(
+                await commands.query_async(query, buffered=buffered, options=options),
+                Union[List[Dict[str, Any]], AsyncGenerator[Dict[str, Any], None]],
+            )
+            assert_type(
+                await commands.query_async(query, buffered=False, options=options),
+                AsyncGenerator[Dict[str, Any], None],
+            )
             assert_type(await commands.query_async(query, buffered=False), AsyncGenerator[Dict[str, Any], None])
             assert_type(
                 await commands.query_async(query, buffered=buffered),
@@ -347,6 +477,16 @@ class CommandsAsync:
                 Union[List[Task], AsyncGenerator[Task, None]],
             )
             assert_type(await commands.query_async(query, model=Task, buffered=True), List[Task])
+            assert_type(await commands.query_async(query, model=Task, options=options), List[Task])
+            assert_type(await commands.query_async(query, model=Task, buffered=True, options=options), List[Task])
+            assert_type(
+                await commands.query_async(query, model=Task, buffered=buffered, options=options),
+                Union[List[Task], AsyncGenerator[Task, None]],
+            )
+            assert_type(
+                await commands.query_async(query, model=Task, buffered=False, options=options),
+                AsyncGenerator[Task, None],
+            )
             assert_type(await commands.query_async(query, model=Task, buffered=False), AsyncGenerator[Task, None])
             assert_type(
                 await commands.query_async(query, model=Task, buffered=buffered),
@@ -357,6 +497,16 @@ class CommandsAsync:
                 Union[List[Task], AsyncGenerator[Task, None]],
             )
             assert_type(await commands.query_async(query, mapper=to_task), List[Task])
+            assert_type(await commands.query_async(query, mapper=to_task, options=options), List[Task])
+            assert_type(await commands.query_async(query, mapper=to_task, buffered=True, options=options), List[Task])
+            assert_type(
+                await commands.query_async(query, mapper=to_task, buffered=buffered, options=options),
+                Union[List[Task], AsyncGenerator[Task, None]],
+            )
+            assert_type(
+                await commands.query_async(query, mapper=to_task, buffered=False, options=options),
+                AsyncGenerator[Task, None],
+            )
             assert_type(await commands.query_async(query, param=params, mapper=to_task), List[Task])
             assert_type(await commands.query_async(query, params=params, mapper=to_task), List[Task])
             assert_type(await commands.query_async(query, mapper=to_task, buffered=False), AsyncGenerator[Task, None])
@@ -385,6 +535,7 @@ class CommandsAsync:
     @staticmethod
     async def query_first(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
 
         async with pydapper.connect_async() as commands:
             assert_type(await commands.query_first_async(query), Dict[str, Any])
@@ -397,10 +548,15 @@ class CommandsAsync:
             assert_type(await commands.query_first_async(query, params=params), Dict[str, Any])
             assert_type(await commands.query_first_async(query, params=params, model=Task), Task)
             assert_type(await commands.query_first_async(query, params=params, mapper=to_task), Task)
+            assert_type(await commands.query_first_async(query, options=options), Dict[str, Any])
+            assert_type(await commands.query_first_async(query, params=params, options=options), Dict[str, Any])
+            assert_type(await commands.query_first_async(query, model=Task, options=options), Task)
+            assert_type(await commands.query_first_async(query, mapper=to_task, options=options), Task)
 
     @staticmethod
     async def query_first_or_default(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
 
         async with pydapper.connect_async() as commands:
             # passing a callable, the return type of the callable is part of the return type
@@ -428,10 +584,27 @@ class CommandsAsync:
             assert_type(
                 await commands.query_first_or_default_async(query, "hello", params=params), Union[str, Dict[str, Any]]
             )
+            assert_type(
+                await commands.query_first_or_default_async(query, default_callable, options=options),
+                Union[str, Dict[str, Any]],
+            )
+            assert_type(
+                await commands.query_first_or_default_async(query, "hello", options=options),
+                Union[str, Dict[str, Any]],
+            )
+            assert_type(
+                await commands.query_first_or_default_async(query, default_callable, model=Task, options=options),
+                Union[str, Task],
+            )
+            assert_type(
+                await commands.query_first_or_default_async(query, "hello", mapper=to_task, options=options),
+                Union[str, Task],
+            )
 
     @staticmethod
     async def query_single(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
 
         async with pydapper.connect_async() as commands:
             assert_type(await commands.query_single_async(query), Dict[str, Any])
@@ -444,10 +617,15 @@ class CommandsAsync:
             assert_type(await commands.query_single_async(query, params=params), Dict[str, Any])
             assert_type(await commands.query_single_async(query, params=params, model=Task), Task)
             assert_type(await commands.query_single_async(query, params=params, mapper=to_task), Task)
+            assert_type(await commands.query_single_async(query, options=options), Dict[str, Any])
+            assert_type(await commands.query_single_async(query, param=params, options=options), Dict[str, Any])
+            assert_type(await commands.query_single_async(query, model=Task, options=options), Task)
+            assert_type(await commands.query_single_async(query, mapper=to_task, options=options), Task)
 
     @staticmethod
     async def query_single_or_default(query: str) -> None:
         params = {"id": 1}
+        options = pydapper.CommandOptions()
 
         async with pydapper.connect_async() as commands:
             # passing a callable, the return type of the callable is part of the return type
@@ -474,4 +652,20 @@ class CommandsAsync:
             )
             assert_type(
                 await commands.query_single_or_default_async(query, "hello", params=params), Union[str, Dict[str, Any]]
+            )
+            assert_type(
+                await commands.query_single_or_default_async(query, default_callable, options=options),
+                Union[str, Dict[str, Any]],
+            )
+            assert_type(
+                await commands.query_single_or_default_async(query, "hello", options=options),
+                Union[str, Dict[str, Any]],
+            )
+            assert_type(
+                await commands.query_single_or_default_async(query, default_callable, model=Task, options=options),
+                Union[str, Task],
+            )
+            assert_type(
+                await commands.query_single_or_default_async(query, "hello", mapper=to_task, options=options),
+                Union[str, Task],
             )

@@ -333,6 +333,15 @@ class BaseCommands(ABC):
             raise UnsupportedFeatureError("Command option 'max_rows' is not supported")
         return options
 
+    @staticmethod
+    def _is_default_options(options: CommandOptions) -> bool:
+        return (
+            options.timeout is None
+            and options.command_kind is CommandKind.TEXT
+            and options.readonly is None
+            and options.max_rows is None
+        )
+
 
 class Commands(BaseCommands, ABC):
     def __init__(self, connection: "ConnectionType"):
@@ -475,44 +484,11 @@ class Commands(BaseCommands, ABC):
     def query(
         self,
         sql: str,
-        *,
-        options: Optional[CommandOptions],
-    ) -> List[Dict[str, Any]]: ...
-
-    @overload
-    def query(
-        self,
-        sql: str,
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
-        param: Optional["ParamType"] = ...,
-        *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        buffered: Literal[True] = True,
-        options: Optional[CommandOptions],
-    ) -> List["_T"]: ...
-
-    @overload
-    def query(
-        self,
-        sql: str,
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
-        param: Optional["ParamType"] = ...,
-        *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        buffered: Literal[False],
-        options: Optional[CommandOptions],
-    ) -> Generator["_T", None, None]: ...
-
-    @overload
-    def query(
-        self,
-        sql: str,
         model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
         *,
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List[Dict[str, Any]]: ...
 
     @overload
@@ -523,6 +499,7 @@ class Commands(BaseCommands, ABC):
         *,
         buffered: "Literal[True]" = True,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> List[Dict[str, Any]]: ...
 
     @overload
@@ -533,6 +510,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = ...,
         *,
         buffered: "Literal[False]",
+        options: Optional[CommandOptions] = None,
     ) -> typing.Generator[Dict[str, Any], None, None]: ...
 
     @overload
@@ -543,6 +521,7 @@ class Commands(BaseCommands, ABC):
         *,
         buffered: "Literal[False]",
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> typing.Generator[Dict[str, Any], None, None]: ...
 
     @overload
@@ -552,6 +531,7 @@ class Commands(BaseCommands, ABC):
         *,
         param: Optional["ParamType"] = ...,
         buffered: bool,
+        options: Optional[CommandOptions] = None,
     ) -> Union[List[Dict[str, Any]], typing.Generator[Dict[str, Any], None, None]]: ...
 
     @overload
@@ -561,6 +541,7 @@ class Commands(BaseCommands, ABC):
         *,
         buffered: bool,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union[List[Dict[str, Any]], typing.Generator[Dict[str, Any], None, None]]: ...
 
     @overload
@@ -571,6 +552,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = ...,
         *,
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_T"]: ...
 
     @overload
@@ -581,6 +563,7 @@ class Commands(BaseCommands, ABC):
         *,
         params: Optional["ParamType"],
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_T"]: ...
 
     @overload
@@ -591,6 +574,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = ...,
         *,
         buffered: "Literal[False]",
+        options: Optional[CommandOptions] = None,
     ) -> Generator["_T", None, None]: ...
 
     @overload
@@ -601,6 +585,7 @@ class Commands(BaseCommands, ABC):
         *,
         buffered: "Literal[False]",
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Generator["_T", None, None]: ...
 
     @overload
@@ -611,6 +596,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = ...,
         *,
         buffered: bool,
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_T"], Generator["_T", None, None]]: ...
 
     @overload
@@ -621,6 +607,7 @@ class Commands(BaseCommands, ABC):
         *,
         buffered: bool,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_T"], Generator["_T", None, None]]: ...
 
     @overload
@@ -631,6 +618,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_T"]: ...
 
     @overload
@@ -641,6 +629,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_T"]: ...
 
     @overload
@@ -651,6 +640,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
         buffered: "Literal[False]",
+        options: Optional[CommandOptions] = None,
     ) -> Generator["_T", None, None]: ...
 
     @overload
@@ -661,6 +651,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         buffered: "Literal[False]",
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Generator["_T", None, None]: ...
 
     @overload
@@ -671,6 +662,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
         buffered: bool,
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_T"], Generator["_T", None, None]]: ...
 
     @overload
@@ -681,6 +673,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         buffered: bool,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_T"], Generator["_T", None, None]]: ...
 
     @overload
@@ -691,6 +684,7 @@ class Commands(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_MapperT"]: ...
 
     @overload
@@ -701,6 +695,7 @@ class Commands(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_MapperT"]: ...
 
     @overload
@@ -711,6 +706,7 @@ class Commands(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
         buffered: "Literal[False]",
+        options: Optional[CommandOptions] = None,
     ) -> Generator["_MapperT", None, None]: ...
 
     @overload
@@ -721,6 +717,7 @@ class Commands(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         buffered: "Literal[False]",
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Generator["_MapperT", None, None]: ...
 
     @overload
@@ -731,6 +728,7 @@ class Commands(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
         buffered: bool,
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_MapperT"], Generator["_MapperT", None, None]]: ...
 
     @overload
@@ -741,6 +739,7 @@ class Commands(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         buffered: bool,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_MapperT"], Generator["_MapperT", None, None]]: ...
 
     def query(
@@ -772,19 +771,17 @@ class Commands(BaseCommands, ABC):
         models: Tuple[Any, ...] = None,
         param: Optional["ParamType"] = None,
         *,
+        options: Optional[CommandOptions] = None,
+    ) -> Tuple[List[Any], ...]: ...
+
+    @overload
+    def query_multiple(
+        self,
+        queries: Tuple[str, ...],
+        models: Tuple[Any, ...] = None,
+        *,
         params: Optional["ParamType"] = None,
-        mapper: Union[Callable[[RawRow], "_T"], Tuple[Callable[[RawRow], Any], ...]] = None,
-        options: Optional[CommandOptions],
-    ) -> Tuple[List[Any], ...]: ...
-
-    @overload
-    def query_multiple(
-        self, queries: Tuple[str, ...], models: Tuple[Any, ...] = None, param: Optional["ParamType"] = None
-    ) -> Tuple[List[Any], ...]: ...
-
-    @overload
-    def query_multiple(
-        self, queries: Tuple[str, ...], models: Tuple[Any, ...] = None, *, params: Optional["ParamType"] = None
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List[Any], ...]: ...
 
     @overload
@@ -795,6 +792,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Callable[[RawRow], "_MapperT"],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"]]: ...
 
     @overload
@@ -805,6 +803,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Callable[[RawRow], "_MapperT"],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], List["_MapperT"]]: ...
 
     @overload
@@ -815,6 +814,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Callable[[RawRow], "_MapperT"],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], List["_MapperT"], List["_MapperT"]]: ...
 
     @overload
@@ -825,6 +825,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"]]: ...
 
     @overload
@@ -835,6 +836,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], List["_MapperT"]]: ...
 
     @overload
@@ -845,6 +847,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], List["_MapperT"], List["_MapperT"]]: ...
 
     @overload
@@ -855,6 +858,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Tuple[Callable[[RawRow], "_MapperT1"]],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"]]: ...
 
     @overload
@@ -865,6 +869,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Tuple[Callable[[RawRow], "_MapperT1"], Callable[[RawRow], "_MapperT2"]],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"], List["_MapperT2"]]: ...
 
     @overload
@@ -877,6 +882,7 @@ class Commands(BaseCommands, ABC):
         mapper: Tuple[
             Callable[[RawRow], "_MapperT1"], Callable[[RawRow], "_MapperT2"], Callable[[RawRow], "_MapperT3"]
         ],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"], List["_MapperT2"], List["_MapperT3"]]: ...
 
     @overload
@@ -887,6 +893,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Tuple[Callable[[RawRow], "_MapperT1"]],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"]]: ...
 
     @overload
@@ -897,6 +904,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Tuple[Callable[[RawRow], "_MapperT1"], Callable[[RawRow], "_MapperT2"]],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"], List["_MapperT2"]]: ...
 
     @overload
@@ -909,6 +917,7 @@ class Commands(BaseCommands, ABC):
             Callable[[RawRow], "_MapperT1"], Callable[[RawRow], "_MapperT2"], Callable[[RawRow], "_MapperT3"]
         ],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"], List["_MapperT2"], List["_MapperT3"]]: ...
 
     @overload
@@ -919,6 +928,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Callable[[RawRow], "_MapperT"],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], ...]: ...
 
     @overload
@@ -929,6 +939,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], ...]: ...
 
     @overload
@@ -939,6 +950,7 @@ class Commands(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Tuple[Callable[[RawRow], Any], ...],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List[Any], ...]: ...
 
     @overload
@@ -949,6 +961,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Tuple[Callable[[RawRow], Any], ...],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List[Any], ...]: ...
 
     def query_multiple(
@@ -1006,31 +1019,30 @@ class Commands(BaseCommands, ABC):
     def query_first(
         self,
         sql: str,
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
+        model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
         *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        options: Optional[CommandOptions],
-    ) -> "_T": ...
+        options: Optional[CommandOptions] = None,
+    ) -> Dict[str, Any]: ...
 
     @overload
     def query_first(
         self,
         sql: str,
         model: Type[Dict] = dict,
-        param: Optional["ParamType"] = ...,
+        *,
+        params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Dict[str, Any]: ...
 
     @overload
-    def query_first(self, sql: str, model: Type[Dict] = dict, *, params: Optional["ParamType"]) -> Dict[str, Any]: ...
-
-    @overload
     def query_first(
         self,
         sql: str,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -1040,6 +1052,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -1049,6 +1062,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -1058,6 +1072,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -1067,6 +1082,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> "_MapperT": ...
 
     @overload
@@ -1076,6 +1092,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_MapperT": ...
 
     def query_first(
@@ -1108,22 +1125,11 @@ class Commands(BaseCommands, ABC):
     def query_first_or_default(
         self,
         sql: str,
-        default: Union["_Default", Callable[[], "_Default"]],
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
-        param: Optional["ParamType"] = ...,
-        *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        options: Optional[CommandOptions],
-    ) -> Union["_Default", "_T"]: ...
-
-    @overload
-    def query_first_or_default(
-        self,
-        sql: str,
         default: Callable[[], "_Default"],
         model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -1134,6 +1140,7 @@ class Commands(BaseCommands, ABC):
         model: Type[Dict] = dict,
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -1143,6 +1150,8 @@ class Commands(BaseCommands, ABC):
         default: "_Default",
         model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -1153,6 +1162,7 @@ class Commands(BaseCommands, ABC):
         model: Type[Dict] = dict,
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -1162,6 +1172,8 @@ class Commands(BaseCommands, ABC):
         default: Callable[[], "_Default"],
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1172,6 +1184,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1182,6 +1195,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1192,6 +1206,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1201,6 +1216,8 @@ class Commands(BaseCommands, ABC):
         default: "_Default",
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1211,6 +1228,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1221,6 +1239,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1231,6 +1250,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1241,6 +1261,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -1251,6 +1272,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -1261,6 +1283,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -1271,6 +1294,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     def query_first_or_default(
@@ -1284,7 +1308,9 @@ class Commands(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        options = self._resolve_options(options)
+        if self._is_default_options(options):
+            options = None
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
@@ -1306,31 +1332,30 @@ class Commands(BaseCommands, ABC):
     def query_single(
         self,
         sql: str,
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
+        model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
         *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        options: Optional[CommandOptions],
-    ) -> "_T": ...
+        options: Optional[CommandOptions] = None,
+    ) -> Dict[str, Any]: ...
 
     @overload
     def query_single(
         self,
         sql: str,
         model: Type[Dict] = dict,
-        param: Optional["ParamType"] = ...,
+        *,
+        params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Dict[str, Any]: ...
 
     @overload
-    def query_single(self, sql: str, model: Type[Dict] = dict, *, params: Optional["ParamType"]) -> Dict[str, Any]: ...
-
-    @overload
     def query_single(
         self,
         sql: str,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -1340,6 +1365,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -1349,6 +1375,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -1358,6 +1385,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -1367,6 +1395,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> "_MapperT": ...
 
     @overload
@@ -1376,6 +1405,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_MapperT": ...
 
     def query_single(
@@ -1415,22 +1445,11 @@ class Commands(BaseCommands, ABC):
     def query_single_or_default(
         self,
         sql: str,
-        default: Union["_Default", Callable[[], "_Default"]],
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
-        param: Optional["ParamType"] = ...,
-        *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        options: Optional[CommandOptions],
-    ) -> Union["_Default", "_T"]: ...
-
-    @overload
-    def query_single_or_default(
-        self,
-        sql: str,
         default: Callable[[], "_Default"],
         model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -1441,6 +1460,7 @@ class Commands(BaseCommands, ABC):
         model: Type[Dict] = dict,
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -1450,6 +1470,8 @@ class Commands(BaseCommands, ABC):
         default: "_Default",
         model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -1460,6 +1482,7 @@ class Commands(BaseCommands, ABC):
         model: Type[Dict] = dict,
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -1469,6 +1492,8 @@ class Commands(BaseCommands, ABC):
         default: Callable[[], "_Default"],
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1479,6 +1504,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1489,6 +1515,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1499,6 +1526,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1508,6 +1536,8 @@ class Commands(BaseCommands, ABC):
         default: "_Default",
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1518,6 +1548,7 @@ class Commands(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1528,6 +1559,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1538,6 +1570,7 @@ class Commands(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -1548,6 +1581,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -1558,6 +1592,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -1568,6 +1603,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -1578,6 +1614,7 @@ class Commands(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     def query_single_or_default(
@@ -1591,7 +1628,9 @@ class Commands(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        options = self._resolve_options(options)
+        if self._is_default_options(options):
+            options = None
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
@@ -1735,44 +1774,11 @@ class CommandsAsync(BaseCommands, ABC):
     async def query_async(
         self,
         sql: str,
-        *,
-        options: Optional[CommandOptions],
-    ) -> List[Dict[str, Any]]: ...
-
-    @overload
-    async def query_async(
-        self,
-        sql: str,
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
-        param: Optional["ParamType"] = ...,
-        *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        buffered: Literal[True] = True,
-        options: Optional[CommandOptions],
-    ) -> List["_T"]: ...
-
-    @overload
-    async def query_async(
-        self,
-        sql: str,
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
-        param: Optional["ParamType"] = ...,
-        *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        buffered: Literal[False],
-        options: Optional[CommandOptions],
-    ) -> AsyncGenerator["_T", None]: ...
-
-    @overload
-    async def query_async(
-        self,
-        sql: str,
         model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
         *,
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List[Dict[str, Any]]: ...
 
     @overload
@@ -1783,6 +1789,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         buffered: "Literal[True]" = True,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> List[Dict[str, Any]]: ...
 
     @overload
@@ -1793,6 +1800,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = ...,
         *,
         buffered: "Literal[False]",
+        options: Optional[CommandOptions] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]: ...
 
     @overload
@@ -1803,6 +1811,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         buffered: "Literal[False]",
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]: ...
 
     @overload
@@ -1812,6 +1821,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         param: Optional["ParamType"] = ...,
         buffered: bool,
+        options: Optional[CommandOptions] = None,
     ) -> Union[List[Dict[str, Any]], AsyncGenerator[Dict[str, Any], None]]: ...
 
     @overload
@@ -1821,6 +1831,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         buffered: bool,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union[List[Dict[str, Any]], AsyncGenerator[Dict[str, Any], None]]: ...
 
     @overload
@@ -1831,6 +1842,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = ...,
         *,
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_T"]: ...
 
     @overload
@@ -1841,6 +1853,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         params: Optional["ParamType"],
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_T"]: ...
 
     @overload
@@ -1851,6 +1864,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = ...,
         *,
         buffered: "Literal[False]",
+        options: Optional[CommandOptions] = None,
     ) -> AsyncGenerator["_T", None]: ...
 
     @overload
@@ -1861,6 +1875,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         buffered: "Literal[False]",
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> AsyncGenerator["_T", None]: ...
 
     @overload
@@ -1871,6 +1886,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = ...,
         *,
         buffered: bool,
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_T"], AsyncGenerator["_T", None]]: ...
 
     @overload
@@ -1881,6 +1897,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         buffered: bool,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_T"], AsyncGenerator["_T", None]]: ...
 
     @overload
@@ -1891,6 +1908,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_T"]: ...
 
     @overload
@@ -1901,6 +1919,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_T"]: ...
 
     @overload
@@ -1911,6 +1930,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
         buffered: "Literal[False]",
+        options: Optional[CommandOptions] = None,
     ) -> AsyncGenerator["_T", None]: ...
 
     @overload
@@ -1921,6 +1941,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         buffered: "Literal[False]",
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> AsyncGenerator["_T", None]: ...
 
     @overload
@@ -1931,6 +1952,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
         buffered: bool,
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_T"], AsyncGenerator["_T", None]]: ...
 
     @overload
@@ -1941,6 +1963,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         buffered: bool,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_T"], AsyncGenerator["_T", None]]: ...
 
     @overload
@@ -1951,6 +1974,7 @@ class CommandsAsync(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_MapperT"]: ...
 
     @overload
@@ -1961,6 +1985,7 @@ class CommandsAsync(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
         buffered: "Literal[True]" = True,
+        options: Optional[CommandOptions] = None,
     ) -> List["_MapperT"]: ...
 
     @overload
@@ -1971,6 +1996,7 @@ class CommandsAsync(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
         buffered: "Literal[False]",
+        options: Optional[CommandOptions] = None,
     ) -> AsyncGenerator["_MapperT", None]: ...
 
     @overload
@@ -1981,6 +2007,7 @@ class CommandsAsync(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         buffered: "Literal[False]",
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> AsyncGenerator["_MapperT", None]: ...
 
     @overload
@@ -1991,6 +2018,7 @@ class CommandsAsync(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
         buffered: bool,
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_MapperT"], AsyncGenerator["_MapperT", None]]: ...
 
     @overload
@@ -2001,6 +2029,7 @@ class CommandsAsync(BaseCommands, ABC):
         mapper: Callable[[RawRow], "_MapperT"],
         buffered: bool,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union[List["_MapperT"], AsyncGenerator["_MapperT", None]]: ...
 
     async def query_async(
@@ -2031,19 +2060,17 @@ class CommandsAsync(BaseCommands, ABC):
         models: Tuple[Any, ...] = None,
         param: Optional["ParamType"] = None,
         *,
+        options: Optional[CommandOptions] = None,
+    ) -> Tuple[List[Any], ...]: ...
+
+    @overload
+    async def query_multiple_async(
+        self,
+        queries: Tuple[str, ...],
+        models: Tuple[Any, ...] = None,
+        *,
         params: Optional["ParamType"] = None,
-        mapper: Union[Callable[[RawRow], "_T"], Tuple[Callable[[RawRow], Any], ...]] = None,
-        options: Optional[CommandOptions],
-    ) -> Tuple[List[Any], ...]: ...
-
-    @overload
-    async def query_multiple_async(
-        self, queries: Tuple[str, ...], models: Tuple[Any, ...] = None, param: Optional["ParamType"] = None
-    ) -> Tuple[List[Any], ...]: ...
-
-    @overload
-    async def query_multiple_async(
-        self, queries: Tuple[str, ...], models: Tuple[Any, ...] = None, *, params: Optional["ParamType"] = None
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List[Any], ...]: ...
 
     @overload
@@ -2054,6 +2081,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Callable[[RawRow], "_MapperT"],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"]]: ...
 
     @overload
@@ -2064,6 +2092,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Callable[[RawRow], "_MapperT"],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], List["_MapperT"]]: ...
 
     @overload
@@ -2074,6 +2103,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Callable[[RawRow], "_MapperT"],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], List["_MapperT"], List["_MapperT"]]: ...
 
     @overload
@@ -2084,6 +2114,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"]]: ...
 
     @overload
@@ -2094,6 +2125,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], List["_MapperT"]]: ...
 
     @overload
@@ -2104,6 +2136,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], List["_MapperT"], List["_MapperT"]]: ...
 
     @overload
@@ -2114,6 +2147,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Tuple[Callable[[RawRow], "_MapperT1"]],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"]]: ...
 
     @overload
@@ -2124,6 +2158,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Tuple[Callable[[RawRow], "_MapperT1"], Callable[[RawRow], "_MapperT2"]],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"], List["_MapperT2"]]: ...
 
     @overload
@@ -2136,6 +2171,7 @@ class CommandsAsync(BaseCommands, ABC):
         mapper: Tuple[
             Callable[[RawRow], "_MapperT1"], Callable[[RawRow], "_MapperT2"], Callable[[RawRow], "_MapperT3"]
         ],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"], List["_MapperT2"], List["_MapperT3"]]: ...
 
     @overload
@@ -2146,6 +2182,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Tuple[Callable[[RawRow], "_MapperT1"]],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"]]: ...
 
     @overload
@@ -2156,6 +2193,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Tuple[Callable[[RawRow], "_MapperT1"], Callable[[RawRow], "_MapperT2"]],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"], List["_MapperT2"]]: ...
 
     @overload
@@ -2168,6 +2206,7 @@ class CommandsAsync(BaseCommands, ABC):
             Callable[[RawRow], "_MapperT1"], Callable[[RawRow], "_MapperT2"], Callable[[RawRow], "_MapperT3"]
         ],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT1"], List["_MapperT2"], List["_MapperT3"]]: ...
 
     @overload
@@ -2178,6 +2217,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Callable[[RawRow], "_MapperT"],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], ...]: ...
 
     @overload
@@ -2188,6 +2228,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List["_MapperT"], ...]: ...
 
     @overload
@@ -2198,6 +2239,7 @@ class CommandsAsync(BaseCommands, ABC):
         param: Optional["ParamType"] = None,
         *,
         mapper: Tuple[Callable[[RawRow], Any], ...],
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List[Any], ...]: ...
 
     @overload
@@ -2208,6 +2250,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Tuple[Callable[[RawRow], Any], ...],
         params: Optional["ParamType"] = None,
+        options: Optional[CommandOptions] = None,
     ) -> Tuple[List[Any], ...]: ...
 
     async def query_multiple_async(
@@ -2265,25 +2308,20 @@ class CommandsAsync(BaseCommands, ABC):
     async def query_first_async(
         self,
         sql: str,
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
+        model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
         *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        options: Optional[CommandOptions],
-    ) -> "_T": ...
+        options: Optional[CommandOptions] = None,
+    ) -> Dict[str, Any]: ...
 
     @overload
     async def query_first_async(
         self,
         sql: str,
         model: Type[Dict] = dict,
-        param: Optional["ParamType"] = ...,
-    ) -> Dict[str, Any]: ...
-
-    @overload
-    async def query_first_async(
-        self, sql: str, model: Type[Dict] = dict, *, params: Optional["ParamType"]
+        *,
+        params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Dict[str, Any]: ...
 
     @overload
@@ -2292,6 +2330,8 @@ class CommandsAsync(BaseCommands, ABC):
         sql: str,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -2301,6 +2341,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -2310,6 +2351,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -2319,6 +2361,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -2328,6 +2371,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> "_MapperT": ...
 
     @overload
@@ -2337,6 +2381,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_MapperT": ...
 
     async def query_first_async(
@@ -2369,22 +2414,11 @@ class CommandsAsync(BaseCommands, ABC):
     async def query_first_or_default_async(
         self,
         sql: str,
-        default: Union["_Default", Callable[[], "_Default"]],
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
-        param: Optional["ParamType"] = ...,
-        *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        options: Optional[CommandOptions],
-    ) -> Union["_Default", "_T"]: ...
-
-    @overload
-    async def query_first_or_default_async(
-        self,
-        sql: str,
         default: Callable[[], "_Default"],
         model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -2395,6 +2429,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Type[Dict] = dict,
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -2404,6 +2439,8 @@ class CommandsAsync(BaseCommands, ABC):
         default: "_Default",
         model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -2414,6 +2451,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Type[Dict] = dict,
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -2423,6 +2461,8 @@ class CommandsAsync(BaseCommands, ABC):
         default: Callable[[], "_Default"],
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2433,6 +2473,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2443,6 +2484,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2453,6 +2495,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2462,6 +2505,8 @@ class CommandsAsync(BaseCommands, ABC):
         default: "_Default",
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2472,6 +2517,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2482,6 +2528,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2492,6 +2539,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2502,6 +2550,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -2512,6 +2561,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -2522,6 +2572,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -2532,6 +2583,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     async def query_first_or_default_async(
@@ -2545,7 +2597,9 @@ class CommandsAsync(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        options = self._resolve_options(options)
+        if self._is_default_options(options):
+            options = None
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
@@ -2567,25 +2621,20 @@ class CommandsAsync(BaseCommands, ABC):
     async def query_single_async(
         self,
         sql: str,
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
+        model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
         *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        options: Optional[CommandOptions],
-    ) -> "_T": ...
+        options: Optional[CommandOptions] = None,
+    ) -> Dict[str, Any]: ...
 
     @overload
     async def query_single_async(
         self,
         sql: str,
         model: Type[Dict] = dict,
-        param: Optional["ParamType"] = ...,
-    ) -> Dict[str, Any]: ...
-
-    @overload
-    async def query_single_async(
-        self, sql: str, model: Type[Dict] = dict, *, params: Optional["ParamType"]
+        *,
+        params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Dict[str, Any]: ...
 
     @overload
@@ -2594,6 +2643,8 @@ class CommandsAsync(BaseCommands, ABC):
         sql: str,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -2603,6 +2654,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -2612,6 +2664,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -2621,6 +2674,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_T": ...
 
     @overload
@@ -2630,6 +2684,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> "_MapperT": ...
 
     @overload
@@ -2639,6 +2694,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> "_MapperT": ...
 
     async def query_single_async(
@@ -2676,22 +2732,11 @@ class CommandsAsync(BaseCommands, ABC):
     async def query_single_or_default_async(
         self,
         sql: str,
-        default: Union["_Default", Callable[[], "_Default"]],
-        model: Union[Type["_T"], Callable[..., "_T"]] = cast(Any, dict),
-        param: Optional["ParamType"] = ...,
-        *,
-        params: Optional["ParamType"] = None,
-        mapper: Callable[[RawRow], "_T"] = None,
-        options: Optional[CommandOptions],
-    ) -> Union["_Default", "_T"]: ...
-
-    @overload
-    async def query_single_or_default_async(
-        self,
-        sql: str,
         default: Callable[[], "_Default"],
         model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -2702,6 +2747,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Type[Dict] = dict,
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -2711,6 +2757,8 @@ class CommandsAsync(BaseCommands, ABC):
         default: "_Default",
         model: Type[Dict] = dict,
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -2721,6 +2769,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Type[Dict] = dict,
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", Dict[str, Any]]: ...
 
     @overload
@@ -2730,6 +2779,8 @@ class CommandsAsync(BaseCommands, ABC):
         default: Callable[[], "_Default"],
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2740,6 +2791,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2750,6 +2802,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2760,6 +2813,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2769,6 +2823,8 @@ class CommandsAsync(BaseCommands, ABC):
         default: "_Default",
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        *,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2779,6 +2835,7 @@ class CommandsAsync(BaseCommands, ABC):
         model: Union[Type["_T"], Callable[..., "_T"]],
         *,
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2789,6 +2846,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2799,6 +2857,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         model: Union[Type["_T"], Callable[..., "_T"]],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_T"]: ...
 
     @overload
@@ -2809,6 +2868,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -2819,6 +2879,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -2829,6 +2890,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         param: Optional["ParamType"] = ...,
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     @overload
@@ -2839,6 +2901,7 @@ class CommandsAsync(BaseCommands, ABC):
         *,
         mapper: Callable[[RawRow], "_MapperT"],
         params: Optional["ParamType"],
+        options: Optional[CommandOptions] = None,
     ) -> Union["_Default", "_MapperT"]: ...
 
     async def query_single_or_default_async(
@@ -2852,7 +2915,9 @@ class CommandsAsync(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        options = self._resolve_options(options)
+        if self._is_default_options(options):
+            options = None
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:

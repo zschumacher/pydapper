@@ -5,6 +5,7 @@ does not match the number of queries. A single mapper function applies to every 
 
 ## Parameters
 All command methods also accept keyword-only `options=`; see [Command options](../command_options.md).
+
 | name  | type        | description                                                                                   | optional     | default |
 |-------|-------------|-----------------------------------------------------------------------------------------------|--------------|---------|
 | queries | `tuple[str, ...]` | the sql query strings to execute in order                                                | :thumbsdown: |         |

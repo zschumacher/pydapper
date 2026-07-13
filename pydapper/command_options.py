@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from math import isfinite
+from math import inf
 from numbers import Real
 from typing import Optional
 
@@ -21,7 +21,11 @@ class CommandOptions:
         if self.timeout is not None:
             if isinstance(self.timeout, bool) or not isinstance(self.timeout, Real):
                 raise TypeError("timeout must be a positive finite number or None")
-            if self.timeout <= 0 or not isfinite(self.timeout):
+            try:
+                valid_timeout = self.timeout > 0 and -inf < self.timeout < inf
+            except (OverflowError, TypeError, ValueError):
+                valid_timeout = False
+            if not valid_timeout:
                 raise ValueError("timeout must be a positive finite number or None")
 
         if not isinstance(self.command_kind, CommandKind):

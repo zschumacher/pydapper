@@ -4,6 +4,7 @@ set is empty; this method throws an exception if there is more than one element 
 
 ## Parameters
 All command methods also accept keyword-only `options=`; see [Command options](../command_options.md).
+
 | name    | type        | description                                                                                   | optional     | default |
 |---------|-------------|-----------------------------------------------------------------------------------------------|--------------|---------|
 | sql     | `str`       | the sql query str to execute                                                                  | :thumbsdown: |         |

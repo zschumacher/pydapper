@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* docs: define v1 compatibility policy. PR [#530](https://github.com/zschumacher/pydapper/pull/530) by [@zschumacher](https://github.com/zschumacher).
 * fix: guarantee query cursor cleanup. PR [#529](https://github.com/zschumacher/pydapper/pull/529) by [@zschumacher](https://github.com/zschumacher).
 * docs: clarify mapper references. PR [#528](https://github.com/zschumacher/pydapper/pull/528) by [@zschumacher](https://github.com/zschumacher).
 * fix: harden mapper typing ux. PR [#527](https://github.com/zschumacher/pydapper/pull/527) by [@zschumacher](https://github.com/zschumacher).

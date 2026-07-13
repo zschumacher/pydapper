@@ -1,3 +1,4 @@
+from inspect import isawaitable
 from types import TracebackType
 from typing import Any
 from typing import Coroutine
@@ -47,11 +48,31 @@ class CoroContextManager(Coroutine[Any, Any, _TObj], Generic[_TObj]):
     async def __aenter__(self) -> _TObj:
         if self._obj is None:  # pragma: no branch
             self._obj = await self._coro
-        if hasattr(self._obj, "__aenter__"):  # pragma: no branch
-            await self._obj.__aenter__()  # type: ignore
-        assert self._obj
+        enter = getattr(type(self._obj), "__aenter__", None)
+        exit = getattr(type(self._obj), "__aexit__", None)
+        if callable(enter) and callable(exit):  # pragma: no branch
+            entered_obj = enter(self._obj)
+            self._obj = await entered_obj if isawaitable(entered_obj) else entered_obj
         return self._obj
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if hasattr(self._obj, "__aexit__"):  # pragma: no branch
-            await self._obj.__aexit__(exc_type, exc_val, exc_tb)  # type: ignore
+        exit = getattr(type(self._obj), "__aexit__", None)
+        if callable(exit):  # pragma: no branch
+            try:
+                result = exit(self._obj, exc_type, exc_val, exc_tb)
+                return await result if isawaitable(result) else result
+            except BaseException:
+                if exc_type is not None:
+                    return False
+                raise
+
+        close = getattr(self._obj, "close", None)
+        if callable(close):
+            try:
+                result = close()
+                if isawaitable(result):
+                    await result
+            except BaseException:
+                if exc_type is not None:
+                    return False
+                raise

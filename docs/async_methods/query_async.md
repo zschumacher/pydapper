@@ -57,7 +57,18 @@ Use `mapper=` when a join intentionally selects duplicate column names or when p
 By default, `query_async` fetches all results and stores them in a list (buffered). By setting `buffered=False`, you can
 instead have `query_async` return an async generator that fetches one record from the result set at a time. This may be
 useful if querying a large amount of data that would not fit into memory, but note that this keeps both the connection
-and cursor open while you're retrieving results.
+and cursor open while you're retrieving results. Breaking out of a plain async generator does not by itself guarantee
+immediate cleanup while the generator remains referenced, so explicitly close it when stopping early.
+
+```python
+rows = await db.query_async(sql, buffered=False)
+try:
+    async for row in rows:
+        break
+finally:
+    await rows.aclose()
+```
+
 ```python
 {!docs/../docs_src/async_methods/query/query_unbuffered.py!}
 ```

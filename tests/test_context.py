@@ -24,6 +24,16 @@ class MyObject:
         return cls()
 
 
+class PlainObject:
+    def __init__(self, close_result=None):
+        self.closed = False
+        self.close_result = close_result
+
+    def close(self):
+        self.closed = True
+        return self.close_result
+
+
 @pytest.mark.asyncio
 class TestCoroContextManager:
     async def test__init__(self):
@@ -39,3 +49,26 @@ class TestCoroContextManager:
             assert isinstance(myobj, MyObject)
             assert myobj.some_value == 1
         assert myobj.some_value == 0
+
+    async def test_plain_object_is_closed(self):
+        obj = PlainObject()
+
+        async with CoroContextManager(asyncio.sleep(0, result=obj)) as entered:
+            assert entered is obj
+
+        assert obj.closed is True
+
+    async def test_plain_object_awaits_close(self):
+        closed = False
+
+        async def close():
+            nonlocal closed
+            closed = True
+
+        obj = PlainObject(close())
+
+        async with CoroContextManager(asyncio.sleep(0, result=obj)):
+            pass
+
+        assert obj.closed is True
+        assert closed is True

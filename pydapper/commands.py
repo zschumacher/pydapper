@@ -333,15 +333,6 @@ class BaseCommands(ABC):
             raise UnsupportedFeatureError("Command option 'max_rows' is not supported")
         return options
 
-    @staticmethod
-    def _is_default_options(options: CommandOptions) -> bool:
-        return (
-            options.timeout is None
-            and options.command_kind is CommandKind.TEXT
-            and options.readonly is None
-            and options.max_rows is None
-        )
-
 
 class Commands(BaseCommands, ABC):
     def __init__(self, connection: "ConnectionType"):
@@ -1308,23 +1299,15 @@ class Commands(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        options = self._resolve_options(options)
-        if self._is_default_options(options):
-            options = None
+        self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
             if mapper is not _MAPPER_UNSET:
-                if options is None:
-                    return self.query_first(sql, param=resolved_params, mapper=mapper)
-                return self.query_first(sql, param=resolved_params, mapper=mapper, options=options)
+                return self.query_first(sql, param=resolved_params, mapper=mapper)
             if model is _MODEL_UNSET:
-                if options is None:
-                    return self.query_first(sql, param=resolved_params)
-                return self.query_first(sql, param=resolved_params, options=options)
-            if options is None:
-                return self.query_first(sql, model=model, param=resolved_params)
-            return self.query_first(sql, model=model, param=resolved_params, options=options)
+                return self.query_first(sql, param=resolved_params)
+            return self.query_first(sql, model=model, param=resolved_params)
         except NoResultException:
             return _resolve_default_value(default)
 
@@ -1628,23 +1611,15 @@ class Commands(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        options = self._resolve_options(options)
-        if self._is_default_options(options):
-            options = None
+        self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
             if mapper is not _MAPPER_UNSET:
-                if options is None:
-                    return self.query_single(sql, param=resolved_params, mapper=mapper)
-                return self.query_single(sql, param=resolved_params, mapper=mapper, options=options)
+                return self.query_single(sql, param=resolved_params, mapper=mapper)
             if model is _MODEL_UNSET:
-                if options is None:
-                    return self.query_single(sql, param=resolved_params)
-                return self.query_single(sql, param=resolved_params, options=options)
-            if options is None:
-                return self.query_single(sql, model=model, param=resolved_params)
-            return self.query_single(sql, model=model, param=resolved_params, options=options)
+                return self.query_single(sql, param=resolved_params)
+            return self.query_single(sql, model=model, param=resolved_params)
         except NoResultException:
             return _resolve_default_value(default)
 
@@ -2597,23 +2572,15 @@ class CommandsAsync(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        options = self._resolve_options(options)
-        if self._is_default_options(options):
-            options = None
+        self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
             if mapper is not _MAPPER_UNSET:
-                if options is None:
-                    return await self.query_first_async(sql, param=resolved_params, mapper=mapper)
-                return await self.query_first_async(sql, param=resolved_params, mapper=mapper, options=options)
+                return await self.query_first_async(sql, param=resolved_params, mapper=mapper)
             if model is _MODEL_UNSET:
-                if options is None:
-                    return await self.query_first_async(sql, param=resolved_params)
-                return await self.query_first_async(sql, param=resolved_params, options=options)
-            if options is None:
-                return await self.query_first_async(sql, model=model, param=resolved_params)
-            return await self.query_first_async(sql, model=model, param=resolved_params, options=options)
+                return await self.query_first_async(sql, param=resolved_params)
+            return await self.query_first_async(sql, model=model, param=resolved_params)
         except NoResultException:
             return _resolve_default_value(default)
 
@@ -2915,23 +2882,15 @@ class CommandsAsync(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        options = self._resolve_options(options)
-        if self._is_default_options(options):
-            options = None
+        self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
             if mapper is not _MAPPER_UNSET:
-                if options is None:
-                    return await self.query_single_async(sql, param=resolved_params, mapper=mapper)
-                return await self.query_single_async(sql, param=resolved_params, mapper=mapper, options=options)
+                return await self.query_single_async(sql, param=resolved_params, mapper=mapper)
             if model is _MODEL_UNSET:
-                if options is None:
-                    return await self.query_single_async(sql, param=resolved_params)
-                return await self.query_single_async(sql, param=resolved_params, options=options)
-            if options is None:
-                return await self.query_single_async(sql, model=model, param=resolved_params)
-            return await self.query_single_async(sql, model=model, param=resolved_params, options=options)
+                return await self.query_single_async(sql, param=resolved_params)
+            return await self.query_single_async(sql, model=model, param=resolved_params)
         except NoResultException:
             return _resolve_default_value(default)
 

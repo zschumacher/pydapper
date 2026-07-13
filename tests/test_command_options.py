@@ -59,6 +59,11 @@ class OverflowingFraction(Fraction):
         raise OverflowError
 
 
+class UnorderableFraction(Fraction):
+    def __gt__(self, other):
+        raise TypeError("comparison is not supported")
+
+
 class LegacyDefaultCommands(OptionsCommands):
     def query_first(self, sql, model=dict, param=None, *, mapper=None):
         return "first"
@@ -119,6 +124,11 @@ def test_custom_finite_real_with_overflowing_float_conversion_is_valid():
 
     with pytest.raises(UnsupportedFeatureError, match="timeout"):
         OptionsCommands(NoCursorConnection()).execute("select 1", options=options)
+
+
+def test_custom_real_with_failing_comparison_is_invalid():
+    with pytest.raises(ValueError, match="timeout must be a positive finite number or None"):
+        pydapper.CommandOptions(timeout=UnorderableFraction(1))
 
 
 @pytest.mark.parametrize("max_rows", [0, -1, 1.5, True, "5"])

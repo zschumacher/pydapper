@@ -18,6 +18,9 @@ to provide more convenient methods for working with databases in python.
 ```
 (*This script is complete,  it should run "as is"*)
 
+See the [compatibility and deprecation policy](compatibility.md) for the
+public API contract governing pydapper 1.x.
+
 What's going on here?
 
 * `connect` handles creating a connection and returning the pydapper entrypoint for the dsn you pass in

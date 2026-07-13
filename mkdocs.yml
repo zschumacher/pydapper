@@ -1,6 +1,7 @@
 site_name: pydapper
 nav:
   - Overview: index.md
+  - Compatibility Policy: compatibility.md
   - Database Support:
       - Intro - Database Support: database_support/intro.md
       - Google BigQuery: database_support/bigquery.md

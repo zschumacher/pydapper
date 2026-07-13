@@ -2760,6 +2760,20 @@ class TestCommandsAsync:
             await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_async("select id, name from some_table")
 
     @pytest.mark.asyncio
+    async def test_context_managed_cursor_cleanup_failure_does_not_mask_buffered_failure(self):
+        class FailingExitCursor(MockAsyncCursor):
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                raise RuntimeError("close failed")
+
+        cursor = FailingExitCursor()
+
+        with pytest.raises(RuntimeError, match="projection failed"):
+            await MockAsyncCommands(_AsyncCursorConnection(cursor)).query_async(
+                "select id, name from some_table",
+                mapper=lambda row: (_ for _ in ()).throw(RuntimeError("projection failed")),
+            )
+
+    @pytest.mark.asyncio
     async def test_plain_cursor_is_closed_when_projection_fails(self):
         cursor = _PlainAsyncQueryCursor()
 

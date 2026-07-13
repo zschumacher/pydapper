@@ -1492,7 +1492,7 @@ class CommandsAsync(BaseCommands, ABC):
     async def connect_async(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "CommandsAsync": ...
 
     def cursor(self, *args, **kwargs) -> "CoroContextManager[AsyncCursorType]":
-        return CoroContextManager(self.connection.cursor(*args, **kwargs))
+        return CoroContextManager(self.connection.cursor(*args, **kwargs), preserve_active_error=True)
 
     @overload
     async def execute_async(self, sql: str, params: Union["ParamType", "ListParamType"] = None) -> int: ...

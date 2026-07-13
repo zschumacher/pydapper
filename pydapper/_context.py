@@ -12,17 +12,27 @@ from typing import Union
 _TObj = TypeVar("_TObj")
 
 
-class CoroContextManager(Coroutine[Any, Any, _TObj], Generic[_TObj]):
+async def _await_if_needed(value: Any) -> Any:
+    return await value if isawaitable(value) else value
 
-    __slots__ = ("_coro", "_obj")
+
+class CoroContextManager(Coroutine[Any, Any, _TObj], Generic[_TObj]):
+    """Wrap an awaitable resource for use with ``async with``."""
+
+    __slots__ = ("_coro", "_obj", "_entered_obj", "_aexit", "_preserve_active_error")
 
     def __init__(
         self,
         coro: Coroutine[Any, Any, _TObj],
         obj: _TObj = None,
+        *,
+        preserve_active_error: bool = False,
     ):
         self._coro = coro
         self._obj = obj
+        self._entered_obj = obj
+        self._aexit = None
+        self._preserve_active_error = preserve_active_error
 
     def send(self, value: Any) -> "Any":  # pragma: no cover
         return self._coro.send(value)
@@ -48,31 +58,26 @@ class CoroContextManager(Coroutine[Any, Any, _TObj], Generic[_TObj]):
     async def __aenter__(self) -> _TObj:
         if self._obj is None:  # pragma: no branch
             self._obj = await self._coro
+
         enter = getattr(type(self._obj), "__aenter__", None)
-        exit = getattr(type(self._obj), "__aexit__", None)
-        if callable(enter) and callable(exit):  # pragma: no branch
-            entered_obj = enter(self._obj)
-            self._obj = await entered_obj if isawaitable(entered_obj) else entered_obj
-        return self._obj
+        aexit = getattr(type(self._obj), "__aexit__", None)
+        self._aexit = None
+        if callable(enter) and callable(aexit):  # pragma: no branch
+            self._entered_obj = await _await_if_needed(enter(self._obj))
+            self._aexit = aexit
+        else:
+            self._entered_obj = self._obj
+        return self._entered_obj
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        exit = getattr(type(self._obj), "__aexit__", None)
-        if callable(exit):  # pragma: no branch
-            try:
-                result = exit(self._obj, exc_type, exc_val, exc_tb)
-                return await result if isawaitable(result) else result
-            except BaseException:
-                if exc_type is not None:
-                    return False
-                raise
+        try:
+            if self._aexit is not None:
+                return await _await_if_needed(self._aexit(self._obj, exc_type, exc_val, exc_tb))
 
-        close = getattr(self._obj, "close", None)
-        if callable(close):
-            try:
-                result = close()
-                if isawaitable(result):
-                    await result
-            except BaseException:
-                if exc_type is not None:
-                    return False
-                raise
+            close = getattr(self._obj, "close", None)
+            if callable(close):
+                await _await_if_needed(close())
+        except BaseException:
+            if self._preserve_active_error and exc_type is not None:
+                return False
+            raise

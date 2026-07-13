@@ -4,6 +4,8 @@ import pytest
 
 from pydapper._context import CoroContextManager
 
+pytestmark = pytest.mark.core
+
 
 class MyObject:
     def __init__(self):

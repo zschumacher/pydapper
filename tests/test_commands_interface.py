@@ -1210,6 +1210,37 @@ class TestCommands:
         assert records == [{"id": 1, "name": "Zach"}, {"id": 2, "name": "Bob"}]
         assert connection.cursor_calls == 1
 
+    def test_cursor_context_proxy_allows_cursor_to_suppress_error(self):
+        class SuppressingCursor:
+            def __init__(self):
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_args = exc_type, exc_val, exc_tb
+                return True
+
+        cursor = SuppressingCursor()
+
+        with MockCommands(_CursorConnection(cursor))._cursor_context_proxy():
+            raise RuntimeError("query failed")
+
+        assert cursor.exit_args[0] is RuntimeError
+
+    def test_cursor_context_proxy_preserves_error_when_cursor_exit_fails(self):
+        class FailingExitCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                raise RuntimeError("close failed")
+
+        with pytest.raises(ValueError, match="query failed"):
+            with MockCommands(_CursorConnection(FailingExitCursor()))._cursor_context_proxy():
+                raise ValueError("query failed")
+
     def test_execute(self, connection):
         with MockCommands(connection) as commands:
             affected_rows = commands.execute(

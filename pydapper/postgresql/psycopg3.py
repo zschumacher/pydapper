@@ -47,4 +47,4 @@ class Psycopg3CommandsAsync(CommandsAsync):
         async def cursor_proxy():
             return self.connection.cursor(*args, **kwargs)
 
-        return CoroContextManager(cursor_proxy())
+        return CoroContextManager(cursor_proxy(), preserve_active_error=True)

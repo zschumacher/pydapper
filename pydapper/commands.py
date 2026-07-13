@@ -1,8 +1,8 @@
+import sys
 import typing
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Mapping
-from contextlib import ExitStack
 from contextlib import contextmanager
 from dataclasses import is_dataclass
 from functools import cached_property
@@ -334,12 +334,40 @@ class Commands(BaseCommands, ABC):
     @contextmanager
     def _cursor_context_proxy(self):
         """Not all dbapis implement the cursor as a context manager.  This function handles that polymorphism."""
-        with ExitStack() as stack:
+        cursor = self.cursor()
+        enter = getattr(type(cursor), "__enter__", None)
+        exit = getattr(type(cursor), "__exit__", None)
+
+        if callable(enter) and callable(exit):
+            entered_cursor = enter(cursor)
             try:
-                cursor = stack.enter_context(self.cursor())  # type: ignore
-            except (AttributeError, TypeError):
-                cursor = self.cursor()
+                yield entered_cursor
+            except BaseException:
+                exc_type, exc_val, exc_tb = sys.exc_info()
+                try:
+                    if exit(cursor, exc_type, exc_val, exc_tb):
+                        return
+                except BaseException:
+                    pass
+                raise
+            else:
+                exit(cursor, None, None, None)
+            return
+
+        try:
             yield cursor
+        except BaseException:
+            try:
+                close = getattr(cursor, "close", None)
+                if callable(close):
+                    close()
+            except BaseException:
+                pass
+            raise
+        else:
+            close = getattr(cursor, "close", None)
+            if callable(close):
+                close()
 
     def cursor(self, *args, **kwargs) -> "CursorType":
         return self.connection.cursor(*args, **kwargs)
@@ -1464,7 +1492,7 @@ class CommandsAsync(BaseCommands, ABC):
     async def connect_async(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "CommandsAsync": ...
 
     def cursor(self, *args, **kwargs) -> "CoroContextManager[AsyncCursorType]":
-        return CoroContextManager(self.connection.cursor(*args, **kwargs))
+        return CoroContextManager(self.connection.cursor(*args, **kwargs), preserve_active_error=True)
 
     @overload
     async def execute_async(self, sql: str, params: Union["ParamType", "ListParamType"] = None) -> int: ...

@@ -120,6 +120,78 @@ class _CursorConnection:
         return self.cursor_instance
 
 
+class _PlainQueryCursor:
+    description = ("id", "int"), ("name", "text")
+    rowcount = 0
+
+    def __init__(self, rows=((1, "Zach"), (2, "Bob"))):
+        self.rows = list(rows)
+        self.close_calls = 0
+        self.execute_error = None
+        self.fetchall_error = None
+        self.fetchone_error = None
+        self.close_error = None
+
+    def execute(self, sql, parameters=None):
+        if self.execute_error:
+            raise self.execute_error
+
+    def fetchall(self):
+        if self.fetchall_error:
+            raise self.fetchall_error
+        return tuple(self.rows)
+
+    def fetchone(self):
+        if self.fetchone_error:
+            raise self.fetchone_error
+        return self.rows.pop(0) if self.rows else None
+
+    def close(self):
+        self.close_calls += 1
+        if self.close_error:
+            raise self.close_error
+
+
+class _PlainAsyncQueryCursor:
+    description = ("id", "int"), ("name", "text")
+    rowcount = 0
+
+    def __init__(self, rows=((1, "Zach"), (2, "Bob"))):
+        self.rows = list(rows)
+        self.close_calls = 0
+        self.execute_error = None
+        self.fetchall_error = None
+        self.fetchone_error = None
+        self.close_error = None
+
+    async def execute(self, sql, parameters=None):
+        if self.execute_error:
+            raise self.execute_error
+
+    async def fetchall(self):
+        if self.fetchall_error:
+            raise self.fetchall_error
+        return tuple(self.rows)
+
+    async def fetchone(self):
+        if self.fetchone_error:
+            raise self.fetchone_error
+        return self.rows.pop(0) if self.rows else None
+
+    async def close(self):
+        self.close_calls += 1
+        if self.close_error:
+            raise self.close_error
+
+
+class _PlainAsyncQueryConnection:
+    def __init__(self, cursor):
+        self.cursor_instance = cursor
+
+    async def cursor(self, *args, **kwargs):
+        return self.cursor_instance
+
+
 class _TrackingContextCursor:
     rowcount = 0
     description = ("id", "int"), ("name", "text")
@@ -1136,7 +1208,38 @@ class TestCommands:
         records = MockCommands(connection).query("select id, name from some_table")
 
         assert records == [{"id": 1, "name": "Zach"}, {"id": 2, "name": "Bob"}]
-        assert connection.cursor_calls == 2
+        assert connection.cursor_calls == 1
+
+    def test_cursor_context_proxy_allows_cursor_to_suppress_error(self):
+        class SuppressingCursor:
+            def __init__(self):
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_args = exc_type, exc_val, exc_tb
+                return True
+
+        cursor = SuppressingCursor()
+
+        with MockCommands(_CursorConnection(cursor))._cursor_context_proxy():
+            raise RuntimeError("query failed")
+
+        assert cursor.exit_args[0] is RuntimeError
+
+    def test_cursor_context_proxy_preserves_error_when_cursor_exit_fails(self):
+        class FailingExitCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                raise RuntimeError("close failed")
+
+        with pytest.raises(ValueError, match="query failed"):
+            with MockCommands(_CursorConnection(FailingExitCursor()))._cursor_context_proxy():
+                raise ValueError("query failed")
 
     def test_execute(self, connection):
         with MockCommands(connection) as commands:
@@ -1782,6 +1885,83 @@ class TestCommands:
 
         assert cursor.entered is True
         assert cursor.exited is True
+
+    def test_plain_cursor_is_closed_after_buffered_query(self):
+        cursor = _PlainQueryCursor()
+
+        assert MockCommands(_CursorConnection(cursor)).query("select id, name from some_table") == [
+            {"id": 1, "name": "Zach"},
+            {"id": 2, "name": "Bob"},
+        ]
+        assert cursor.close_calls == 1
+
+    def test_plain_cursor_cleanup_preserves_buffered_failure(self):
+        cursor = _PlainQueryCursor()
+        cursor.fetchall_error = RuntimeError("fetch failed")
+
+        with pytest.raises(RuntimeError, match="fetch failed"):
+            MockCommands(_CursorConnection(cursor)).query("select id, name from some_table")
+
+        assert cursor.close_calls == 1
+
+    def test_plain_cursor_cleanup_failure_does_not_mask_buffered_failure(self):
+        cursor = _PlainQueryCursor()
+        cursor.fetchall_error = RuntimeError("fetch failed")
+        cursor.close_error = RuntimeError("close failed")
+
+        with pytest.raises(RuntimeError, match="fetch failed"):
+            MockCommands(_CursorConnection(cursor)).query("select id, name from some_table")
+
+    def test_plain_cursor_is_closed_when_projection_fails(self):
+        cursor = _PlainQueryCursor()
+
+        with pytest.raises(RuntimeError, match="projection failed"):
+            MockCommands(_CursorConnection(cursor)).query(
+                "select id, name from some_table",
+                mapper=lambda row: (_ for _ in ()).throw(RuntimeError("projection failed")),
+            )
+
+        assert cursor.close_calls == 1
+
+    def test_plain_cursor_is_closed_by_unbuffered_generator_close(self):
+        cursor = _PlainQueryCursor()
+        rows = MockCommands(_CursorConnection(cursor)).query("select id, name from some_table", buffered=False)
+
+        assert next(rows) == {"id": 1, "name": "Zach"}
+        rows.close()
+        assert cursor.close_calls == 1
+
+    def test_plain_cursor_is_closed_after_unbuffered_exhaustion(self):
+        cursor = _PlainQueryCursor()
+        rows = MockCommands(_CursorConnection(cursor)).query("select id, name from some_table", buffered=False)
+
+        assert list(rows) == [{"id": 1, "name": "Zach"}, {"id": 2, "name": "Bob"}]
+        assert cursor.close_calls == 1
+
+    def test_plain_cursor_cleanup_preserves_unbuffered_failure(self):
+        cursor = _PlainQueryCursor()
+        cursor.fetchone_error = RuntimeError("fetch failed")
+        rows = MockCommands(_CursorConnection(cursor)).query("select id, name from some_table", buffered=False)
+
+        with pytest.raises(RuntimeError, match="fetch failed"):
+            next(rows)
+
+        assert cursor.close_calls == 1
+
+    def test_cursor_context_error_is_not_mistaken_for_plain_cursor(self):
+        class FailingContextCursor(_PlainQueryCursor):
+            def __enter__(self):
+                raise AttributeError("query context failed")
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.close()
+
+        cursor = FailingContextCursor()
+
+        with pytest.raises(AttributeError, match="query context failed"):
+            MockCommands(_CursorConnection(cursor)).query("select id, name from some_table")
+
+        assert cursor.close_calls == 0
 
     def test_query_rejects_model_and_mapper(self, connection):
         with MockCommands(connection) as commands:
@@ -2581,6 +2761,94 @@ class TestCommandsAsync:
             )
 
             assert [row async for row in generator] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_plain_cursor_is_closed_after_buffered_query(self):
+        cursor = _PlainAsyncQueryCursor()
+
+        assert await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_async(
+            "select id, name from some_table"
+        ) == [{"id": 1, "name": "Zach"}, {"id": 2, "name": "Bob"}]
+        assert cursor.close_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_plain_cursor_cleanup_preserves_buffered_failure(self):
+        cursor = _PlainAsyncQueryCursor()
+        cursor.fetchall_error = RuntimeError("fetch failed")
+
+        with pytest.raises(RuntimeError, match="fetch failed"):
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_async("select id, name from some_table")
+
+        assert cursor.close_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_plain_cursor_cleanup_failure_does_not_mask_buffered_failure(self):
+        cursor = _PlainAsyncQueryCursor()
+        cursor.fetchall_error = RuntimeError("fetch failed")
+        cursor.close_error = RuntimeError("close failed")
+
+        with pytest.raises(RuntimeError, match="fetch failed"):
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_async("select id, name from some_table")
+
+    @pytest.mark.asyncio
+    async def test_context_managed_cursor_cleanup_failure_does_not_mask_buffered_failure(self):
+        class FailingExitCursor(MockAsyncCursor):
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                raise RuntimeError("close failed")
+
+        cursor = FailingExitCursor()
+
+        with pytest.raises(RuntimeError, match="projection failed"):
+            await MockAsyncCommands(_AsyncCursorConnection(cursor)).query_async(
+                "select id, name from some_table",
+                mapper=lambda row: (_ for _ in ()).throw(RuntimeError("projection failed")),
+            )
+
+    @pytest.mark.asyncio
+    async def test_plain_cursor_is_closed_when_projection_fails(self):
+        cursor = _PlainAsyncQueryCursor()
+
+        with pytest.raises(RuntimeError, match="projection failed"):
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_async(
+                "select id, name from some_table",
+                mapper=lambda row: (_ for _ in ()).throw(RuntimeError("projection failed")),
+            )
+
+        assert cursor.close_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_plain_cursor_is_closed_by_unbuffered_generator_aclose(self):
+        cursor = _PlainAsyncQueryCursor()
+        rows = await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_async(
+            "select id, name from some_table", buffered=False
+        )
+
+        assert await rows.__anext__() == {"id": 1, "name": "Zach"}
+        await rows.aclose()
+        assert cursor.close_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_plain_cursor_is_closed_after_unbuffered_exhaustion(self):
+        cursor = _PlainAsyncQueryCursor()
+        rows = await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_async(
+            "select id, name from some_table", buffered=False
+        )
+
+        assert [row async for row in rows] == [{"id": 1, "name": "Zach"}, {"id": 2, "name": "Bob"}]
+        assert cursor.close_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_plain_cursor_cleanup_preserves_unbuffered_failure(self):
+        cursor = _PlainAsyncQueryCursor()
+        cursor.fetchone_error = RuntimeError("fetch failed")
+        rows = await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_async(
+            "select id, name from some_table", buffered=False
+        )
+
+        with pytest.raises(RuntimeError, match="fetch failed"):
+            await rows.__anext__()
+
+        assert cursor.close_calls == 1
 
     @pytest.mark.asyncio
     async def test_query_rejects_model_and_mapper(self, connection):

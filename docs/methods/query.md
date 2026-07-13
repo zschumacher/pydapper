@@ -57,7 +57,18 @@ Use `mapper=` when a join intentionally selects duplicate column names or when p
 By default, `query` fetches all results and stores them in a list (buffered).  By setting `buffered=False`, you can
 instead have `query` act as a generator function, fetching one record from the result set at a time.  This may be useful
 if querying a large amount of data that would not fit into memory, but note that this keeps both the connection and
-cursor open while you're retrieving results.
+cursor open while you're retrieving results. Breaking out of a plain generator does not by itself guarantee immediate
+cleanup while the generator remains referenced, so explicitly close it when stopping early.
+
+```python
+rows = db.query(sql, buffered=False)
+try:
+    for row in rows:
+        break
+finally:
+    rows.close()
+```
+
 ```python
 {!docs/../docs_src/methods/query/query_unbuffered.py!}
 ```

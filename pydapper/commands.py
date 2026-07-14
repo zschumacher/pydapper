@@ -23,7 +23,7 @@ from typing import Union
 from typing import cast
 from typing import overload
 
-from ._context import CoroContextManager
+from ._context import _AwaitableAsyncContextManager
 from ._sql_placeholders import PlaceholderSpan
 from ._sql_placeholders import scan_placeholder_spans
 from .command_options import CommandKind
@@ -1661,14 +1661,14 @@ class CommandsAsync(BaseCommands, ABC):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.connection.__aexit__(exc_type, exc_val, exc_tb)
+        return await self.connection.__aexit__(exc_type, exc_val, exc_tb)
 
     @classmethod
     @abstractmethod
     async def connect_async(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "CommandsAsync": ...
 
-    def cursor(self, *args, **kwargs) -> "CoroContextManager[AsyncCursorType]":
-        return CoroContextManager(self.connection.cursor(*args, **kwargs), preserve_active_error=True)
+    def cursor(self, *args, **kwargs) -> "_AwaitableAsyncContextManager[AsyncCursorType, AsyncCursorType]":
+        return _AwaitableAsyncContextManager(self.connection.cursor(*args, **kwargs), preserve_active_error=True)
 
     @overload
     async def execute_async(self, sql: str, params: Union["ParamType", "ListParamType"] = None) -> int: ...

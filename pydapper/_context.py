@@ -1,80 +1,61 @@
+import asyncio
+from collections.abc import Awaitable
 from inspect import isawaitable
-from types import TracebackType
 from typing import Any
-from typing import Coroutine
 from typing import Generator
 from typing import Generic
-from typing import Optional
-from typing import Type
 from typing import TypeVar
-from typing import Union
+from typing import cast
 
-_TObj = TypeVar("_TObj")
+_AwaitResultT = TypeVar("_AwaitResultT")
+_EnterResultT = TypeVar("_EnterResultT")
+_UNRESOLVED = object()
 
 
 async def _await_if_needed(value: Any) -> Any:
     return await value if isawaitable(value) else value
 
 
-class CoroContextManager(Coroutine[Any, Any, _TObj], Generic[_TObj]):
-    """Wrap an awaitable resource for use with ``async with``."""
+class _AwaitableAsyncContextManager(Generic[_AwaitResultT, _EnterResultT]):
+    """Wrap an awaitable resource for use with ``await`` or ``async with``."""
 
-    __slots__ = ("_coro", "_obj", "_entered_obj", "_aexit", "_preserve_active_error")
+    __slots__ = ("_awaitable", "_resolution", "_obj", "_aexit", "_preserve_active_error")
 
-    def __init__(
-        self,
-        coro: Coroutine[Any, Any, _TObj],
-        obj: _TObj = None,
-        *,
-        preserve_active_error: bool = False,
-    ):
-        self._coro = coro
-        self._obj = obj
-        self._entered_obj = obj
+    def __init__(self, awaitable: Awaitable[_AwaitResultT], *, preserve_active_error: bool = False):
+        self._awaitable = awaitable
+        self._resolution: asyncio.Future[_AwaitResultT] | object = _UNRESOLVED
+        self._obj: _AwaitResultT | object = _UNRESOLVED
         self._aexit = None
         self._preserve_active_error = preserve_active_error
 
-    def send(self, value: Any) -> "Any":  # pragma: no cover
-        return self._coro.send(value)
+    async def _resolve(self) -> _AwaitResultT:
+        if self._resolution is _UNRESOLVED:
+            self._resolution = asyncio.ensure_future(self._awaitable)
+        if self._obj is _UNRESOLVED:
+            self._obj = await cast(asyncio.Future[_AwaitResultT], self._resolution)
+        return cast(_AwaitResultT, self._obj)
 
-    def throw(  # type: ignore
-        self,
-        typ: Type[BaseException],
-        val: Optional[Union[BaseException, object]] = None,
-        tb: Optional[TracebackType] = None,
-    ) -> Any:  # pragma: no cover
-        if val is None:
-            return self._coro.throw(typ)
-        if tb is None:
-            return self._coro.throw(typ, val)
-        return self._coro.throw(typ, val, tb)
+    def __await__(self) -> Generator[Any, None, _AwaitResultT]:
+        return self._resolve().__await__()
 
-    def close(self) -> None:  # pragma: no cover
-        self._coro.close()
-
-    def __await__(self) -> Generator[Any, None, _TObj]:  # pragma: no cover
-        return self._coro.__await__()
-
-    async def __aenter__(self) -> _TObj:
-        if self._obj is None:  # pragma: no branch
-            self._obj = await self._coro
-
-        enter = getattr(type(self._obj), "__aenter__", None)
-        aexit = getattr(type(self._obj), "__aexit__", None)
+    async def __aenter__(self) -> _EnterResultT:
+        obj = await self._resolve()
+        enter = getattr(type(obj), "__aenter__", None)
+        aexit = getattr(type(obj), "__aexit__", None)
         self._aexit = None
-        if callable(enter) and callable(aexit):  # pragma: no branch
-            self._entered_obj = await _await_if_needed(enter(self._obj))
+        if callable(enter) and callable(aexit):
+            entered_obj = await _await_if_needed(enter(obj))
             self._aexit = aexit
-        else:
-            self._entered_obj = self._obj
-        return self._entered_obj
+            return cast(_EnterResultT, entered_obj)
+        return cast(_EnterResultT, obj)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        obj = await self._resolve()
         try:
             if self._aexit is not None:
-                return await _await_if_needed(self._aexit(self._obj, exc_type, exc_val, exc_tb))
+                return await _await_if_needed(self._aexit(obj, exc_type, exc_val, exc_tb))
 
-            close = getattr(self._obj, "close", None)
+            close = getattr(obj, "close", None)
             if callable(close):
                 await _await_if_needed(close())
         except BaseException:

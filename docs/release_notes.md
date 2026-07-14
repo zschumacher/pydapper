@@ -1,5 +1,8 @@
 ## Latest Changes
 
+* fix: harden async context lifecycle. Async resources now resolve exactly once and
+  context-manager exception suppression propagates correctly; both `await connect_async()`
+  and `async with connect_async()` usage remain unchanged.
 * feat: stabilize adapter registration. PR [#539](https://github.com/zschumacher/pydapper/pull/539) by [@zschumacher](https://github.com/zschumacher).
 
 ### Breaking Changes

@@ -317,7 +317,10 @@ async def test_psycopg3_async_cursor_wraps_sync_cursor_return_value():
     connection = Connection()
     commands = psycopg3_module.Psycopg3CommandsAsync(connection)
 
-    async with commands.cursor("cursor-name", row_factory=dict) as cursor:
+    wrapper = commands.cursor("cursor-name", row_factory=dict)
+    assert type(wrapper).__name__ == "_AwaitableAsyncContextManager"
+    assert wrapper._preserve_active_error is True
+    async with wrapper as cursor:
         assert cursor is connection.cursor_result
 
     assert connection.calls == [(("cursor-name",), {"row_factory": dict})]

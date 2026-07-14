@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from pydapper.commands import Commands
 from pydapper.commands import CommandsAsync
 
-from .._context import CoroContextManager
+from .._context import _AwaitableAsyncContextManager
 from ..utils import import_dbapi_module
 
 if TYPE_CHECKING:
@@ -43,4 +43,4 @@ class Psycopg3CommandsAsync(CommandsAsync):
         async def cursor_proxy():
             return self.connection.cursor(*args, **kwargs)
 
-        return CoroContextManager(cursor_proxy(), preserve_active_error=True)
+        return _AwaitableAsyncContextManager(cursor_proxy(), preserve_active_error=True)

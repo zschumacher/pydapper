@@ -422,7 +422,9 @@ class CommandsAsync:
         slotted_params = SlottedParams(1)
         batch_params = [{"id": 1}, {"id": 2}]
 
+        assert_type(await pydapper.connect_async(), PydapperCommandsAsync)
         async with pydapper.connect_async() as commands:
+            assert_type(commands, PydapperCommandsAsync)
             assert_type(await commands.execute_async(query, param=params), int)
             assert_type(await commands.execute_async(query, params=params), int)
             assert_type(await commands.execute_async(query, params=mapping_subclass_params), int)

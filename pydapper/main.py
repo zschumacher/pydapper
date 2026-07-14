@@ -5,7 +5,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ._context import CoroContextManager
+from ._context import _AwaitableAsyncContextManager
 from .commands import Commands
 from .commands import CommandsAsync
 from .dsn_parser import PydapperParseResult
@@ -144,10 +144,12 @@ class CommandFactory:
         return _get_sync_commands_class(parsed_dsn.dbapi).connect(parsed_dsn, **connect_kwargs)
 
     @classmethod
-    def from_dsn_async(cls, dsn: str | None = None, **connect_kwargs) -> CoroContextManager[CommandsAsync]:
+    def from_dsn_async(
+        cls, dsn: str | None = None, **connect_kwargs
+    ) -> _AwaitableAsyncContextManager[CommandsAsync, CommandsAsync]:
         parsed_dsn = parse_dsn(dsn)
         commands_class = _get_async_commands_class(parsed_dsn.dbapi)
-        return CoroContextManager(commands_class.connect_async(parsed_dsn, **connect_kwargs))
+        return _AwaitableAsyncContextManager(commands_class.connect_async(parsed_dsn, **connect_kwargs))
 
     @classmethod
     def from_connection(cls, connection: ConnectionType, *, adapter: str | None = None) -> Commands:
@@ -168,7 +170,9 @@ def connect(dsn: str | None = None, **connect_kwargs) -> Commands:
     return CommandFactory.from_dsn(dsn, **connect_kwargs)
 
 
-def connect_async(dsn: str | None = None, **connect_kwargs) -> CoroContextManager[CommandsAsync]:
+def connect_async(
+    dsn: str | None = None, **connect_kwargs
+) -> _AwaitableAsyncContextManager[CommandsAsync, CommandsAsync]:
     return CommandFactory.from_dsn_async(dsn, **connect_kwargs)
 
 

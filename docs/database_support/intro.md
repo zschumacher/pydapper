@@ -18,8 +18,8 @@ There are four core concepts to understand about each dbapi *pydapper* supports:
 : The name of the driver that should be included in the dsn passed to the `connect` method (see examples).
 
 **Base connection class**
-: The class path of the connection class that must be passed or inherited from when passed into the `using` method 
-  (see examples).
+: The class path used by the built-in automatic-selection predicate. Ordinary subclasses are recognized through their
+  class MRO; wrappers and proxies should use explicit `adapter=` selection (see examples).
 
 
 
@@ -64,8 +64,9 @@ for this could be if you have a custom connection pool in your application and y
 to get in the way of using it.  Another example is reuse of connection objects from a framework like Django ORM
 or SQLAlchemy.
 
-In order to use this entry point, the connection object you are passing in must be an instance of or inherit from
-one of the dbapi connection objects that *pydapper* supports.
+Without an explicit adapter name, `using` runs the registered sync adapter predicates and requires exactly one match.
+Native DB-API connection objects and ordinary subclasses of the supported connection classes are recognized. Pass a
+registered adapter name with `adapter=` to override automatic selection when needed.
 
 Below is a generic example using *pydapper* with a connection managed by `django`.
 
@@ -85,9 +86,16 @@ What's going on here?
   connection proxy
 * pass the dbapi connection object into `pydapper.using` and get a pydapper `Commands` instance back
 
+To override automatic selection, select the adapter directly. Explicit selection bypasses all predicates:
+
+```python
+commands = pydapper.using(dbapi_connection_object, adapter="psycopg2")
+```
+
 ### `using_async`
-You should use the `using_async` method when you want to use your own connection.  The api is almost identical to that
-of the sync api.
+You should use the `using_async` method when you want to use your own asynchronous connection. The API is almost
+identical to the sync API: it automatically selects exactly one registered async adapter, or accepts `adapter=` to
+override automatic selection.
 
 ```python
 import pydapper
@@ -95,4 +103,7 @@ import pydapper
 some_pool = ConnectionPool()
 conn = await some_pool.acquire()
 commands = pydapper.using_async(conn)
+
+# Explicit adapter selection also works for async connections.
+commands = pydapper.using_async(conn, adapter="psycopg")
 ```

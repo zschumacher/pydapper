@@ -1,5 +1,11 @@
 ## Latest Changes
 
+### Breaking Changes
+
+* Adapter registration: `register` and `register_async` were removed. Use [`register_adapter`](adapter_registration.md) and explicit `adapter=` selection where needed.
+
+### Other Changes
+
 * feat: add command options model. PR [#531](https://github.com/zschumacher/pydapper/pull/531) by [@zschumacher](https://github.com/zschumacher).
 * docs: define v1 compatibility policy. PR [#530](https://github.com/zschumacher/pydapper/pull/530) by [@zschumacher](https://github.com/zschumacher).
 * fix: guarantee query cursor cleanup. PR [#529](https://github.com/zschumacher/pydapper/pull/529) by [@zschumacher](https://github.com/zschumacher).

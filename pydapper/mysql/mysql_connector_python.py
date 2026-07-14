@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING
 
-from pydapper import register
 from pydapper.commands import _MAPPER_UNSET
 from pydapper.commands import _MODEL_UNSET
 from pydapper.commands import _PARAM_ALIAS_UNSET
@@ -53,7 +52,6 @@ def _discard_unread_result(cursor: "CursorType") -> None:
             pass
 
 
-@register("mysql")
 class MySqlConnectorPythonCommands(Commands):
     @classmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands":

@@ -9,11 +9,14 @@ from typing import List
 from typing import Literal
 from typing import Tuple
 from typing import Union
+from typing import cast
 
 import pytest
 from typing_extensions import assert_type
 
 import pydapper
+from pydapper.commands import Commands as PydapperCommands
+from pydapper.commands import CommandsAsync as PydapperCommandsAsync
 from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
@@ -22,6 +25,8 @@ from pydapper.exceptions import NoResultException
 from pydapper.exceptions import PyDapperException
 from pydapper.exceptions import RowMappingException
 from pydapper.exceptions import UnsupportedFeatureError
+from pydapper.types import AsyncConnectionType
+from pydapper.types import ConnectionType
 
 """This file tests some of the more complex type annotations on the Commands and AsyncCommands classes"""
 
@@ -104,6 +109,43 @@ def public_exceptions() -> None:
     assert_type(InvalidParameterShapeException(), InvalidParameterShapeException)
     assert_type(UnsupportedFeatureError(), UnsupportedFeatureError)
     assert_type(RowMappingException(), RowMappingException)
+
+
+def _cannot_handle_connection(connection: object) -> bool:
+    return False
+
+
+def adapter_registration_types() -> None:
+    assert_type(
+        pydapper.register_adapter(
+            "type-sync",
+            commands=PydapperCommands,
+            using_connection_predicate=_cannot_handle_connection,
+        ),
+        None,
+    )
+    assert_type(
+        pydapper.register_adapter(
+            "type-async",
+            async_commands=PydapperCommandsAsync,
+            using_connection_predicate=_cannot_handle_connection,
+        ),
+        None,
+    )
+    assert_type(
+        pydapper.register_adapter(
+            "type-combined",
+            commands=PydapperCommands,
+            async_commands=PydapperCommandsAsync,
+            using_connection_predicate=_cannot_handle_connection,
+        ),
+        None,
+    )
+
+    sync_connection = cast(ConnectionType, object())
+    async_connection = cast(AsyncConnectionType, object())
+    assert_type(pydapper.using(sync_connection, adapter="type-sync"), PydapperCommands)
+    assert_type(pydapper.using_async(async_connection, adapter="type-async"), PydapperCommandsAsync)
 
 
 class Commands:

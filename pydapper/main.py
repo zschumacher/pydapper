@@ -2,100 +2,179 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
-from typing import Dict
-from typing import Optional
-from typing import Type
-from typing import Union
-from typing import cast
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from ._context import CoroContextManager
 from .commands import Commands
 from .commands import CommandsAsync
 from .dsn_parser import PydapperParseResult
-
-if TYPE_CHECKING:
-    from .commands import Commands
-    from .commands import CommandsAsync
-    from .types import AsyncConnectionType
-    from .types import ConnectionType
+from .types import AsyncConnectionType
+from .types import ConnectionType
 
 logger = logging.getLogger(__name__)
 
 
-def parse_dsn(dsn: Optional[str]) -> PydapperParseResult:
+@dataclass(frozen=True)
+class _AdapterRegistration:
+    name: str
+    commands: type[Commands] | None
+    async_commands: type[CommandsAsync] | None
+    using_connection_predicate: Callable[[object], bool]
+
+
+_adapter_registry: dict[str, _AdapterRegistration] = {}
+
+
+def register_adapter(
+    name: str,
+    *,
+    commands: type[Commands] | None = None,
+    async_commands: type[CommandsAsync] | None = None,
+    using_connection_predicate: Callable[[object], bool],
+) -> None:
+    """Register command implementations for a DB-API adapter.
+
+    Registration is intentionally one-way: an adapter name may only be registered
+    once so import order cannot silently replace a command implementation. The
+    using_connection_predicate is used only for automatic connection selection.
+    """
+    if not isinstance(name, str):
+        raise TypeError("Adapter name must be a string")
+    if not name or name != name.strip():
+        raise ValueError("Adapter name must be non-empty and have no surrounding whitespace")
+    if name in _adapter_registry:
+        raise ValueError(f"Adapter {name!r} is already registered")
+    if commands is None and async_commands is None:
+        raise ValueError("At least one sync or async command class is required")
+    if commands is not None and (not isinstance(commands, type) or not issubclass(commands, Commands)):
+        raise TypeError("commands must be a Commands subclass")
+    if async_commands is not None and (
+        not isinstance(async_commands, type) or not issubclass(async_commands, CommandsAsync)
+    ):
+        raise TypeError("async_commands must be a CommandsAsync subclass")
+    if not callable(using_connection_predicate):
+        raise TypeError("using_connection_predicate must be callable")
+
+    _adapter_registry[name] = _AdapterRegistration(
+        name=name,
+        commands=commands,
+        async_commands=async_commands,
+        using_connection_predicate=using_connection_predicate,
+    )
+
+
+def parse_dsn(dsn: str | None) -> PydapperParseResult:
     dsn = dsn or os.getenv("PYDAPPER_DSN")
     if dsn is None:  # pragma: no cover
         raise ValueError("dsn must be passed to connect or env var `PYDAPPER_DSN` must be set.")
     return PydapperParseResult(dsn)
 
 
-def find_command_class_in_registry_by_connection(
-    connection: Union["ConnectionType", "AsyncConnectionType"],
-    registry: Union[Dict[str, Type["Commands"]], Dict[str, Type["CommandsAsync"]]],
-) -> Union[Type["Commands"], Type["CommandsAsync"]]:
-    connection_base_modules = {str(klass.__module__).split(".")[0] for klass in connection.__class__.__bases__}
-    # this will happen if you have a connection that doesn't inherit from anything
-    if connection_base_modules == {"builtins"}:  # pragma: no branch
-        connection_base_modules = {connection.__class__.__module__.split(".")[0]}
-    registered_dbapi_modules = set(registry.keys())
-    intersection = connection_base_modules.intersection(registered_dbapi_modules)
+def _get_registration(name: str, mode: str) -> _AdapterRegistration:
+    try:
+        return _adapter_registry[name]
+    except KeyError:
+        raise ValueError(f"No adapter named {name!r} is registered for {mode} mode") from None
 
-    if not intersection:
-        raise ValueError(f"No command support registered for {connection}")
 
-    return registry[intersection.pop()]
+def _get_sync_commands_class(name: str) -> type[Commands]:
+    registration = _get_registration(name, "sync")
+    if registration.commands is None:
+        raise ValueError(f"Adapter {name!r} does not support sync mode")
+    return registration.commands
+
+
+def _get_async_commands_class(name: str) -> type[CommandsAsync]:
+    registration = _get_registration(name, "async")
+    if registration.async_commands is None:
+        raise ValueError(f"Adapter {name!r} does not support async mode")
+    return registration.async_commands
+
+
+def _select_registration(connection: object, mode: str) -> _AdapterRegistration:
+    matches: list[_AdapterRegistration] = []
+
+    for registration in sorted(_adapter_registry.values(), key=lambda item: item.name):
+        if mode == "sync" and registration.commands is None:
+            continue
+        if mode == "async" and registration.async_commands is None:
+            continue
+
+        try:
+            matches_connection = registration.using_connection_predicate(connection)
+        except Exception as exc:
+            raise ValueError(
+                f"Adapter {registration.name!r} failed while checking a connection for {mode} mode"
+            ) from exc
+
+        if matches_connection:
+            matches.append(registration)
+
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise ValueError(
+            f"No registered {mode} adapter can handle {connection!r}; "
+            "register an adapter or pass adapter= explicitly"
+        )
+
+    matching_names = ", ".join(registration.name for registration in matches)
+    raise ValueError(
+        f"Multiple registered {mode} adapters can handle {connection!r}: {matching_names}. Pass adapter= explicitly"
+    )
+
+
+def _select_sync_commands_class(connection: object) -> type[Commands]:
+    registration = _select_registration(connection, "sync")
+    assert registration.commands is not None
+    return registration.commands
+
+
+def _select_async_commands_class(connection: object) -> type[CommandsAsync]:
+    registration = _select_registration(connection, "async")
+    assert registration.async_commands is not None
+    return registration.async_commands
 
 
 class CommandFactory:
-    sync_registry: Dict[str, Type["Commands"]] = dict()
-    async_registry: Dict[str, Type["CommandsAsync"]] = dict()
-
     @classmethod
-    def from_dsn(cls, dsn: str = None, **connect_kwargs) -> "Commands":
+    def from_dsn(cls, dsn: str | None = None, **connect_kwargs) -> Commands:
         parsed_dsn = parse_dsn(dsn)
-        return cls.sync_registry[parsed_dsn.dbapi].connect(parsed_dsn, **connect_kwargs)
+        return _get_sync_commands_class(parsed_dsn.dbapi).connect(parsed_dsn, **connect_kwargs)
 
     @classmethod
-    def from_dsn_async(cls, dsn: str = None, **connect_kwargs) -> CoroContextManager["CommandsAsync"]:
+    def from_dsn_async(cls, dsn: str | None = None, **connect_kwargs) -> CoroContextManager[CommandsAsync]:
         parsed_dsn = parse_dsn(dsn)
-        return CoroContextManager(cls.async_registry[parsed_dsn.dbapi].connect_async(parsed_dsn, **connect_kwargs))
+        commands_class = _get_async_commands_class(parsed_dsn.dbapi)
+        return CoroContextManager(commands_class.connect_async(parsed_dsn, **connect_kwargs))
 
     @classmethod
-    def from_connection(cls, connection: "ConnectionType") -> "Commands":
-        commands_class = cast(
-            Type["Commands"], find_command_class_in_registry_by_connection(connection, cls.sync_registry)
+    def from_connection(cls, connection: ConnectionType, *, adapter: str | None = None) -> Commands:
+        commands_class = (
+            _get_sync_commands_class(adapter) if adapter is not None else _select_sync_commands_class(connection)
         )
         return commands_class(connection)
 
     @classmethod
-    def from_connection_async(cls, connection: AsyncConnectionType) -> "CommandsAsync":
-        commands_class = cast(
-            Type["CommandsAsync"],
-            find_command_class_in_registry_by_connection(connection, cls.async_registry),
+    def from_connection_async(cls, connection: AsyncConnectionType, *, adapter: str | None = None) -> CommandsAsync:
+        commands_class = (
+            _get_async_commands_class(adapter) if adapter is not None else _select_async_commands_class(connection)
         )
         return commands_class(connection)
 
-    @classmethod
-    def register(cls, name: str):
-        def inner_wrapper(wrapped_class: Type["Commands"]):
-            CommandFactory.sync_registry[name] = wrapped_class
-            return wrapped_class
 
-        return inner_wrapper
-
-    @classmethod
-    def register_async(cls, name: str):
-        def inner_wrapper(wrapped_class: Type["CommandsAsync"]):
-            CommandFactory.async_registry[name] = wrapped_class
-            return wrapped_class
-
-        return inner_wrapper
+def connect(dsn: str | None = None, **connect_kwargs) -> Commands:
+    return CommandFactory.from_dsn(dsn, **connect_kwargs)
 
 
-register = CommandFactory.register
-register_async = CommandFactory.register_async
-using = CommandFactory.from_connection
-using_async = CommandFactory.from_connection_async
-connect = CommandFactory.from_dsn
-connect_async = CommandFactory.from_dsn_async
+def connect_async(dsn: str | None = None, **connect_kwargs) -> CoroContextManager[CommandsAsync]:
+    return CommandFactory.from_dsn_async(dsn, **connect_kwargs)
+
+
+def using(connection: ConnectionType, *, adapter: str | None = None) -> Commands:
+    return CommandFactory.from_connection(connection, adapter=adapter)
+
+
+def using_async(connection: AsyncConnectionType, *, adapter: str | None = None) -> CommandsAsync:
+    return CommandFactory.from_connection_async(connection, adapter=adapter)

@@ -10,3 +10,9 @@ coverage:
 codecov:
   max_report_age: off
   allow_coverage_offsets: True
+  notify:
+    # Seven test suites upload coverage for each of five Python versions.
+    after_n_builds: 35
+
+comment:
+  after_n_builds: 35

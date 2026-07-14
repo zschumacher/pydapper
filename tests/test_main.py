@@ -465,6 +465,14 @@ def test_builtin_detection_uses_anchored_module_prefixes():
         pydapper.using(unrelated_connection_class())
 
 
+def test_builtin_detection_ignores_non_string_class_modules():
+    connection_class = type("ConnectionWithNonStringModule", (), {})
+    connection_class.__module__ = None
+
+    with pytest.raises(ValueError, match="adapter="):
+        pydapper.using(connection_class())
+
+
 def test_adapter_argument_is_keyword_only():
     with pytest.raises(TypeError):
         pydapper.using(MockConnection(), "sqlite3")

@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING
 
-from pydapper import register
 from pydapper.commands import BaseSqlParamHandler
 from pydapper.commands import Commands
 
@@ -10,7 +9,6 @@ if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
 
 
-@register("oracledb")
 class OracledbCommands(Commands):
     class SqlParamHandler(BaseSqlParamHandler):
         def get_param_placeholder(self, param_name) -> str:

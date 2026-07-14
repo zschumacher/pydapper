@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 from pydapper.commands import CommandsAsync
 from pydapper.commands import DefaultSqlParamHandler
 
-from ..main import register_async
 from ..utils import import_dbapi_module
 
 if TYPE_CHECKING:
@@ -11,7 +10,6 @@ if TYPE_CHECKING:
     from ..types import AsyncCursorType
 
 
-@register_async("aiopg")
 class AiopgCommands(CommandsAsync):
     class SqlParamHandler(DefaultSqlParamHandler):
         async def execute_async(self, cursor: "AsyncCursorType"):

@@ -2,14 +2,12 @@ from typing import TYPE_CHECKING
 
 from pydapper.commands import Commands
 
-from ..main import register
 from ..utils import import_dbapi_module
 
 if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
 
 
-@register("psycopg2")
 class Psycopg2Commands(Commands):
     @classmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands":

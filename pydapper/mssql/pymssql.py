@@ -1,7 +1,6 @@
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from pydapper import register
 from pydapper.commands import BaseSqlParamHandler
 from pydapper.commands import Commands
 
@@ -14,7 +13,6 @@ if TYPE_CHECKING:
 _PARAM_TYPE_LOOKUP = {float: "%d", int: "%d", str: "%s", Decimal: "%d"}
 
 
-@register("pymssql")
 class PymssqlCommands(Commands):
     class SqlParamHandler(BaseSqlParamHandler):
         def get_param_placeholder(self, param_name) -> str:

@@ -318,6 +318,42 @@ async def test_connect_async_routes_to_the_registered_async_adapter(adapter_regi
 
 
 @pytest.mark.asyncio
+async def test_connect_async_context_returns_commands_and_propagates_connection_suppression(adapter_registry):
+    class SuppressingConnection:
+        exited = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            self.exited = True
+            return True
+
+    class SuppressingCommands(MockAsyncCommands):
+        @classmethod
+        async def connect_async(cls, parsed_dsn, **connect_kwargs):
+            connection = SuppressingConnection()
+            commands = cls(connection)
+            commands.test_connection = connection
+            return commands
+
+    pydapper.register_adapter(
+        "tests",
+        async_commands=SuppressingCommands,
+        using_connection_predicate=never_matches,
+    )
+
+    try:
+        async with pydapper.connect_async(DSN) as commands:
+            assert isinstance(commands, SuppressingCommands)
+            connection = commands.test_connection
+            raise ValueError("body")
+    except ValueError:
+        pytest.fail("connection suppression did not propagate")
+    assert connection.exited
+
+
+@pytest.mark.asyncio
 async def test_dsn_selection_bypasses_using_connection_predicate(adapter_registry):
     def predicate(connection):
         raise AssertionError("DSN selection must not call predicates")

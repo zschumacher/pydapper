@@ -20,7 +20,7 @@ class _AdapterRegistration:
     name: str
     commands: type[Commands] | None
     async_commands: type[CommandsAsync] | None
-    can_handle_connection: Callable[[object], bool]
+    using_connection_predicate: Callable[[object], bool]
 
 
 _adapter_registry: dict[str, _AdapterRegistration] = {}
@@ -31,12 +31,13 @@ def register_adapter(
     *,
     commands: type[Commands] | None = None,
     async_commands: type[CommandsAsync] | None = None,
-    can_handle_connection: Callable[[object], bool],
+    using_connection_predicate: Callable[[object], bool],
 ) -> None:
     """Register command implementations for a DB-API adapter.
 
     Registration is intentionally one-way: an adapter name may only be registered
-    once so import order cannot silently replace a command implementation.
+    once so import order cannot silently replace a command implementation. The
+    using_connection_predicate is used only for automatic connection selection.
     """
     if not isinstance(name, str):
         raise TypeError("Adapter name must be a string")
@@ -52,14 +53,14 @@ def register_adapter(
         not isinstance(async_commands, type) or not issubclass(async_commands, CommandsAsync)
     ):
         raise TypeError("async_commands must be a CommandsAsync subclass")
-    if not callable(can_handle_connection):
-        raise TypeError("can_handle_connection must be callable")
+    if not callable(using_connection_predicate):
+        raise TypeError("using_connection_predicate must be callable")
 
     _adapter_registry[name] = _AdapterRegistration(
         name=name,
         commands=commands,
         async_commands=async_commands,
-        can_handle_connection=can_handle_connection,
+        using_connection_predicate=using_connection_predicate,
     )
 
 
@@ -101,7 +102,7 @@ def _select_registration(connection: object, mode: str) -> _AdapterRegistration:
             continue
 
         try:
-            matches_connection = registration.can_handle_connection(connection)
+            matches_connection = registration.using_connection_predicate(connection)
         except Exception as exc:
             raise ValueError(
                 f"Adapter {registration.name!r} failed while checking a connection for {mode} mode"

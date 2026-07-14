@@ -38,7 +38,7 @@ def test_register_adapter_sync_only(adapter_registry):
     result = pydapper.register_adapter(
         "sync-only",
         commands=MockCommands,
-        can_handle_connection=never_matches,
+        using_connection_predicate=never_matches,
     )
 
     assert result is None
@@ -52,7 +52,7 @@ def test_register_adapter_async_only(adapter_registry):
     pydapper.register_adapter(
         "async-only",
         async_commands=MockAsyncCommands,
-        can_handle_connection=never_matches,
+        using_connection_predicate=never_matches,
     )
 
     registration = adapter_registry["async-only"]
@@ -65,7 +65,7 @@ def test_register_adapter_combined(adapter_registry):
         "combined",
         commands=MockCommands,
         async_commands=MockAsyncCommands,
-        can_handle_connection=never_matches,
+        using_connection_predicate=never_matches,
     )
 
     registration = adapter_registry["combined"]
@@ -76,70 +76,79 @@ def test_register_adapter_combined(adapter_registry):
 @pytest.mark.parametrize("name", [None, 1, object()])
 def test_register_adapter_rejects_non_string_name(adapter_registry, name):
     with pytest.raises(TypeError):
-        pydapper.register_adapter(name, commands=MockCommands, can_handle_connection=never_matches)
+        pydapper.register_adapter(name, commands=MockCommands, using_connection_predicate=never_matches)
 
 
 @pytest.mark.parametrize("name", ["", " leading", "trailing ", "\tname", "name\n"])
 def test_register_adapter_rejects_blank_or_whitespace_padded_name(adapter_registry, name):
     with pytest.raises(ValueError):
-        pydapper.register_adapter(name, commands=MockCommands, can_handle_connection=never_matches)
+        pydapper.register_adapter(name, commands=MockCommands, using_connection_predicate=never_matches)
 
 
 def test_register_adapter_names_are_case_sensitive(adapter_registry):
-    pydapper.register_adapter("Adapter", commands=MockCommands, can_handle_connection=never_matches)
-    pydapper.register_adapter("adapter", commands=MockCommands, can_handle_connection=never_matches)
+    pydapper.register_adapter("Adapter", commands=MockCommands, using_connection_predicate=never_matches)
+    pydapper.register_adapter("adapter", commands=MockCommands, using_connection_predicate=never_matches)
 
     assert {"Adapter", "adapter"}.issubset(adapter_registry)
 
 
 def test_register_adapter_requires_a_command_class(adapter_registry):
     with pytest.raises(ValueError):
-        pydapper.register_adapter("missing-commands", can_handle_connection=never_matches)
+        pydapper.register_adapter("missing-commands", using_connection_predicate=never_matches)
+
+
+def test_register_adapter_requires_using_connection_predicate(adapter_registry):
+    with pytest.raises(TypeError):
+        pydapper.register_adapter("missing-predicate", commands=MockCommands)
 
 
 @pytest.mark.parametrize("commands", [object, MockAsyncCommands])
 def test_register_adapter_rejects_invalid_sync_command_class(adapter_registry, commands):
     with pytest.raises(TypeError):
-        pydapper.register_adapter("invalid-sync", commands=commands, can_handle_connection=never_matches)
+        pydapper.register_adapter("invalid-sync", commands=commands, using_connection_predicate=never_matches)
 
 
 @pytest.mark.parametrize("async_commands", [object, MockCommands])
 def test_register_adapter_rejects_invalid_async_command_class(adapter_registry, async_commands):
     with pytest.raises(TypeError):
-        pydapper.register_adapter("invalid-async", async_commands=async_commands, can_handle_connection=never_matches)
+        pydapper.register_adapter(
+            "invalid-async",
+            async_commands=async_commands,
+            using_connection_predicate=never_matches,
+        )
 
 
-def test_register_adapter_rejects_non_callable_predicate(adapter_registry):
+def test_register_adapter_rejects_non_callable_using_connection_predicate(adapter_registry):
     with pytest.raises(TypeError):
-        pydapper.register_adapter("invalid-predicate", commands=MockCommands, can_handle_connection=None)
+        pydapper.register_adapter("invalid-predicate", commands=MockCommands, using_connection_predicate=None)
 
 
 def test_registration_validation_failure_is_atomic(adapter_registry):
     before = adapter_registry.copy()
 
     with pytest.raises(TypeError):
-        pydapper.register_adapter("invalid", commands=object, can_handle_connection=never_matches)
+        pydapper.register_adapter("invalid", commands=object, using_connection_predicate=never_matches)
 
     assert adapter_registry == before
 
 
 def test_duplicate_registration_is_rejected_without_mutating_the_original(adapter_registry):
-    pydapper.register_adapter("duplicate", commands=MockCommands, can_handle_connection=never_matches)
+    pydapper.register_adapter("duplicate", commands=MockCommands, using_connection_predicate=never_matches)
     original_registration = adapter_registry["duplicate"]
     before = adapter_registry.copy()
 
     with pytest.raises(ValueError):
-        pydapper.register_adapter("duplicate", commands=MockCommands, can_handle_connection=never_matches)
+        pydapper.register_adapter("duplicate", commands=MockCommands, using_connection_predicate=never_matches)
 
     assert adapter_registry == before
     assert adapter_registry["duplicate"] is original_registration
 
 
 def test_duplicate_name_is_rejected_before_validating_a_second_payload(adapter_registry):
-    pydapper.register_adapter("duplicate", commands=MockCommands, can_handle_connection=never_matches)
+    pydapper.register_adapter("duplicate", commands=MockCommands, using_connection_predicate=never_matches)
 
     with pytest.raises(ValueError):
-        pydapper.register_adapter("duplicate", commands=object, can_handle_connection=None)
+        pydapper.register_adapter("duplicate", commands=object, using_connection_predicate=None)
 
 
 def test_explicit_selection_bypasses_predicates_for_sync_and_async(adapter_registry):
@@ -150,7 +159,7 @@ def test_explicit_selection_bypasses_predicates_for_sync_and_async(adapter_regis
         "explicit",
         commands=MockCommands,
         async_commands=MockAsyncCommands,
-        can_handle_connection=predicate,
+        using_connection_predicate=predicate,
     )
 
     assert isinstance(pydapper.using(MockConnection(), adapter="explicit"), MockCommands)
@@ -172,8 +181,12 @@ def test_explicit_selection_rejects_unknown_adapter(adapter_registry, factory, c
 
 
 def test_explicit_selection_rejects_adapter_without_requested_mode(adapter_registry):
-    pydapper.register_adapter("sync-only", commands=MockCommands, can_handle_connection=never_matches)
-    pydapper.register_adapter("async-only", async_commands=MockAsyncCommands, can_handle_connection=never_matches)
+    pydapper.register_adapter("sync-only", commands=MockCommands, using_connection_predicate=never_matches)
+    pydapper.register_adapter(
+        "async-only",
+        async_commands=MockAsyncCommands,
+        using_connection_predicate=never_matches,
+    )
 
     with pytest.raises(ValueError, match="sync-only") as sync_exc_info:
         pydapper.using_async(MockAsyncConnection(), adapter="sync-only")
@@ -188,7 +201,7 @@ def test_using_automatically_selects_the_single_matching_sync_adapter(adapter_re
     pydapper.register_adapter(
         "sync-match",
         commands=MockCommands,
-        can_handle_connection=lambda connection: isinstance(connection, MockConnection),
+        using_connection_predicate=lambda connection: isinstance(connection, MockConnection),
     )
 
     assert isinstance(pydapper.using(MockConnection()), MockCommands)
@@ -198,7 +211,7 @@ def test_using_async_automatically_selects_the_single_matching_async_adapter(ada
     pydapper.register_adapter(
         "async-match",
         async_commands=MockAsyncCommands,
-        can_handle_connection=lambda connection: isinstance(connection, MockAsyncConnection),
+        using_connection_predicate=lambda connection: isinstance(connection, MockAsyncConnection),
     )
 
     assert isinstance(pydapper.using_async(MockAsyncConnection()), MockAsyncCommands)
@@ -228,7 +241,7 @@ def test_automatic_selection_rejects_ambiguity_regardless_of_registration_order(
         return True
 
     for name in names:
-        pydapper.register_adapter(name, commands=MockCommands, can_handle_connection=matches)
+        pydapper.register_adapter(name, commands=MockCommands, using_connection_predicate=matches)
 
     connection = MockConnection()
     with pytest.raises(ValueError, match="adapter=") as exc_info:
@@ -245,11 +258,15 @@ def test_sync_selection_does_not_call_async_only_predicates(adapter_registry):
     def must_not_run(connection):
         raise AssertionError("mode-ineligible predicate was called")
 
-    pydapper.register_adapter("async-only", async_commands=MockAsyncCommands, can_handle_connection=must_not_run)
+    pydapper.register_adapter(
+        "async-only",
+        async_commands=MockAsyncCommands,
+        using_connection_predicate=must_not_run,
+    )
     pydapper.register_adapter(
         "sync-match",
         commands=MockCommands,
-        can_handle_connection=lambda connection: isinstance(connection, MockConnection),
+        using_connection_predicate=lambda connection: isinstance(connection, MockConnection),
     )
 
     assert isinstance(pydapper.using(MockConnection()), MockCommands)
@@ -259,11 +276,11 @@ def test_async_selection_does_not_call_sync_only_predicates(adapter_registry):
     def must_not_run(connection):
         raise AssertionError("mode-ineligible predicate was called")
 
-    pydapper.register_adapter("sync-only", commands=MockCommands, can_handle_connection=must_not_run)
+    pydapper.register_adapter("sync-only", commands=MockCommands, using_connection_predicate=must_not_run)
     pydapper.register_adapter(
         "async-match",
         async_commands=MockAsyncCommands,
-        can_handle_connection=lambda connection: isinstance(connection, MockAsyncConnection),
+        using_connection_predicate=lambda connection: isinstance(connection, MockAsyncConnection),
     )
 
     assert isinstance(pydapper.using_async(MockAsyncConnection()), MockAsyncCommands)
@@ -275,7 +292,7 @@ def test_automatic_selection_wraps_predicate_errors_with_the_original_cause(adap
     def raises(connection):
         raise cause
 
-    pydapper.register_adapter("failing", commands=MockCommands, can_handle_connection=raises)
+    pydapper.register_adapter("failing", commands=MockCommands, using_connection_predicate=raises)
 
     with pytest.raises(ValueError, match="failing") as exc_info:
         pydapper.using(MockConnection())
@@ -284,20 +301,40 @@ def test_automatic_selection_wraps_predicate_errors_with_the_original_cause(adap
 
 
 def test_connect_routes_to_the_registered_sync_adapter(adapter_registry):
-    pydapper.register_adapter("tests", commands=MockCommands, can_handle_connection=never_matches)
+    pydapper.register_adapter("tests", commands=MockCommands, using_connection_predicate=never_matches)
 
     assert isinstance(pydapper.connect(DSN), MockCommands)
 
 
 @pytest.mark.asyncio
 async def test_connect_async_routes_to_the_registered_async_adapter(adapter_registry):
-    pydapper.register_adapter("tests", async_commands=MockAsyncCommands, can_handle_connection=never_matches)
+    pydapper.register_adapter(
+        "tests",
+        async_commands=MockAsyncCommands,
+        using_connection_predicate=never_matches,
+    )
 
     assert isinstance(await pydapper.connect_async(DSN), MockAsyncCommands)
 
 
+@pytest.mark.asyncio
+async def test_dsn_selection_bypasses_using_connection_predicate(adapter_registry):
+    def predicate(connection):
+        raise AssertionError("DSN selection must not call predicates")
+
+    pydapper.register_adapter(
+        "tests",
+        commands=MockCommands,
+        async_commands=MockAsyncCommands,
+        using_connection_predicate=predicate,
+    )
+
+    assert isinstance(pydapper.connect(DSN), MockCommands)
+    assert isinstance(await pydapper.connect_async(DSN), MockAsyncCommands)
+
+
 def test_connect_uses_the_environment_dsn_fallback(adapter_registry, monkeypatch):
-    pydapper.register_adapter("tests", commands=MockCommands, can_handle_connection=never_matches)
+    pydapper.register_adapter("tests", commands=MockCommands, using_connection_predicate=never_matches)
     monkeypatch.setenv("PYDAPPER_DSN", DSN)
 
     assert isinstance(pydapper.connect(), MockCommands)
@@ -305,7 +342,11 @@ def test_connect_uses_the_environment_dsn_fallback(adapter_registry, monkeypatch
 
 @pytest.mark.asyncio
 async def test_connect_async_uses_the_environment_dsn_fallback(adapter_registry, monkeypatch):
-    pydapper.register_adapter("tests", async_commands=MockAsyncCommands, can_handle_connection=never_matches)
+    pydapper.register_adapter(
+        "tests",
+        async_commands=MockAsyncCommands,
+        using_connection_predicate=never_matches,
+    )
     monkeypatch.setenv("PYDAPPER_DSN", DSN)
 
     assert isinstance(await pydapper.connect_async(), MockAsyncCommands)
@@ -326,7 +367,7 @@ def test_connect_async_rejects_an_unknown_dsn_adapter(adapter_registry):
 
 
 def test_connect_async_rejects_an_adapter_without_async_support(adapter_registry):
-    pydapper.register_adapter("sync-only", commands=MockCommands, can_handle_connection=never_matches)
+    pydapper.register_adapter("sync-only", commands=MockCommands, using_connection_predicate=never_matches)
 
     with pytest.raises(ValueError, match="sync-only") as exc_info:
         pydapper.connect_async("some_db+sync-only://localhost")
@@ -335,7 +376,11 @@ def test_connect_async_rejects_an_adapter_without_async_support(adapter_registry
 
 
 def test_connect_rejects_an_adapter_without_sync_support(adapter_registry):
-    pydapper.register_adapter("async-only", async_commands=MockAsyncCommands, can_handle_connection=never_matches)
+    pydapper.register_adapter(
+        "async-only",
+        async_commands=MockAsyncCommands,
+        using_connection_predicate=never_matches,
+    )
 
     with pytest.raises(ValueError, match="async-only") as exc_info:
         pydapper.connect("some_db+async-only://localhost")

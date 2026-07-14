@@ -120,7 +120,7 @@ def adapter_registration_types() -> None:
         pydapper.register_adapter(
             "type-sync",
             commands=PydapperCommands,
-            can_handle_connection=_cannot_handle_connection,
+            using_connection_predicate=_cannot_handle_connection,
         ),
         None,
     )
@@ -128,7 +128,7 @@ def adapter_registration_types() -> None:
         pydapper.register_adapter(
             "type-async",
             async_commands=PydapperCommandsAsync,
-            can_handle_connection=_cannot_handle_connection,
+            using_connection_predicate=_cannot_handle_connection,
         ),
         None,
     )
@@ -137,7 +137,7 @@ def adapter_registration_types() -> None:
             "type-combined",
             commands=PydapperCommands,
             async_commands=PydapperCommandsAsync,
-            can_handle_connection=_cannot_handle_connection,
+            using_connection_predicate=_cannot_handle_connection,
         ),
         None,
     )

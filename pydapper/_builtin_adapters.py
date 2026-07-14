@@ -24,43 +24,45 @@ def _register_builtin_adapters() -> None:
     register_adapter(
         "sqlite3",
         commands=Sqlite3Commands,
-        can_handle_connection=lambda connection: _connection_module_matches(connection, "sqlite3"),
+        using_connection_predicate=lambda connection: _connection_module_matches(connection, "sqlite3"),
     )
     register_adapter(
         "psycopg2",
         commands=Psycopg2Commands,
-        can_handle_connection=lambda connection: _connection_module_matches(connection, "psycopg2"),
+        using_connection_predicate=lambda connection: _connection_module_matches(connection, "psycopg2"),
     )
     register_adapter(
         "psycopg",
         commands=Psycopg3Commands,
         async_commands=Psycopg3CommandsAsync,
-        can_handle_connection=lambda connection: _connection_module_matches(connection, "psycopg"),
+        using_connection_predicate=lambda connection: _connection_module_matches(connection, "psycopg"),
     )
     register_adapter(
         "aiopg",
         async_commands=AiopgCommands,
-        can_handle_connection=lambda connection: _connection_module_matches(connection, "aiopg"),
+        using_connection_predicate=lambda connection: _connection_module_matches(connection, "aiopg"),
     )
     register_adapter(
         "mysql",
         commands=MySqlConnectorPythonCommands,
-        can_handle_connection=lambda connection: _connection_module_matches(connection, "mysql.connector"),
+        using_connection_predicate=lambda connection: _connection_module_matches(connection, "mysql.connector"),
     )
     register_adapter(
         "pymssql",
         commands=PymssqlCommands,
-        can_handle_connection=lambda connection: _connection_module_matches(connection, "pymssql"),
+        using_connection_predicate=lambda connection: _connection_module_matches(connection, "pymssql"),
     )
     register_adapter(
         "oracledb",
         commands=OracledbCommands,
-        can_handle_connection=lambda connection: _connection_module_matches(connection, "oracledb"),
+        using_connection_predicate=lambda connection: _connection_module_matches(connection, "oracledb"),
     )
     register_adapter(
         "google",
         commands=GoogleBigqueryClientCommands,
-        can_handle_connection=lambda connection: _connection_module_matches(connection, "google.cloud.bigquery.dbapi"),
+        using_connection_predicate=lambda connection: _connection_module_matches(
+            connection, "google.cloud.bigquery.dbapi"
+        ),
     )
 
 

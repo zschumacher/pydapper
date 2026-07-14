@@ -1,7 +1,8 @@
 # Adapter registration
 
 `pydapper.register_adapter()` is the single way to register a DB-API adapter. An adapter registration provides
-the command implementation for one or both modes and a synchronous predicate used to recognize connection objects.
+the command implementation for one or both modes and a synchronous `using_connection_predicate` used only for
+automatic adapter selection of externally supplied connections through `using()` and `using_async()`.
 
 ```python
 import pydapper
@@ -21,7 +22,7 @@ class AcmeCommandsAsync(CommandsAsync):
         raise NotImplementedError
 
 
-def can_handle_connection(connection: object) -> bool:
+def is_acme_connection(connection: object) -> bool:
     module = type(connection).__module__
     return module == "acmedb" or module.startswith("acmedb.")
 
@@ -30,27 +31,31 @@ pydapper.register_adapter(
     "acmedb",
     commands=AcmeCommands,
     async_commands=AcmeCommandsAsync,
-    can_handle_connection=can_handle_connection,
+    using_connection_predicate=is_acme_connection,
 )
 ```
 
 `commands` must be a `Commands` subclass and `async_commands` must be a `CommandsAsync` subclass. Using the classes
-and predicate above, supply either one for a sync-only or async-only adapter, or both when the driver supports both
-modes:
+and using connection predicate above, supply either one for a sync-only or async-only adapter, or both when the driver
+supports both modes:
 
 ```python
 pydapper.register_adapter(
     "acmedb-sync",
     commands=AcmeCommands,
-    can_handle_connection=can_handle_connection,
+    using_connection_predicate=is_acme_connection,
 )
 
 pydapper.register_adapter(
     "acmedb-async",
     async_commands=AcmeCommandsAsync,
-    can_handle_connection=can_handle_connection,
+    using_connection_predicate=is_acme_connection,
 )
 ```
+
+The using connection predicate receives the externally supplied connection object. Return `True` to make the adapter
+eligible for automatic `using()` or `using_async()` selection, or `False` to leave it out. It is not a connection
+health check and is not used by explicit `adapter=` selection or DSN-based `connect()` / `connect_async()` calls.
 
 The registration name is exact and case-sensitive. It is also the DB-API part of a DSN, so registering `"acmedb"`
 allows `connect()` to route an `acme+acmedb://...` DSN to that adapter. Names must be non-empty strings without
@@ -63,8 +68,7 @@ raises `ValueError`, even if it appears identical. There is no replacement, prio
 ## Selecting an adapter for an existing connection
 
 When no adapter is named, `using()` and `using_async()` automatically consider the registrations that support the
-requested mode and run every eligible `can_handle_connection()` predicate. Exactly one matching predicate selects the
-adapter.
+requested mode and run every eligible using connection predicate. Exactly one matching predicate selects the adapter.
 
 ```python
 commands = pydapper.using(connection)
@@ -76,9 +80,9 @@ match also raises `ValueError`, names the matching adapters, and asks the caller
 order never resolves an ambiguous match. If a predicate raises an exception, selection raises `ValueError` identifying
 the adapter and preserves the original exception as its cause.
 
-Predicates should be synchronous and side-effect-free. In particular, they should inspect connection metadata without
-importing optional drivers. Built-in predicates inspect the class MRO so ordinary driver subclasses work, but arbitrary
-wrappers and proxies are intentionally not inferred.
+Using connection predicates should be synchronous and side-effect-free. In particular, they should inspect connection
+metadata without importing optional drivers. Built-in predicates inspect the class MRO so ordinary driver subclasses
+work, but arbitrary wrappers and proxies are intentionally not inferred.
 
 ## Explicit selection
 
@@ -90,10 +94,10 @@ commands = pydapper.using(connection, adapter="acmedb")
 async_commands = pydapper.using_async(async_connection, adapter="acmedb")
 ```
 
-`adapter` is keyword-only. Explicit selection looks up the exact registration name, never calls its predicate, and
-returns the command class for the requested mode. It is the supported escape hatch for wrappers, proxies, ambiguous
-connections, and objects automatic detection cannot recognize. An unknown name or a registered adapter without the
-requested sync/async mode raises `ValueError`.
+`adapter` is keyword-only. Explicit selection looks up the exact registration name, never calls its using connection
+predicate, and returns the command class for the requested mode. It is the supported escape hatch for wrappers,
+proxies, ambiguous connections, and objects automatic detection cannot recognize. An unknown name or a registered
+adapter without the requested sync/async mode raises `ValueError`.
 
 ## Migrating from decorator registration
 
@@ -110,14 +114,14 @@ class AcmeCommandsAsync(CommandsAsync):
     ...
 ```
 
-In v1, register the `AcmeCommands`, `AcmeCommandsAsync`, and `can_handle_connection` names defined above in one call:
+In v1, register the `AcmeCommands`, `AcmeCommandsAsync`, and `is_acme_connection` names defined above in one call:
 
 ```python
 pydapper.register_adapter(
     "acmedb",
     commands=AcmeCommands,
     async_commands=AcmeCommandsAsync,
-    can_handle_connection=can_handle_connection,
+    using_connection_predicate=is_acme_connection,
 )
 ```
 

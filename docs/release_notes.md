@@ -1,5 +1,7 @@
 ## Latest Changes
 
+* feat: stabilize adapter registration. PR [#539](https://github.com/zschumacher/pydapper/pull/539) by [@zschumacher](https://github.com/zschumacher).
+
 ### Breaking Changes
 
 * Adapter registration: `register` and `register_async` were removed. Use [`register_adapter`](adapter_registration.md) and explicit `adapter=` selection where needed.

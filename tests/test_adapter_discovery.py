@@ -156,9 +156,10 @@ def test_duplicate_exact_names_retain_every_provider(install_entry_points):
 
 def test_enumeration_order_does_not_change_catalog(install_entry_points):
     entries = [
-        FakeEntryPoint("acmedb", dist=FakeDistribution("zeta-dist")),
-        FakeEntryPoint("acmedb", dist=FakeDistribution("alpha-dist")),
-        FakeEntryPoint("otherdb", dist=FakeDistribution("other-dist")),
+        FakeEntryPoint("acmedb", value="zeta_mod:register", dist=FakeDistribution("zeta-dist")),
+        FakeEntryPoint("acmedb", value="beta_mod:register", dist=FakeDistribution("alpha-dist")),
+        FakeEntryPoint("acmedb", value="alpha_mod:register", dist=FakeDistribution("alpha-dist")),
+        FakeEntryPoint("otherdb", value="other_mod:register", dist=FakeDistribution("other-dist")),
     ]
     install_entry_points(entries)
     forward = _adapter_discovery._get_provider_catalog()
@@ -167,8 +168,20 @@ def test_enumeration_order_does_not_change_catalog(install_entry_points):
     install_entry_points(list(reversed(entries)))
     reversed_order = _adapter_discovery._get_provider_catalog()
 
+    def full_metadata(catalog):
+        return {
+            name: [(p.name, p.distribution, p.entry_point.value, p.entry_point.group) for p in providers]
+            for name, providers in catalog.items()
+        }
+
     assert list(forward) == list(reversed_order) == ["acmedb", "otherdb"]
-    assert [p.distribution for p in forward["acmedb"]] == [p.distribution for p in reversed_order["acmedb"]]
+    assert full_metadata(forward) == full_metadata(reversed_order)
+    # secondary entry-point-value key breaks the tie between same-distribution providers
+    assert [(p.distribution, p.entry_point.value) for p in forward["acmedb"]] == [
+        ("alpha-dist", "alpha_mod:register"),
+        ("alpha-dist", "beta_mod:register"),
+        ("zeta-dist", "zeta_mod:register"),
+    ]
 
 
 def test_distribution_provenance_is_retained(install_entry_points):
@@ -252,13 +265,32 @@ def test_validation_failure_is_not_cached_and_retry_succeeds(monkeypatch):
 
 def test_concurrent_first_discovery_enumerates_exactly_once(monkeypatch):
     # the first worker to win the discovery lock blocks inside enumeration until the main thread
-    # releases it, so every other worker is deterministically contending on the lock while the
-    # catalog is still unbuilt; a non-serialized implementation would enumerate more than once
+    # releases it, and the lock is instrumented to count acquire attempts, so enumeration is only
+    # released once every other worker is provably blocked on the lock with the catalog still
+    # unbuilt; a non-serialized implementation would then enumerate more than once
     thread_count = 4
     start_barrier = threading.Barrier(thread_count + 1)
     first_entered = threading.Event()
+    all_workers_at_lock = threading.Event()
     release = threading.Event()
     calls = []
+
+    class CountingLock:
+        def __init__(self, inner):
+            self._inner = inner
+            self._count_guard = threading.Lock()
+            self._acquire_attempts = 0
+
+        def __enter__(self):
+            with self._count_guard:
+                self._acquire_attempts += 1
+                if self._acquire_attempts >= thread_count:
+                    all_workers_at_lock.set()
+            self._inner.acquire()
+            return self
+
+        def __exit__(self, *exc_info):
+            self._inner.release()
 
     def blocking_entry_points(*, group):
         calls.append(group)
@@ -267,6 +299,7 @@ def test_concurrent_first_discovery_enumerates_exactly_once(monkeypatch):
         return [FakeEntryPoint("acmedb")]
 
     monkeypatch.setattr(importlib.metadata, "entry_points", blocking_entry_points)
+    monkeypatch.setattr(_adapter_discovery, "_catalog_lock", CountingLock(threading.Lock()))
 
     results = []
     errors = []
@@ -283,6 +316,7 @@ def test_concurrent_first_discovery_enumerates_exactly_once(monkeypatch):
         thread.start()
     start_barrier.wait(timeout=30)
     assert first_entered.wait(timeout=30)
+    assert all_workers_at_lock.wait(timeout=30)
     release.set()
     for thread in threads:
         thread.join()

@@ -5423,16 +5423,26 @@ class TestAdapterCapabilities:
     @pytest.fixture
     def async_commands(self):
         class CapableAsyncCommands(MockAsyncCommands):
-            capabilities = frozenset({AdapterCapability.TRANSACTIONS})
+            capabilities = frozenset({AdapterCapability.RAW_READER})
 
         return CapableAsyncCommands(MockAsyncConnection())
 
     @pytest.fixture(params=["sync", "async"])
-    def commands(self, request, sync_commands, async_commands):
-        return sync_commands if request.param == "sync" else async_commands
+    def commands_with_declared(self, request, sync_commands, async_commands):
+        """(commands, its declared capability, the other mode's capability) — the sets differ per mode so
+        capability declarations proven per class, not leaked across classes."""
+        if request.param == "sync":
+            return sync_commands, AdapterCapability.TRANSACTIONS, AdapterCapability.RAW_READER
+        return async_commands, AdapterCapability.RAW_READER, AdapterCapability.TRANSACTIONS
 
-    def test_supports_declared_capability(self, commands):
-        assert commands.supports(AdapterCapability.TRANSACTIONS) is True
+    @pytest.fixture
+    def commands(self, commands_with_declared):
+        return commands_with_declared[0]
+
+    def test_supports_declared_capability(self, commands_with_declared):
+        commands, declared, other_modes = commands_with_declared
+        assert commands.supports(declared) is True
+        assert commands.supports(other_modes) is False
         assert commands.supports(AdapterCapability.EXPLAIN) is False
 
     @pytest.mark.parametrize("bad", ["transactions", 1, None, object(), CommandKind.TEXT])
@@ -5440,13 +5450,17 @@ class TestAdapterCapabilities:
         with pytest.raises(TypeError):
             commands.supports(bad)
 
-    def test_require_capability_returns_none_when_supported(self, commands):
-        assert commands._require_capability(AdapterCapability.TRANSACTIONS) is None
+    def test_require_capability_returns_none_when_supported(self, commands_with_declared):
+        commands, declared, _ = commands_with_declared
+        assert commands._require_capability(declared) is None
 
-    def test_require_capability_raises_when_unsupported(self, commands):
+    def test_require_capability_raises_when_unsupported(self, commands_with_declared):
+        commands, _, other_modes = commands_with_declared
         with pytest.raises(UnsupportedFeatureError) as exc_info:
             commands._require_capability(AdapterCapability.MAX_ROWS)
         assert "max_rows" in str(exc_info.value)
+        with pytest.raises(UnsupportedFeatureError):
+            commands._require_capability(other_modes)
 
     @pytest.mark.parametrize("bad", ["transactions", 1, None, object()])
     def test_require_capability_rejects_non_enum_arguments(self, commands, bad):

@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: replace dsnparse with an owned URL DSN parser. PR [#557](https://github.com/zschumacher/pydapper/pull/557) by [@zschumacher](https://github.com/zschumacher).
 * v1: pydapper now owns its narrow URL-style DSN parser using the standard library's `urllib.parse`. A direct
   implementation is smaller and lower risk than vendoring a generic parser API that pydapper does not consume. This
   removes the mandatory `dsnparse` dependency, so it is no longer installed with pydapper, while preserving default and

@@ -308,6 +308,124 @@ class _AsyncCursorConnection:
         self.closed = 1
 
 
+class _MultiQueryExitCursor:
+    """Scripts per-query outcomes for query_multiple and records the native cursor lifecycle."""
+
+    rowcount = 0
+
+    def __init__(
+        self,
+        fetch_results=(((1, "Zach"),), ((2, "Bob"),)),
+        *,
+        execute_errors=(),
+        descriptions=None,
+        exit_error=None,
+        exit_return=None,
+    ):
+        self.events = []
+        self.exit_calls = 0
+        self.exit_args = None
+        self._fetch_results = tuple(fetch_results)
+        self._execute_errors = tuple(execute_errors)
+        self._descriptions = descriptions
+        self._exit_error = exit_error
+        self._exit_return = exit_return
+        self._query_index = -1
+
+    @property
+    def description(self):
+        if self._descriptions is not None:
+            return self._descriptions[self._query_index]
+        return ("id", "int"), ("name", "text")
+
+    def __enter__(self):
+        self.events.append("enter")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.exit_calls += 1
+        self.exit_args = exc_type, exc_val, exc_tb
+        self.exit_tb_was_active = exc_val is not None and exc_tb is exc_val.__traceback__
+        self.events.append(("exit", exc_type))
+        if self._exit_error is not None:
+            raise self._exit_error
+        return self._exit_return
+
+    def execute(self, sql, parameters=None):
+        self._query_index += 1
+        self.events.append(("execute", self._query_index))
+        if self._query_index < len(self._execute_errors):
+            error = self._execute_errors[self._query_index]
+            if error is not None:
+                raise error
+
+    def fetchall(self):
+        self.events.append(("fetchall", self._query_index))
+        result = self._fetch_results[self._query_index]
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+
+class _AsyncMultiQueryExitCursor:
+    """Scripts per-query outcomes for query_multiple_async and records the native cursor lifecycle."""
+
+    rowcount = 0
+
+    def __init__(
+        self,
+        fetch_results=(((1, "Zach"),), ((2, "Bob"),)),
+        *,
+        execute_errors=(),
+        descriptions=None,
+        exit_error=None,
+        exit_return=None,
+    ):
+        self.events = []
+        self.exit_calls = 0
+        self.exit_args = None
+        self._fetch_results = tuple(fetch_results)
+        self._execute_errors = tuple(execute_errors)
+        self._descriptions = descriptions
+        self._exit_error = exit_error
+        self._exit_return = exit_return
+        self._query_index = -1
+
+    @property
+    def description(self):
+        if self._descriptions is not None:
+            return self._descriptions[self._query_index]
+        return ("id", "int"), ("name", "text")
+
+    async def __aenter__(self):
+        self.events.append("enter")
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.exit_calls += 1
+        self.exit_args = exc_type, exc_val, exc_tb
+        self.exit_tb_was_active = exc_val is not None and exc_tb is exc_val.__traceback__
+        self.events.append(("exit", exc_type))
+        if self._exit_error is not None:
+            raise self._exit_error
+        return self._exit_return
+
+    async def execute(self, sql, parameters=None):
+        self._query_index += 1
+        self.events.append(("execute", self._query_index))
+        if self._query_index < len(self._execute_errors):
+            error = self._execute_errors[self._query_index]
+            if error is not None:
+                raise error
+
+    async def fetchall(self):
+        self.events.append(("fetchall", self._query_index))
+        result = self._fetch_results[self._query_index]
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+
 def _assert_duplicate_column_exception(exc_info):
     assert exc_info.value.columns == ("id", "name", "id")
     assert exc_info.value.duplicate_columns == ("id",)
@@ -2433,6 +2551,195 @@ class TestCommands:
         assert [len(rows) for rows in results] == [2, 2]
         assert all(isinstance(row, dict) for rows in results for row in rows)
 
+    def test_query_multiple_later_execute_error_wins_over_failing_cursor_exit(self):
+        execute_error = RuntimeError("second execute failed")
+        cursor = _MultiQueryExitCursor(
+            execute_errors=(None, execute_error),
+            exit_error=RuntimeError("cleanup failed"),
+        )
+        mapped = []
+
+        def mapper(row):
+            mapped.append(tuple(row.values))
+            return tuple(row.values)
+
+        # the first query's work is not rolled back (execution is not transactional), but raising here
+        # guarantees no partial tuple containing the first result can be returned
+        with pytest.raises(RuntimeError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).query_multiple(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=mapper,
+            )
+
+        assert exc_info.value is execute_error
+        assert mapped == [(1, "Zach")]
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, _ = cursor.exit_args
+        assert exc_type is RuntimeError
+        assert exc_val is execute_error
+        assert cursor.exit_tb_was_active
+        assert cursor.events == ["enter", ("execute", 0), ("fetchall", 0), ("execute", 1), ("exit", RuntimeError)]
+
+    @pytest.mark.parametrize("exit_behavior", ["raises", "truthy"])
+    def test_query_multiple_later_fetch_error_wins_over_native_cursor_exit(self, exit_behavior):
+        fetch_error = RuntimeError("second fetch failed")
+        cursor = _MultiQueryExitCursor(
+            fetch_results=(((1, "Zach"),), fetch_error),
+            exit_error=RuntimeError("cleanup failed") if exit_behavior == "raises" else None,
+            exit_return=True if exit_behavior == "truthy" else None,
+        )
+        mapped = []
+
+        def mapper(row):
+            mapped.append(tuple(row.values))
+            return tuple(row.values)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).query_multiple(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=mapper,
+            )
+
+        assert exc_info.value is fetch_error
+        assert mapped == [(1, "Zach")]
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, _ = cursor.exit_args
+        assert exc_type is RuntimeError
+        assert exc_val is fetch_error
+        assert cursor.exit_tb_was_active
+
+    def test_query_multiple_later_mapper_error_wins_over_failing_cursor_exit(self):
+        mapper_error = ValueError("second mapper failed")
+        cursor = _MultiQueryExitCursor(exit_error=RuntimeError("cleanup failed"))
+        mapped = []
+
+        def first_mapper(row):
+            mapped.append(tuple(row.values))
+            return tuple(row.values)
+
+        def second_mapper(row):
+            raise mapper_error
+
+        with pytest.raises(ValueError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).query_multiple(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=(first_mapper, second_mapper),
+            )
+
+        assert exc_info.value is mapper_error
+        assert mapped == [(1, "Zach")]
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, _ = cursor.exit_args
+        assert exc_type is ValueError
+        assert exc_val is mapper_error
+        # the second mapper ran inside the cursor lifecycle: its failure reached the native exit
+        assert cursor.events == [
+            "enter",
+            ("execute", 0),
+            ("fetchall", 0),
+            ("execute", 1),
+            ("fetchall", 1),
+            ("exit", ValueError),
+        ]
+
+    def test_query_multiple_later_no_result_error_is_active_during_cleanup(self):
+        cursor = _MultiQueryExitCursor(fetch_results=(((1, "Zach"),), tuple()))
+        mapped = []
+
+        def mapper(row):
+            mapped.append(tuple(row.values))
+            return tuple(row.values)
+
+        with pytest.raises(NoResultException) as exc_info:
+            MockCommands(_CursorConnection(cursor)).query_multiple(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=mapper,
+            )
+
+        assert mapped == [(1, "Zach")]
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, _ = cursor.exit_args
+        assert exc_type is NoResultException
+        assert exc_val is exc_info.value
+
+    def test_query_multiple_later_duplicate_column_error_is_active_during_cleanup(self):
+        cursor = _MultiQueryExitCursor(
+            fetch_results=(((1, "Zach"),), ((1, "Zach", 2),)),
+            descriptions=(
+                (("id", "int"), ("name", "text")),
+                (("id", "int"), ("name", "text"), ("id", "int")),
+            ),
+        )
+
+        with pytest.raises(DuplicateColumnException) as exc_info:
+            MockCommands(_CursorConnection(cursor)).query_multiple(
+                ("select id, name from some_table", "select id, name, id from another_table")
+            )
+
+        _assert_duplicate_column_exception(exc_info)
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, _ = cursor.exit_args
+        assert exc_type is DuplicateColumnException
+        assert exc_val is exc_info.value
+
+    def test_query_multiple_mapper_still_receives_later_duplicate_columns(self):
+        cursor = _MultiQueryExitCursor(
+            fetch_results=(((1, "Zach"),), ((1, "Zach", 2),)),
+            descriptions=(
+                (("id", "int"), ("name", "text")),
+                (("id", "int"), ("name", "text"), ("id", "int")),
+            ),
+        )
+
+        data1, data2 = MockCommands(_CursorConnection(cursor)).query_multiple(
+            ("select id, name from some_table", "select id, name, id from another_table"),
+            mapper=lambda row: row.values,
+        )
+
+        assert data1 == [(1, "Zach")]
+        assert data2 == [(1, "Zach", 2)]
+        assert cursor.exit_args == (None, None, None)
+
+    def test_query_multiple_propagates_native_cursor_exit_error_after_successful_batch(self):
+        cleanup_error = RuntimeError("cleanup failed")
+        cursor = _MultiQueryExitCursor(exit_error=cleanup_error)
+        mapped = []
+
+        def mapper(row):
+            mapped.append(tuple(row.values))
+            return tuple(row.values)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).query_multiple(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=mapper,
+            )
+
+        assert exc_info.value is cleanup_error
+        assert mapped == [(1, "Zach"), (2, "Bob")]
+        assert cursor.exit_calls == 1
+        assert cursor.exit_args == (None, None, None)
+
+    def test_query_multiple_runs_all_queries_on_one_cursor_lifecycle(self):
+        cursor = _MultiQueryExitCursor()
+
+        data1, data2 = MockCommands(_CursorConnection(cursor)).query_multiple(
+            ("select id, name from some_table", "select id, name from another_table")
+        )
+
+        assert data1 == [{"id": 1, "name": "Zach"}]
+        assert data2 == [{"id": 2, "name": "Bob"}]
+        assert cursor.exit_calls == 1
+        assert cursor.exit_args == (None, None, None)
+        assert cursor.events == [
+            "enter",
+            ("execute", 0),
+            ("fetchall", 0),
+            ("execute", 1),
+            ("fetchall", 1),
+            ("exit", None),
+        ]
+
     def test_query_first(self, connection):
         with MockCommands(connection) as commands:
             record = commands.query_first("select id, name from some_table", model=SimpleNamespace)
@@ -4027,6 +4334,203 @@ class TestCommandsAsync:
         assert isinstance(results, tuple)
         assert [len(rows) for rows in results] == [2, 2]
         assert all(isinstance(row, dict) for rows in results for row in rows)
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_async_later_execute_error_wins_over_failing_cursor_exit(self):
+        execute_error = RuntimeError("second execute failed")
+        cursor = _AsyncMultiQueryExitCursor(
+            execute_errors=(None, execute_error),
+            exit_error=RuntimeError("cleanup failed"),
+        )
+        mapped = []
+
+        def mapper(row):
+            mapped.append(tuple(row.values))
+            return tuple(row.values)
+
+        # the first query's work is not rolled back (execution is not transactional), but raising here
+        # guarantees no partial tuple containing the first result can be returned
+        with pytest.raises(RuntimeError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_multiple_async(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=mapper,
+            )
+
+        assert exc_info.value is execute_error
+        assert mapped == [(1, "Zach")]
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, _ = cursor.exit_args
+        assert exc_type is RuntimeError
+        assert exc_val is execute_error
+        assert cursor.exit_tb_was_active
+        assert cursor.events == ["enter", ("execute", 0), ("fetchall", 0), ("execute", 1), ("exit", RuntimeError)]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("exit_behavior", ["raises", "truthy"])
+    async def test_query_multiple_async_later_fetch_error_wins_over_native_cursor_exit(self, exit_behavior):
+        fetch_error = RuntimeError("second fetch failed")
+        cursor = _AsyncMultiQueryExitCursor(
+            fetch_results=(((1, "Zach"),), fetch_error),
+            exit_error=RuntimeError("cleanup failed") if exit_behavior == "raises" else None,
+            exit_return=True if exit_behavior == "truthy" else None,
+        )
+        mapped = []
+
+        def mapper(row):
+            mapped.append(tuple(row.values))
+            return tuple(row.values)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_multiple_async(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=mapper,
+            )
+
+        assert exc_info.value is fetch_error
+        assert mapped == [(1, "Zach")]
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, _ = cursor.exit_args
+        assert exc_type is RuntimeError
+        assert exc_val is fetch_error
+        assert cursor.exit_tb_was_active
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_async_later_mapper_error_wins_over_failing_cursor_exit(self):
+        mapper_error = ValueError("second mapper failed")
+        cursor = _AsyncMultiQueryExitCursor(exit_error=RuntimeError("cleanup failed"))
+        mapped = []
+
+        def first_mapper(row):
+            mapped.append(tuple(row.values))
+            return tuple(row.values)
+
+        def second_mapper(row):
+            raise mapper_error
+
+        with pytest.raises(ValueError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_multiple_async(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=(first_mapper, second_mapper),
+            )
+
+        assert exc_info.value is mapper_error
+        assert mapped == [(1, "Zach")]
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, _ = cursor.exit_args
+        assert exc_type is ValueError
+        assert exc_val is mapper_error
+        # the second mapper ran inside the cursor lifecycle: its failure reached the native exit
+        assert cursor.events == [
+            "enter",
+            ("execute", 0),
+            ("fetchall", 0),
+            ("execute", 1),
+            ("fetchall", 1),
+            ("exit", ValueError),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_async_later_no_result_error_is_active_during_cleanup(self):
+        cursor = _AsyncMultiQueryExitCursor(fetch_results=(((1, "Zach"),), tuple()))
+        mapped = []
+
+        def mapper(row):
+            mapped.append(tuple(row.values))
+            return tuple(row.values)
+
+        with pytest.raises(NoResultException) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_multiple_async(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=mapper,
+            )
+
+        assert mapped == [(1, "Zach")]
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, _ = cursor.exit_args
+        assert exc_type is NoResultException
+        assert exc_val is exc_info.value
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_async_later_duplicate_column_error_is_active_during_cleanup(self):
+        cursor = _AsyncMultiQueryExitCursor(
+            fetch_results=(((1, "Zach"),), ((1, "Zach", 2),)),
+            descriptions=(
+                (("id", "int"), ("name", "text")),
+                (("id", "int"), ("name", "text"), ("id", "int")),
+            ),
+        )
+
+        with pytest.raises(DuplicateColumnException) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_multiple_async(
+                ("select id, name from some_table", "select id, name, id from another_table")
+            )
+
+        _assert_duplicate_column_exception(exc_info)
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, _ = cursor.exit_args
+        assert exc_type is DuplicateColumnException
+        assert exc_val is exc_info.value
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_async_mapper_still_receives_later_duplicate_columns(self):
+        cursor = _AsyncMultiQueryExitCursor(
+            fetch_results=(((1, "Zach"),), ((1, "Zach", 2),)),
+            descriptions=(
+                (("id", "int"), ("name", "text")),
+                (("id", "int"), ("name", "text"), ("id", "int")),
+            ),
+        )
+
+        data1, data2 = await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_multiple_async(
+            ("select id, name from some_table", "select id, name, id from another_table"),
+            mapper=lambda row: row.values,
+        )
+
+        assert data1 == [(1, "Zach")]
+        assert data2 == [(1, "Zach", 2)]
+        assert cursor.exit_args == (None, None, None)
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_async_propagates_native_cursor_exit_error_after_successful_batch(self):
+        cleanup_error = RuntimeError("cleanup failed")
+        cursor = _AsyncMultiQueryExitCursor(exit_error=cleanup_error)
+        mapped = []
+
+        def mapper(row):
+            mapped.append(tuple(row.values))
+            return tuple(row.values)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_multiple_async(
+                ("select id, name from some_table", "select id, name from another_table"),
+                mapper=mapper,
+            )
+
+        assert exc_info.value is cleanup_error
+        assert mapped == [(1, "Zach"), (2, "Bob")]
+        assert cursor.exit_calls == 1
+        assert cursor.exit_args == (None, None, None)
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_async_runs_all_queries_on_one_cursor_lifecycle(self):
+        cursor = _AsyncMultiQueryExitCursor()
+
+        data1, data2 = await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_multiple_async(
+            ("select id, name from some_table", "select id, name from another_table")
+        )
+
+        assert data1 == [{"id": 1, "name": "Zach"}]
+        assert data2 == [{"id": 2, "name": "Bob"}]
+        assert cursor.exit_calls == 1
+        assert cursor.exit_args == (None, None, None)
+        assert cursor.events == [
+            "enter",
+            ("execute", 0),
+            ("fetchall", 0),
+            ("execute", 1),
+            ("fetchall", 1),
+            ("exit", None),
+        ]
 
     @pytest.mark.asyncio
     async def test_query_first(self, connection):

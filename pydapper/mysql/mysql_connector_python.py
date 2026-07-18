@@ -86,7 +86,7 @@ class MySqlConnectorPythonCommands(Commands):
         projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
-        with self.cursor() as cursor:
+        with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             headers = get_col_names(cursor)
             row = cursor.fetchone()
@@ -95,7 +95,7 @@ class MySqlConnectorPythonCommands(Commands):
             cursor.fetchall()
             if not maps_raw_row:
                 validate_no_duplicate_columns(headers)
-        return _project_row(projector, maps_raw_row, headers, row)
+            return _project_row(projector, maps_raw_row, headers, row)
 
     def _on_duplicate_columns(self, cursor: "CursorType") -> None:
         _discard_unread_result(cursor)

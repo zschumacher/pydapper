@@ -5430,7 +5430,7 @@ class TestAdapterCapabilities:
     @pytest.fixture(params=["sync", "async"])
     def commands_with_declared(self, request, sync_commands, async_commands):
         """(commands, its declared capability, the other mode's capability) — the sets differ per mode so
-        capability declarations proven per class, not leaked across classes."""
+        the tests prove declarations are per class rather than leaked across classes."""
         if request.param == "sync":
             return sync_commands, AdapterCapability.TRANSACTIONS, AdapterCapability.RAW_READER
         return async_commands, AdapterCapability.RAW_READER, AdapterCapability.TRANSACTIONS

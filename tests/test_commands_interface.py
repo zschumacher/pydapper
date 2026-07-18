@@ -4378,6 +4378,212 @@ class TestCommandsAsync:
         assert connection.cursor_instance.fetchall_calls == 0
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("exit_behavior", ["raises", "truthy"])
+    async def test_query_single_async_mapper_error_wins_over_native_cursor_exit(self, exit_behavior):
+        mapper_error = ValueError("mapper failed")
+
+        class RecordingExitAsyncCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                self.exit_tb_was_active = exc_tb is exc_val.__traceback__
+                if exit_behavior == "raises":
+                    raise RuntimeError("cleanup failed")
+                return True
+
+            async def execute(self, sql, parameters=None):
+                pass
+
+            async def fetchmany(self, size=None):
+                return ((1, "Zach"),)
+
+        def mapper(row):
+            raise mapper_error
+
+        cursor = RecordingExitAsyncCursor()
+
+        with pytest.raises(ValueError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_single_async(
+                "select id, name from some_table", mapper=mapper
+            )
+
+        assert exc_info.value is mapper_error
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is ValueError
+        assert exc_val is mapper_error
+        assert cursor.exit_tb_was_active
+
+    @pytest.mark.asyncio
+    async def test_query_single_async_propagates_native_cursor_exit_error_after_successful_mapping(self):
+        cleanup_error = RuntimeError("cleanup failed")
+
+        class FailingExitAsyncCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise cleanup_error
+
+            async def execute(self, sql, parameters=None):
+                pass
+
+            async def fetchmany(self, size=None):
+                return ((1, "Zach"),)
+
+        cursor = FailingExitAsyncCursor()
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_single_async(
+                "select id, name from some_table", mapper=lambda row: row["id"]
+            )
+
+        assert exc_info.value is cleanup_error
+        assert cursor.exit_calls == 1
+        assert cursor.exit_args == (None, None, None)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "rows, expected_exception",
+        [
+            ([], NoResultException),
+            ([(1, "Zach"), (2, "Bob"), (3, "Alice")], MoreThanOneResultException),
+        ],
+    )
+    async def test_query_single_async_cardinality_error_wins_over_native_cursor_exit_error(
+        self, rows, expected_exception
+    ):
+        class FailingExitAsyncCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+                self.fetchmany_calls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise RuntimeError("cleanup failed")
+
+            async def execute(self, sql, parameters=None):
+                pass
+
+            async def fetchmany(self, size=None):
+                self.fetchmany_calls.append(size)
+                return tuple(rows[:size])
+
+        cursor = FailingExitAsyncCursor()
+
+        with pytest.raises(expected_exception) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_single_async(
+                "select id, name from some_table"
+            )
+
+        assert cursor.fetchmany_calls == [2]
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is expected_exception
+        assert exc_val is exc_info.value
+
+    @pytest.mark.asyncio
+    async def test_query_single_async_duplicate_column_error_wins_over_native_cursor_exit_error(self):
+        class FailingExitAsyncCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text"), ("id", "int")
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                self.exit_tb_was_active = exc_tb is exc_val.__traceback__
+                raise RuntimeError("cleanup failed")
+
+            async def execute(self, sql, parameters=None):
+                pass
+
+            async def fetchmany(self, size=None):
+                return ((1, "Zach", 2),)
+
+        cursor = FailingExitAsyncCursor()
+
+        with pytest.raises(DuplicateColumnException) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_single_async(
+                "select id, name, id from some_table"
+            )
+
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is DuplicateColumnException
+        assert exc_val is exc_info.value
+        assert cursor.exit_tb_was_active
+
+    @pytest.mark.asyncio
+    async def test_query_single_async_enters_and_exits_cursor_exactly_once_on_success(self):
+        class RecordingAsyncCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.enter_calls = 0
+                self.exit_calls = 0
+                self.fetchmany_calls = []
+
+            async def __aenter__(self):
+                self.enter_calls += 1
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+
+            async def execute(self, sql, parameters=None):
+                pass
+
+            async def fetchmany(self, size=None):
+                self.fetchmany_calls.append(size)
+                return ((1, "Zach"),)
+
+        cursor = RecordingAsyncCursor()
+
+        record = await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_single_async(
+            "select id, name from some_table"
+        )
+
+        assert record == {"id": 1, "name": "Zach"}
+        assert cursor.enter_calls == 1
+        assert cursor.exit_calls == 1
+        assert cursor.fetchmany_calls == [2]
+
+    @pytest.mark.asyncio
     async def test_query_single_or_default(self, connection, set_fetchone_to_return_none):
         default = SimpleNamespace(id=10, name="default")
         async with MockAsyncCommands(connection) as commands:

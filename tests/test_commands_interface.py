@@ -10,6 +10,8 @@ import pytest
 import pydapper
 from pydapper import RawRow
 from pydapper._context import _AwaitableAsyncContextManager
+from pydapper.capabilities import AdapterCapability
+from pydapper.command_options import CommandKind
 from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
@@ -5381,3 +5383,72 @@ class TestCommandsAsync:
         exc_type, exc_val, exc_tb = cursor.exit_args
         assert exc_type is IndexError
         assert exc_val is exc_info.value
+
+
+class TestAdapterCapabilities:
+    EXPECTED_VALUES = {
+        "TRANSACTIONS": "transactions",
+        "LIST_EXPANSION": "list_expansion",
+        "RESULT_GRIDS": "result_grids",
+        "RAW_READER": "raw_reader",
+        "COMMAND_TIMEOUT": "command_timeout",
+        "STORED_PROCEDURES": "stored_procedures",
+        "OUTPUT_PARAMETERS": "output_parameters",
+        "SCHEMA_INSPECTION": "schema_inspection",
+        "SQL_VALIDATION": "sql_validation",
+        "EXPLAIN": "explain",
+        "READONLY": "readonly",
+        "MAX_ROWS": "max_rows",
+    }
+
+    def test_enum_members_and_values(self):
+        assert {member.name: member.value for member in AdapterCapability} == self.EXPECTED_VALUES
+
+    def test_importable_from_package_root(self):
+        assert pydapper.AdapterCapability is AdapterCapability
+
+    def test_default_declaration_is_immutable_frozenset(self):
+        assert MockCommands.capabilities == frozenset()
+        assert MockAsyncCommands.capabilities == frozenset()
+        assert isinstance(MockCommands.capabilities, frozenset)
+        assert not hasattr(MockCommands.capabilities, "add")
+
+    @pytest.fixture
+    def sync_commands(self):
+        class CapableCommands(MockCommands):
+            capabilities = frozenset({AdapterCapability.TRANSACTIONS})
+
+        return CapableCommands(MockConnection())
+
+    @pytest.fixture
+    def async_commands(self):
+        class CapableAsyncCommands(MockAsyncCommands):
+            capabilities = frozenset({AdapterCapability.TRANSACTIONS})
+
+        return CapableAsyncCommands(MockAsyncConnection())
+
+    @pytest.fixture(params=["sync", "async"])
+    def commands(self, request, sync_commands, async_commands):
+        return sync_commands if request.param == "sync" else async_commands
+
+    def test_supports_declared_capability(self, commands):
+        assert commands.supports(AdapterCapability.TRANSACTIONS) is True
+        assert commands.supports(AdapterCapability.EXPLAIN) is False
+
+    @pytest.mark.parametrize("bad", ["transactions", 1, None, object(), CommandKind.TEXT])
+    def test_supports_rejects_non_enum_arguments(self, commands, bad):
+        with pytest.raises(TypeError):
+            commands.supports(bad)
+
+    def test_require_capability_returns_none_when_supported(self, commands):
+        assert commands._require_capability(AdapterCapability.TRANSACTIONS) is None
+
+    def test_require_capability_raises_when_unsupported(self, commands):
+        with pytest.raises(UnsupportedFeatureError) as exc_info:
+            commands._require_capability(AdapterCapability.MAX_ROWS)
+        assert "max_rows" in str(exc_info.value)
+
+    @pytest.mark.parametrize("bad", ["transactions", 1, None, object()])
+    def test_require_capability_rejects_non_enum_arguments(self, commands, bad):
+        with pytest.raises(TypeError):
+            commands._require_capability(bad)

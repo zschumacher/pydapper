@@ -111,6 +111,18 @@ def public_exceptions() -> None:
     assert_type(RowMappingException(), RowMappingException)
 
 
+def adapter_capability_types() -> None:
+    assert_type(pydapper.AdapterCapability.TRANSACTIONS, Literal[pydapper.AdapterCapability.TRANSACTIONS])
+    sync_commands = cast(PydapperCommands, object())
+    async_commands = cast(PydapperCommandsAsync, object())
+    assert_type(sync_commands.capabilities, frozenset[pydapper.AdapterCapability])
+    assert_type(async_commands.capabilities, frozenset[pydapper.AdapterCapability])
+    assert_type(sync_commands.supports(pydapper.AdapterCapability.TRANSACTIONS), bool)
+    assert_type(async_commands.supports(pydapper.AdapterCapability.TRANSACTIONS), bool)
+    assert_type(sync_commands._require_capability(pydapper.AdapterCapability.TRANSACTIONS), None)
+    assert_type(async_commands._require_capability(pydapper.AdapterCapability.TRANSACTIONS), None)
+
+
 def _cannot_handle_connection(connection: object) -> bool:
     return False
 

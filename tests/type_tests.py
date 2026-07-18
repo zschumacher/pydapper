@@ -15,6 +15,7 @@ import pytest
 from typing_extensions import assert_type
 
 import pydapper
+from pydapper.commands import BaseSqlParamHandler
 from pydapper.commands import Commands as PydapperCommands
 from pydapper.commands import CommandsAsync as PydapperCommandsAsync
 from pydapper.exceptions import DuplicateColumnException
@@ -25,8 +26,12 @@ from pydapper.exceptions import NoResultException
 from pydapper.exceptions import PyDapperException
 from pydapper.exceptions import RowMappingException
 from pydapper.exceptions import UnsupportedFeatureError
+from pydapper.postgresql import Psycopg3CommandsAsync
+from pydapper.sqlite import Sqlite3Commands
 from pydapper.types import AsyncConnectionType
+from pydapper.types import AsyncCursorType
 from pydapper.types import ConnectionType
+from pydapper.types import CursorType
 
 """This file tests some of the more complex type annotations on the Commands and AsyncCommands classes"""
 
@@ -121,6 +126,27 @@ def adapter_capability_types() -> None:
     assert_type(async_commands.supports(pydapper.AdapterCapability.TRANSACTIONS), bool)
     assert_type(sync_commands._require_capability(pydapper.AdapterCapability.TRANSACTIONS), None)
     assert_type(async_commands._require_capability(pydapper.AdapterCapability.TRANSACTIONS), None)
+    # concrete first-party declarations stay typed as frozenset[AdapterCapability]
+    assert_type(Sqlite3Commands.capabilities, frozenset[pydapper.AdapterCapability])
+    assert_type(Psycopg3CommandsAsync.capabilities, frozenset[pydapper.AdapterCapability])
+
+
+def preparation_hook_types() -> None:
+    sync_commands = cast(PydapperCommands, object())
+    cursor = cast(CursorType, object())
+    handler = cast(BaseSqlParamHandler, object())
+    options = pydapper.CommandOptions()
+    assert_type(sync_commands._prepare_cursor(cursor, options=options), None)
+    assert_type(sync_commands._prepare_command(cursor, handler, options=options), None)
+
+
+async def preparation_hook_async_types() -> None:
+    async_commands = cast(PydapperCommandsAsync, object())
+    async_cursor = cast(AsyncCursorType, object())
+    handler = cast(BaseSqlParamHandler, object())
+    options = pydapper.CommandOptions()
+    assert_type(await async_commands._prepare_cursor_async(async_cursor, options=options), None)
+    assert_type(await async_commands._prepare_command_async(async_cursor, handler, options=options), None)
 
 
 def _cannot_handle_connection(connection: object) -> bool:

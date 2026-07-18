@@ -64,19 +64,31 @@ class UnorderableFraction(Fraction):
         raise TypeError("comparison is not supported")
 
 
-class LegacyDefaultCommands(OptionsCommands):
-    def query_first(self, sql, model=dict, param=None, *, mapper=None):
+class DelegatingDefaultCommands(OptionsCommands):
+    def __init__(self, connection):
+        super().__init__(connection)
+        self.received_options = []
+
+    def query_first(self, sql, model=dict, param=None, *, mapper=None, options=None):
+        self.received_options.append(options)
         return "first"
 
-    def query_single(self, sql, model=dict, param=None, *, mapper=None):
+    def query_single(self, sql, model=dict, param=None, *, mapper=None, options=None):
+        self.received_options.append(options)
         return "single"
 
 
-class LegacyDefaultCommandsAsync(OptionsCommandsAsync):
-    async def query_first_async(self, sql, model=dict, param=None, *, mapper=None):
+class DelegatingDefaultCommandsAsync(OptionsCommandsAsync):
+    def __init__(self, connection):
+        super().__init__(connection)
+        self.received_options = []
+
+    async def query_first_async(self, sql, model=dict, param=None, *, mapper=None, options=None):
+        self.received_options.append(options)
         return "first"
 
-    async def query_single_async(self, sql, model=dict, param=None, *, mapper=None):
+    async def query_single_async(self, sql, model=dict, param=None, *, mapper=None, options=None):
+        self.received_options.append(options)
         return "single"
 
 
@@ -171,21 +183,29 @@ def test_default_options_are_supported():
 
 
 @pytest.mark.parametrize("options", [None, pydapper.CommandOptions(), DerivedOptions()])
-def test_default_options_are_omitted_for_legacy_default_helper_overrides(options):
-    commands = LegacyDefaultCommands(NoCursorConnection())
+def test_default_helper_overrides_receive_normalized_options(options):
+    commands = DelegatingDefaultCommands(NoCursorConnection())
 
     assert commands.query_first_or_default("select 1", None, options=options) == "first"
     assert commands.query_single_or_default("select 1", None, options=options) == "single"
 
+    for received in commands.received_options:
+        if options is None:
+            assert received == pydapper.CommandOptions()
+        else:
+            assert received is options
+    assert len(commands.received_options) == 2
 
-def test_unsupported_options_fail_before_legacy_default_helper_overrides():
-    commands = LegacyDefaultCommands(NoCursorConnection())
+
+def test_unsupported_options_fail_before_default_helper_overrides():
+    commands = DelegatingDefaultCommands(NoCursorConnection())
     options = pydapper.CommandOptions(timeout=1)
 
     with pytest.raises(UnsupportedFeatureError, match="timeout"):
         commands.query_first_or_default("select 1", None, options=options)
     with pytest.raises(UnsupportedFeatureError, match="timeout"):
         commands.query_single_or_default("select 1", None, options=options)
+    assert commands.received_options == []
 
 
 def test_non_options_value_fails_clearly():
@@ -203,19 +223,27 @@ async def test_async_unsupported_options_fail_before_cursor_use():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("options", [None, pydapper.CommandOptions(), DerivedOptions()])
-async def test_default_options_are_omitted_for_legacy_async_default_helper_overrides(options):
-    commands = LegacyDefaultCommandsAsync(NoCursorConnection())
+async def test_async_default_helper_overrides_receive_normalized_options(options):
+    commands = DelegatingDefaultCommandsAsync(NoCursorConnection())
 
     assert await commands.query_first_or_default_async("select 1", None, options=options) == "first"
     assert await commands.query_single_or_default_async("select 1", None, options=options) == "single"
 
+    for received in commands.received_options:
+        if options is None:
+            assert received == pydapper.CommandOptions()
+        else:
+            assert received is options
+    assert len(commands.received_options) == 2
+
 
 @pytest.mark.asyncio
-async def test_unsupported_options_fail_before_legacy_async_default_helper_overrides():
-    commands = LegacyDefaultCommandsAsync(NoCursorConnection())
+async def test_unsupported_options_fail_before_async_default_helper_overrides():
+    commands = DelegatingDefaultCommandsAsync(NoCursorConnection())
     options = pydapper.CommandOptions(timeout=1)
 
     with pytest.raises(UnsupportedFeatureError, match="timeout"):
         await commands.query_first_or_default_async("select 1", None, options=options)
     with pytest.raises(UnsupportedFeatureError, match="timeout"):
         await commands.query_single_or_default_async("select 1", None, options=options)
+    assert commands.received_options == []

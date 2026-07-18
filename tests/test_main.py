@@ -132,6 +132,101 @@ def test_registration_validation_failure_is_atomic(adapter_registry):
     assert adapter_registry == before
 
 
+class DeclaredSyncCommands(MockCommands):
+    capabilities = frozenset({pydapper.AdapterCapability.TRANSACTIONS})
+
+
+class DeclaredAsyncCommands(MockAsyncCommands):
+    capabilities = frozenset({pydapper.AdapterCapability.RAW_READER, pydapper.AdapterCapability.EXPLAIN})
+
+
+def test_register_adapter_accepts_empty_capability_declarations(adapter_registry):
+    pydapper.register_adapter(
+        "empty-capabilities",
+        commands=MockCommands,
+        async_commands=MockAsyncCommands,
+        using_connection_predicate=never_matches,
+    )
+
+    registration = adapter_registry["empty-capabilities"]
+    assert registration.commands.capabilities == frozenset()
+    assert registration.async_commands.capabilities == frozenset()
+
+
+def test_register_adapter_accepts_distinct_nonempty_per_mode_declarations(adapter_registry):
+    pydapper.register_adapter(
+        "declared-capabilities",
+        commands=DeclaredSyncCommands,
+        async_commands=DeclaredAsyncCommands,
+        using_connection_predicate=never_matches,
+    )
+
+    registration = adapter_registry["declared-capabilities"]
+    assert registration.commands.capabilities == frozenset({pydapper.AdapterCapability.TRANSACTIONS})
+    assert registration.async_commands.capabilities == frozenset(
+        {pydapper.AdapterCapability.RAW_READER, pydapper.AdapterCapability.EXPLAIN}
+    )
+    assert registration.commands.capabilities != registration.async_commands.capabilities
+
+
+INVALID_CAPABILITY_DECLARATIONS = [
+    pytest.param({pydapper.AdapterCapability.TRANSACTIONS}, id="mutable-set"),
+    pytest.param((pydapper.AdapterCapability.TRANSACTIONS,), id="tuple"),
+    pytest.param([pydapper.AdapterCapability.TRANSACTIONS], id="list"),
+    pytest.param("transactions", id="raw-string"),
+    pytest.param(frozenset({"transactions"}), id="raw-string-member"),
+    pytest.param(frozenset({pydapper.AdapterCapability.TRANSACTIONS, "explain"}), id="mixed-members"),
+    pytest.param(frozenset({pydapper.AdapterCapability.TRANSACTIONS, 1}), id="unrelated-member"),
+    pytest.param(object(), id="unrelated-object"),
+    pytest.param(None, id="none"),
+]
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+@pytest.mark.parametrize("declared", INVALID_CAPABILITY_DECLARATIONS)
+def test_register_adapter_rejects_invalid_capability_declarations_atomically(adapter_registry, mode, declared):
+    before = adapter_registry.copy()
+    if mode == "sync":
+        kwargs = {"commands": type("InvalidCapabilityCommands", (MockCommands,), {"capabilities": declared})}
+    else:
+        kwargs = {
+            "async_commands": type("InvalidCapabilityCommandsAsync", (MockAsyncCommands,), {"capabilities": declared})
+        }
+
+    with pytest.raises(TypeError) as exc_info:
+        pydapper.register_adapter("invalid-capabilities", using_connection_predicate=never_matches, **kwargs)
+
+    assert "capabilities" in str(exc_info.value)
+    assert adapter_registry == before
+
+
+@pytest.mark.parametrize("invalid_mode", ["sync", "async"])
+def test_register_adapter_capability_failure_in_one_mode_fails_the_whole_registration(adapter_registry, invalid_mode):
+    before = adapter_registry.copy()
+    invalid_sync = type("InvalidCapabilityCommands", (MockCommands,), {"capabilities": {"transactions"}})
+    invalid_async = type("InvalidCapabilityCommandsAsync", (MockAsyncCommands,), {"capabilities": {"transactions"}})
+    commands = invalid_sync if invalid_mode == "sync" else DeclaredSyncCommands
+    async_commands = invalid_async if invalid_mode == "async" else DeclaredAsyncCommands
+
+    with pytest.raises(TypeError) as exc_info:
+        pydapper.register_adapter(
+            "half-invalid",
+            commands=commands,
+            async_commands=async_commands,
+            using_connection_predicate=never_matches,
+        )
+
+    message = str(exc_info.value)
+    if invalid_mode == "sync":
+        assert "commands" in message
+        assert "async_commands" not in message
+    else:
+        assert "async_commands" in message
+    assert "capabilities" in message
+    assert "half-invalid" not in adapter_registry
+    assert adapter_registry == before
+
+
 def test_duplicate_registration_is_rejected_without_mutating_the_original(adapter_registry):
     pydapper.register_adapter("duplicate", commands=MockCommands, using_connection_predicate=never_matches)
     original_registration = adapter_registry["duplicate"]
@@ -422,6 +517,41 @@ def test_connect_rejects_an_adapter_without_sync_support(adapter_registry):
         pydapper.connect("some_db+async-only://localhost")
 
     assert "sync" in str(exc_info.value)
+
+
+FIRST_PARTY_COMMAND_CLASSES = [
+    Sqlite3Commands,
+    Psycopg2Commands,
+    Psycopg3Commands,
+    Psycopg3CommandsAsync,
+    AiopgCommands,
+    MySqlConnectorPythonCommands,
+    PymssqlCommands,
+    OracledbCommands,
+    GoogleBigqueryClientCommands,
+]
+
+
+@pytest.mark.parametrize("command_class", FIRST_PARTY_COMMAND_CLASSES, ids=lambda command_class: command_class.__name__)
+def test_first_party_command_classes_declare_explicit_empty_capability_sets(command_class):
+    declared = vars(command_class).get("capabilities")
+
+    assert declared is not None, f"{command_class.__name__} must declare capabilities directly, not inherit the default"
+    assert type(declared) is frozenset
+    assert all(isinstance(member, pydapper.AdapterCapability) for member in declared)
+    # no optional capability is implemented yet, so any non-empty set would be an overclaim
+    assert declared == frozenset()
+
+
+def test_first_party_capability_audit_covers_every_registered_command_class():
+    registered = {
+        command_class
+        for registration in main._adapter_registry.values()
+        for command_class in (registration.commands, registration.async_commands)
+        if command_class is not None
+    }
+
+    assert registered == set(FIRST_PARTY_COMMAND_CLASSES)
 
 
 def test_builtin_adapter_name_and_command_class_mappings():

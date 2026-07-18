@@ -146,7 +146,21 @@ rewriting older entries to fit the current format.
 
 Adapter guarantees are capability-scoped: a documented operation is stable
 when the selected adapter declares support for it, while unsupported or
-adapter-specific behavior must be identified as such. The adapter package
+adapter-specific behavior must be identified as such. `AdapterCapability`,
+the `capabilities` declaration, `supports()`, and the validation of
+declarations during `register_adapter()` are part of the documented adapter
+contract.
+
+The documented preparation hooks — `_prepare_cursor`, `_prepare_command`,
+`_prepare_cursor_async`, and `_prepare_command_async` — are an explicit
+exception to the underscore rule above: although their names begin with an
+underscore, they are documented adapter-author extension points. Their
+signatures, their invocation order (cursor preparation once per acquired
+cursor, command preparation once per executed handler, both between cursor
+entry and handler execution), the normalized non-`None` `CommandOptions`
+argument they receive, and their documented error behavior are
+compatibility-sensitive. They are extension points for adapter authors, not
+ordinary query APIs. The adapter package
 split and the concrete decision about legacy in-core imports such as
 `pydapper.postgresql`, `pydapper.mysql`, and `pydapper.sqlite` belong to
 [#501](https://github.com/zschumacher/pydapper/issues/501). This policy does

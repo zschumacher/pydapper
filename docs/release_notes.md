@@ -1,5 +1,19 @@
 ## Latest Changes
 
+* feat: validate adapter capability declarations and add command preparation hooks.
+  `register_adapter()` now validates each supplied command class's `capabilities`
+  declaration (a `frozenset` of `AdapterCapability` members) for both modes before the
+  registry is touched, so an invalid declaration fails atomically. Every first-party
+  command class explicitly declares its current — empty — capability set, and
+  `commands.supports(AdapterCapability.X)` reports declared support. New documented,
+  compatibility-sensitive adapter-author preparation seams run inside the command-owned
+  cursor lifecycle for every sync and async command family: `_prepare_cursor*()` once per
+  acquired cursor and `_prepare_command*()` once per executed handler, both receiving a
+  normalized `CommandOptions` instance. No optional capability (transactions, timeouts,
+  stored procedures, readonly, max rows, etc.) is implemented by this change. Subclass
+  overrides of `query_first`, `query_single`, and their async equivalents must now accept
+  the `options=` keyword, because the `*_or_default` helpers forward the normalized
+  options instead of discarding them.
 * feat: add AdapterCapability vocabulary and command capability checks. PR [#554](https://github.com/zschumacher/pydapper/pull/554) by [@zschumacher](https://github.com/zschumacher).
 * test: cover query_multiple runtime failures inside the command-owned cursor lifecycle. PR [#553](https://github.com/zschumacher/pydapper/pull/553) by [@zschumacher](https://github.com/zschumacher).
 * fix: project query_single rows inside the command-owned cursor lifecycle. PR [#551](https://github.com/zschumacher/pydapper/pull/551) by [@zschumacher](https://github.com/zschumacher).

@@ -406,6 +406,31 @@ class Commands(BaseCommands, ABC):
     def cursor(self, *args, **kwargs) -> "CursorType":
         return self.connection.cursor(*args, **kwargs)
 
+    def _prepare_cursor(self, cursor: "CursorType", *, options: CommandOptions) -> None:
+        """Adapter-author hook run exactly once per command-owned cursor, immediately after the
+        cursor is entered and before any handler is prepared or executed.
+
+        ``options`` is always a normalized ``CommandOptions`` instance, never ``None``, and must
+        not be mutated. The hook may configure the entered cursor but must not acquire, replace,
+        enter, or close a cursor, execute SQL, or fetch rows. An exception raised here is treated
+        as an active command error: the cursor is cleaned up through the shared lifecycle and the
+        preparation exception propagates.
+        """
+
+    def _prepare_command(
+        self,
+        cursor: "CursorType",
+        handler: BaseSqlParamHandler,
+        *,
+        options: CommandOptions,
+    ) -> None:
+        """Adapter-author hook run exactly once per executed handler, immediately before that
+        handler executes on the already-prepared cursor.
+
+        The handler exposes ``prepared_sql`` and ``ordered_param_values`` for inspection. The same
+        restrictions and error behavior as ``_prepare_cursor`` apply.
+        """
+
     @overload
     def execute(self, sql: str, params: Union["ParamType", "ListParamType"] = None) -> int: ...
 
@@ -423,13 +448,15 @@ class Commands(BaseCommands, ABC):
     ) -> int: ...
 
     def execute(self, sql, params=_PARAM_ALIAS_UNSET, *, param=_PARAM_ALIAS_UNSET, options=None):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         if _is_empty_executemany_params(resolved_params):
             return 0
 
         handler = self.SqlParamHandler(sql, resolved_params)
         with self._cursor_context_proxy() as cursor:
+            self._prepare_cursor(cursor, options=resolved_options)
+            self._prepare_command(cursor, handler, options=resolved_options)
             rowcount = handler.execute(cursor)
         return rowcount
 
@@ -438,8 +465,11 @@ class Commands(BaseCommands, ABC):
         handler: BaseSqlParamHandler,
         projector: Union[Type["_T"], Callable[..., "_T"]],
         maps_raw_row: bool,
+        options: CommandOptions,
     ) -> List["_T"]:
         with self._cursor_context_proxy() as cursor:
+            self._prepare_cursor(cursor, options=options)
+            self._prepare_command(cursor, handler, options=options)
             handler.execute(cursor)
             headers = get_col_names(cursor)
             if not maps_raw_row:
@@ -456,8 +486,11 @@ class Commands(BaseCommands, ABC):
         handler: BaseSqlParamHandler,
         projector: Union[Type["_T"], Callable[..., "_T"]],
         maps_raw_row: bool,
+        options: CommandOptions,
     ) -> Generator["_T", None, None]:
         with self._cursor_context_proxy() as cursor:
+            self._prepare_cursor(cursor, options=options)
+            self._prepare_command(cursor, handler, options=options)
             handler.execute(cursor)
             headers = get_col_names(cursor)
             if not maps_raw_row:
@@ -758,14 +791,14 @@ class Commands(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
         projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
         if buffered:
-            return self._buffered_query(handler, projector, maps_raw_row)
-        return self._unbuffered_query(handler, projector, maps_raw_row)
+            return self._buffered_query(handler, projector, maps_raw_row, resolved_options)
+        return self._unbuffered_query(handler, projector, maps_raw_row, resolved_options)
 
     # endregion
 
@@ -983,7 +1016,7 @@ class Commands(BaseCommands, ABC):
         :todo use TypeVarTuple for the variadic types of models once the mypy support is better such that type checkers
               and hinters will be able to infer which model type you're working with.  Leaving this as is for now...
         """
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
 
@@ -1008,7 +1041,9 @@ class Commands(BaseCommands, ABC):
 
         results = list()
         with self._cursor_context_proxy() as cursor:
+            self._prepare_cursor(cursor, options=resolved_options)
             for query, projector, handler in zip(queries, projectors, handlers):
+                self._prepare_command(cursor, handler, options=resolved_options)
                 handler.execute(cursor)
                 headers = get_col_names(cursor)
                 data = cursor.fetchall()
@@ -1113,13 +1148,15 @@ class Commands(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
         projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         with self._cursor_context_proxy() as cursor:
+            self._prepare_cursor(cursor, options=resolved_options)
+            self._prepare_command(cursor, handler, options=resolved_options)
             handler.execute(cursor)
             headers = get_col_names(cursor)
             row = cursor.fetchone()
@@ -1316,15 +1353,15 @@ class Commands(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
             if mapper is not _MAPPER_UNSET:
-                return self.query_first(sql, param=resolved_params, mapper=mapper)
+                return self.query_first(sql, param=resolved_params, mapper=mapper, options=resolved_options)
             if model is _MODEL_UNSET:
-                return self.query_first(sql, param=resolved_params)
-            return self.query_first(sql, model=model, param=resolved_params)
+                return self.query_first(sql, param=resolved_params, options=resolved_options)
+            return self.query_first(sql, model=model, param=resolved_params, options=resolved_options)
         except NoResultException:
             return _resolve_default_value(default)
 
@@ -1418,13 +1455,15 @@ class Commands(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
         projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         with self._cursor_context_proxy() as cursor:
+            self._prepare_cursor(cursor, options=resolved_options)
+            self._prepare_command(cursor, handler, options=resolved_options)
             handler.execute(cursor)
             headers = get_col_names(cursor)
             data = _fetch_at_most_two_rows(cursor)
@@ -1628,15 +1667,15 @@ class Commands(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
             if mapper is not _MAPPER_UNSET:
-                return self.query_single(sql, param=resolved_params, mapper=mapper)
+                return self.query_single(sql, param=resolved_params, mapper=mapper, options=resolved_options)
             if model is _MODEL_UNSET:
-                return self.query_single(sql, param=resolved_params)
-            return self.query_single(sql, model=model, param=resolved_params)
+                return self.query_single(sql, param=resolved_params, options=resolved_options)
+            return self.query_single(sql, model=model, param=resolved_params, options=resolved_options)
         except NoResultException:
             return _resolve_default_value(default)
 
@@ -1657,11 +1696,13 @@ class Commands(BaseCommands, ABC):
     ) -> Any: ...
 
     def execute_scalar(self, sql, params=_PARAM_ALIAS_UNSET, *, param=_PARAM_ALIAS_UNSET, options=None):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
         with self._cursor_context_proxy() as cursor:
+            self._prepare_cursor(cursor, options=resolved_options)
+            self._prepare_command(cursor, handler, options=resolved_options)
             handler.execute(cursor)
             first_row = cursor.fetchone()
             if first_row is None:
@@ -1687,6 +1728,31 @@ class CommandsAsync(BaseCommands, ABC):
     def cursor(self, *args, **kwargs) -> "_AwaitableAsyncContextManager[AsyncCursorType, AsyncCursorType]":
         return _AwaitableAsyncContextManager(self.connection.cursor(*args, **kwargs), preserve_active_error=True)
 
+    async def _prepare_cursor_async(self, cursor: "AsyncCursorType", *, options: CommandOptions) -> None:
+        """Adapter-author hook run exactly once per command-owned cursor, immediately after the
+        cursor is entered and before any handler is prepared or executed.
+
+        ``options`` is always a normalized ``CommandOptions`` instance, never ``None``, and must
+        not be mutated. The hook may configure the entered cursor but must not acquire, replace,
+        enter, or close a cursor, execute SQL, or fetch rows. An exception raised here is treated
+        as an active command error: the cursor is cleaned up through the shared lifecycle and the
+        preparation exception propagates.
+        """
+
+    async def _prepare_command_async(
+        self,
+        cursor: "AsyncCursorType",
+        handler: BaseSqlParamHandler,
+        *,
+        options: CommandOptions,
+    ) -> None:
+        """Adapter-author hook run exactly once per executed handler, immediately before that
+        handler executes on the already-prepared cursor.
+
+        The handler exposes ``prepared_sql`` and ``ordered_param_values`` for inspection. The same
+        restrictions and error behavior as ``_prepare_cursor_async`` apply.
+        """
+
     @overload
     async def execute_async(self, sql: str, params: Union["ParamType", "ListParamType"] = None) -> int: ...
 
@@ -1704,13 +1770,15 @@ class CommandsAsync(BaseCommands, ABC):
     ) -> int: ...
 
     async def execute_async(self, sql, params=_PARAM_ALIAS_UNSET, *, param=_PARAM_ALIAS_UNSET, options=None):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         if _is_empty_executemany_params(resolved_params):
             return 0
 
         handler = self.SqlParamHandler(sql, resolved_params)
         async with self.cursor() as cursor:
+            await self._prepare_cursor_async(cursor, options=resolved_options)
+            await self._prepare_command_async(cursor, handler, options=resolved_options)
             return await handler.execute_async(cursor)
 
     async def _buffered_query(
@@ -1718,8 +1786,11 @@ class CommandsAsync(BaseCommands, ABC):
         handler: BaseSqlParamHandler,
         projector: Union[Type["_T"], Callable[..., "_T"]],
         maps_raw_row: bool,
+        options: CommandOptions,
     ) -> List["_T"]:
         async with self.cursor() as cursor:
+            await self._prepare_cursor_async(cursor, options=options)
+            await self._prepare_command_async(cursor, handler, options=options)
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
             if not maps_raw_row:
@@ -1736,8 +1807,11 @@ class CommandsAsync(BaseCommands, ABC):
         handler: BaseSqlParamHandler,
         projector: Union[Type["_T"], Callable[..., "_T"]],
         maps_raw_row: bool,
+        options: CommandOptions,
     ) -> AsyncGenerator["_T", None]:
         async with self.cursor() as cursor:
+            await self._prepare_cursor_async(cursor, options=options)
+            await self._prepare_command_async(cursor, handler, options=options)
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
             if not maps_raw_row:
@@ -2035,15 +2109,15 @@ class CommandsAsync(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
         projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
         if buffered:
-            records = await self._buffered_query(handler, projector, maps_raw_row)
+            records = await self._buffered_query(handler, projector, maps_raw_row, resolved_options)
             return records
-        return self._unbuffered_query(handler, projector, maps_raw_row)
+        return self._unbuffered_query(handler, projector, maps_raw_row, resolved_options)
 
     @overload
     async def query_multiple_async(
@@ -2259,7 +2333,7 @@ class CommandsAsync(BaseCommands, ABC):
         :todo use TypeVarTuple for the variadic types of models once the mypy support is better such that type checkers
               and hinters will be able to infer which model type you're working with.  Leaving this as is for now...
         """
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
 
@@ -2284,7 +2358,9 @@ class CommandsAsync(BaseCommands, ABC):
 
         results = list()
         async with self.cursor() as cursor:
+            await self._prepare_cursor_async(cursor, options=resolved_options)
             for query, projector, handler in zip(queries, projectors, handlers):
+                await self._prepare_command_async(cursor, handler, options=resolved_options)
                 await handler.execute_async(cursor)
                 headers = get_col_names(cursor)
                 data = await cursor.fetchall()
@@ -2389,13 +2465,15 @@ class CommandsAsync(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
         projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         async with self.cursor() as cursor:
+            await self._prepare_cursor_async(cursor, options=resolved_options)
+            await self._prepare_command_async(cursor, handler, options=resolved_options)
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
             row = await cursor.fetchone()
@@ -2592,15 +2670,15 @@ class CommandsAsync(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
             if mapper is not _MAPPER_UNSET:
-                return await self.query_first_async(sql, param=resolved_params, mapper=mapper)
+                return await self.query_first_async(sql, param=resolved_params, mapper=mapper, options=resolved_options)
             if model is _MODEL_UNSET:
-                return await self.query_first_async(sql, param=resolved_params)
-            return await self.query_first_async(sql, model=model, param=resolved_params)
+                return await self.query_first_async(sql, param=resolved_params, options=resolved_options)
+            return await self.query_first_async(sql, model=model, param=resolved_params, options=resolved_options)
         except NoResultException:
             return _resolve_default_value(default)
 
@@ -2694,13 +2772,15 @@ class CommandsAsync(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
         projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         async with self.cursor() as cursor:
+            await self._prepare_cursor_async(cursor, options=resolved_options)
+            await self._prepare_command_async(cursor, handler, options=resolved_options)
             await handler.execute_async(cursor)
             headers = get_col_names(cursor)
             data = await _fetch_at_most_two_rows_async(cursor)
@@ -2903,15 +2983,17 @@ class CommandsAsync(BaseCommands, ABC):
         mapper=_MAPPER_UNSET,
         options=None,
     ):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _resolve_row_projector(model, mapper)
         try:
             if mapper is not _MAPPER_UNSET:
-                return await self.query_single_async(sql, param=resolved_params, mapper=mapper)
+                return await self.query_single_async(
+                    sql, param=resolved_params, mapper=mapper, options=resolved_options
+                )
             if model is _MODEL_UNSET:
-                return await self.query_single_async(sql, param=resolved_params)
-            return await self.query_single_async(sql, model=model, param=resolved_params)
+                return await self.query_single_async(sql, param=resolved_params, options=resolved_options)
+            return await self.query_single_async(sql, model=model, param=resolved_params, options=resolved_options)
         except NoResultException:
             return _resolve_default_value(default)
 
@@ -2932,11 +3014,13 @@ class CommandsAsync(BaseCommands, ABC):
     ) -> Any: ...
 
     async def execute_scalar_async(self, sql, params=_PARAM_ALIAS_UNSET, *, param=_PARAM_ALIAS_UNSET, options=None):
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
         handler = self.SqlParamHandler(sql, resolved_params)
         async with self.cursor() as cursor:
+            await self._prepare_cursor_async(cursor, options=resolved_options)
+            await self._prepare_command_async(cursor, handler, options=resolved_options)
             await handler.execute_async(cursor)
             first_row = await cursor.fetchone()
             if first_row is None:

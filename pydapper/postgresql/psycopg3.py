@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
+from typing import ClassVar
 
+from pydapper.capabilities import AdapterCapability
 from pydapper.commands import Commands
 from pydapper.commands import CommandsAsync
 
@@ -11,6 +13,8 @@ if TYPE_CHECKING:
 
 
 class Psycopg3Commands(Commands):
+    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset()
+
     @classmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands":
         psycopg = import_dbapi_module("psycopg")
@@ -26,6 +30,8 @@ class Psycopg3Commands(Commands):
 
 
 class Psycopg3CommandsAsync(CommandsAsync):
+    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset()
+
     @classmethod
     async def connect_async(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "CommandsAsync":
         psycopg = import_dbapi_module("psycopg")

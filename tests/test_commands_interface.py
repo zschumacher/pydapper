@@ -2866,6 +2866,114 @@ class TestCommands:
         with MockCommands(connection) as commands:
             assert commands.execute_scalar("select nullable_column from some_table") is None
 
+    @pytest.mark.parametrize("value", [0, False, ""], ids=["zero", "false", "empty-string"])
+    def test_execute_scalar_preserves_falsey_first_column_values(self, value):
+        cursor = _PlainQueryCursor(rows=[(value,)])
+        with MockCommands(_CursorConnection(cursor)) as commands:
+            assert commands.execute_scalar("select flag from some_table") == value
+
+    @pytest.mark.parametrize("exit_behavior", ["raises", "truthy"])
+    def test_execute_scalar_no_result_error_wins_over_native_cursor_exit(self, exit_behavior):
+        class RecordingExitCursor:
+            rowcount = 0
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                self.exit_tb_was_active = exc_tb is exc_val.__traceback__
+                if exit_behavior == "raises":
+                    raise RuntimeError("cleanup failed")
+                return True
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchone(self):
+                return None
+
+        cursor = RecordingExitCursor()
+
+        with pytest.raises(NoResultException) as exc_info:
+            MockCommands(_CursorConnection(cursor)).execute_scalar("select id from some_table")
+
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is NoResultException
+        assert exc_val is exc_info.value
+        assert cursor.exit_tb_was_active
+
+    def test_execute_scalar_propagates_native_cursor_exit_error_after_successful_fetch(self):
+        cleanup_error = RuntimeError("cleanup failed")
+
+        class FailingExitCursor:
+            rowcount = 0
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise cleanup_error
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchone(self):
+                return (42,)
+
+        cursor = FailingExitCursor()
+
+        with pytest.raises(RuntimeError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).execute_scalar("select id from some_table")
+
+        assert exc_info.value is cleanup_error
+        assert cursor.exit_calls == 1
+        assert cursor.exit_args == (None, None, None)
+
+    def test_execute_scalar_extraction_error_wins_over_native_cursor_exit_error(self):
+        class MalformedRowCursor:
+            rowcount = 0
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise RuntimeError("cleanup failed")
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchone(self):
+                return ()
+
+        cursor = MalformedRowCursor()
+
+        with pytest.raises(IndexError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).execute_scalar("select id from some_table")
+
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is IndexError
+        assert exc_val is exc_info.value
+
 
 class TestCommandsAsync:
     @pytest.fixture
@@ -4230,3 +4338,121 @@ class TestCommandsAsync:
     ):
         async with MockAsyncCommands(connection) as commands:
             assert await commands.execute_scalar_async("select nullable_column from some_table") is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [0, False, ""], ids=["zero", "false", "empty-string"])
+    async def test_execute_scalar_preserves_falsey_first_column_values(self, value):
+        cursor = _PlainAsyncQueryCursor(rows=[(value,)])
+        commands = MockAsyncCommands(_PlainAsyncQueryConnection(cursor))
+        assert await commands.execute_scalar_async("select flag from some_table") == value
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("exit_behavior", ["raises", "truthy"])
+    async def test_execute_scalar_async_no_result_error_wins_over_native_cursor_exit(self, exit_behavior):
+        class RecordingExitAsyncCursor:
+            rowcount = 0
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                self.exit_tb_was_active = exc_tb is exc_val.__traceback__
+                if exit_behavior == "raises":
+                    raise RuntimeError("cleanup failed")
+                return True
+
+            async def execute(self, sql, parameters=None):
+                pass
+
+            async def fetchone(self):
+                return None
+
+        cursor = RecordingExitAsyncCursor()
+
+        with pytest.raises(NoResultException) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).execute_scalar_async(
+                "select id from some_table"
+            )
+
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is NoResultException
+        assert exc_val is exc_info.value
+        assert cursor.exit_tb_was_active
+
+    @pytest.mark.asyncio
+    async def test_execute_scalar_async_propagates_native_cursor_exit_error_after_successful_fetch(self):
+        cleanup_error = RuntimeError("cleanup failed")
+
+        class FailingExitAsyncCursor:
+            rowcount = 0
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise cleanup_error
+
+            async def execute(self, sql, parameters=None):
+                pass
+
+            async def fetchone(self):
+                return (42,)
+
+        cursor = FailingExitAsyncCursor()
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).execute_scalar_async(
+                "select id from some_table"
+            )
+
+        assert exc_info.value is cleanup_error
+        assert cursor.exit_calls == 1
+        assert cursor.exit_args == (None, None, None)
+
+    @pytest.mark.asyncio
+    async def test_execute_scalar_async_extraction_error_wins_over_native_cursor_exit_error(self):
+        class MalformedRowAsyncCursor:
+            rowcount = 0
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise RuntimeError("cleanup failed")
+
+            async def execute(self, sql, parameters=None):
+                pass
+
+            async def fetchone(self):
+                return ()
+
+        cursor = MalformedRowAsyncCursor()
+
+        with pytest.raises(IndexError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).execute_scalar_async(
+                "select id from some_table"
+            )
+
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is IndexError
+        assert exc_val is exc_info.value

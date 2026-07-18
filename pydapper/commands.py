@@ -1651,9 +1651,9 @@ class Commands(BaseCommands, ABC):
         with self._cursor_context_proxy() as cursor:
             handler.execute(cursor)
             first_row = cursor.fetchone()
-        if first_row is None:
-            raise NoResultException("Query returned no results")
-        return first_row[0]
+            if first_row is None:
+                raise NoResultException("Query returned no results")
+            return first_row[0]
 
 
 class CommandsAsync(BaseCommands, ABC):
@@ -2925,6 +2925,6 @@ class CommandsAsync(BaseCommands, ABC):
         async with self.cursor() as cursor:
             await handler.execute_async(cursor)
             first_row = await cursor.fetchone()
-        if first_row is None:
-            raise NoResultException("Query returned no results")
-        return first_row[0]
+            if first_row is None:
+                raise NoResultException("Query returned no results")
+            return first_row[0]

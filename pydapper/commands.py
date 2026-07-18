@@ -2692,15 +2692,16 @@ class CommandsAsync(BaseCommands, ABC):
             headers = get_col_names(cursor)
             data = await _fetch_at_most_two_rows_async(cursor)
 
-        num_records = len(data)
-        if num_records == 0:
-            raise NoResultException("Expected exactly one record, got zero")
-        elif num_records > 1:
-            raise MoreThanOneResultException("Expected exactly one record, got at least two")
+            num_records = len(data)
+            if num_records == 0:
+                raise NoResultException("Expected exactly one record, got zero")
+            elif num_records > 1:
+                raise MoreThanOneResultException("Expected exactly one record, got at least two")
 
-        if not maps_raw_row:
-            validate_no_duplicate_columns(headers)
-        return _project_row(projector, maps_raw_row, headers, data[0])
+            if not maps_raw_row:
+                validate_no_duplicate_columns(headers)
+
+            return _project_row(projector, maps_raw_row, headers, data[0])
 
     @overload
     async def query_single_or_default_async(

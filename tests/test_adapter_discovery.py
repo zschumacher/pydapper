@@ -186,6 +186,40 @@ def test_missing_or_malformed_distribution_fails(install_entry_points, dist):
     assert "acmedb" in str(excinfo.value)
 
 
+def test_raising_distribution_metadata_access_is_wrapped_with_context(install_entry_points):
+    original = RuntimeError("metadata read failed")
+
+    class RaisingDistEntryPoint(FakeEntryPoint):
+        @property
+        def dist(self):
+            raise original
+
+        @dist.setter
+        def dist(self, value):  # allow dataclass __init__ assignment
+            pass
+
+    install_entry_points([RaisingDistEntryPoint("acmedb")])
+    with pytest.raises(ValueError) as excinfo:
+        _adapter_discovery._get_provider_catalog()
+    assert excinfo.value.__cause__ is original
+    assert "acmedb" in str(excinfo.value)
+    assert GROUP in str(excinfo.value)
+
+
+def test_iteration_time_enumeration_failure_is_wrapped(monkeypatch):
+    original = RuntimeError("iteration exploded")
+
+    def failing_iterable():
+        yield FakeEntryPoint("acmedb")
+        raise original
+
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda *, group: failing_iterable())
+    with pytest.raises(ValueError) as excinfo:
+        _adapter_discovery._get_provider_catalog()
+    assert excinfo.value.__cause__ is original
+    assert GROUP in str(excinfo.value)
+
+
 def test_enumeration_failure_preserves_cause_and_is_not_cached(monkeypatch):
     original = RuntimeError("metadata backend exploded")
 
@@ -217,17 +251,29 @@ def test_validation_failure_is_not_cached_and_retry_succeeds(monkeypatch):
 
 
 def test_concurrent_first_discovery_enumerates_exactly_once(monkeypatch):
-    thread_count = 8
-    barrier = threading.Barrier(thread_count)
-    fake = FakeEntryPoints([FakeEntryPoint("acmedb")])
-    monkeypatch.setattr(importlib.metadata, "entry_points", fake)
+    # the first worker to win the discovery lock blocks inside enumeration until the main thread
+    # releases it, so every other worker is deterministically contending on the lock while the
+    # catalog is still unbuilt; a non-serialized implementation would enumerate more than once
+    thread_count = 4
+    start_barrier = threading.Barrier(thread_count + 1)
+    first_entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def blocking_entry_points(*, group):
+        calls.append(group)
+        first_entered.set()
+        assert release.wait(timeout=30)
+        return [FakeEntryPoint("acmedb")]
+
+    monkeypatch.setattr(importlib.metadata, "entry_points", blocking_entry_points)
 
     results = []
     errors = []
 
     def worker():
         try:
-            barrier.wait()
+            start_barrier.wait(timeout=30)
             results.append(_adapter_discovery._get_provider_catalog())
         except Exception as exc:  # pragma: no cover - failure reporting only
             errors.append(exc)
@@ -235,11 +281,15 @@ def test_concurrent_first_discovery_enumerates_exactly_once(monkeypatch):
     threads = [threading.Thread(target=worker) for _ in range(thread_count)]
     for thread in threads:
         thread.start()
+    start_barrier.wait(timeout=30)
+    assert first_entered.wait(timeout=30)
+    release.set()
     for thread in threads:
         thread.join()
 
     assert not errors
-    assert fake.calls == [GROUP]
+    assert calls == [GROUP]
+    assert len(results) == thread_count
     assert all(catalog is results[0] for catalog in results)
 
 

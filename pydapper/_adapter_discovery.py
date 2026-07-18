@@ -50,8 +50,14 @@ def _validate_provider_name(name: object) -> str:
 
 
 def _distribution_display_name(entry_point: importlib.metadata.EntryPoint) -> str:
-    dist = getattr(entry_point, "dist", None)
-    dist_name = getattr(dist, "name", None) if dist is not None else None
+    try:
+        dist = getattr(entry_point, "dist", None)
+        dist_name = getattr(dist, "name", None) if dist is not None else None
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to read distribution metadata for entry point {getattr(entry_point, 'name', None)!r} "
+            f"in group {_ENTRY_POINT_GROUP!r}"
+        ) from exc
     if not isinstance(dist_name, str) or not dist_name or dist_name != dist_name.strip():
         raise ValueError(
             f"Entry point {getattr(entry_point, 'name', None)!r} in group {_ENTRY_POINT_GROUP!r} "
@@ -64,10 +70,9 @@ def _enumerate_entry_points() -> tuple[importlib.metadata.EntryPoint, ...]:
     try:
         # the group keyword is supported on every project Python version (3.10+) and avoids the
         # deprecated dict-shaped no-argument result
-        entry_points = importlib.metadata.entry_points(group=_ENTRY_POINT_GROUP)
+        return tuple(importlib.metadata.entry_points(group=_ENTRY_POINT_GROUP))
     except Exception as exc:
         raise ValueError(f"Failed to enumerate entry points for group {_ENTRY_POINT_GROUP!r}") from exc
-    return tuple(entry_points)
 
 
 def _build_catalog() -> Mapping[str, tuple[_AdapterProviderDescriptor, ...]]:

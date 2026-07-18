@@ -10,10 +10,9 @@
   cursor lifecycle for every sync and async command family: `_prepare_cursor*()` once per
   acquired cursor and `_prepare_command*()` once per executed handler, both receiving a
   normalized `CommandOptions` instance. No optional capability (transactions, timeouts,
-  stored procedures, readonly, max rows, etc.) is implemented by this change. Subclass
-  overrides of `query_first`, `query_single`, and their async equivalents must now accept
-  the `options=` keyword, because the `*_or_default` helpers forward the normalized
-  options instead of discarding them.
+  stored procedures, readonly, max rows, etc.) is implemented by this change. The
+  `*_or_default` helpers now forward the normalized options to `query_first` /
+  `query_single`; see **Breaking Changes** below for the subclass-override impact.
 * feat: add AdapterCapability vocabulary and command capability checks. PR [#554](https://github.com/zschumacher/pydapper/pull/554) by [@zschumacher](https://github.com/zschumacher).
 * test: cover query_multiple runtime failures inside the command-owned cursor lifecycle. PR [#553](https://github.com/zschumacher/pydapper/pull/553) by [@zschumacher](https://github.com/zschumacher).
 * fix: project query_single rows inside the command-owned cursor lifecycle. PR [#551](https://github.com/zschumacher/pydapper/pull/551) by [@zschumacher](https://github.com/zschumacher).
@@ -39,6 +38,12 @@
 
 ### Breaking Changes
 
+* Command delegation: `query_first_or_default`, `query_single_or_default`, and their async
+  equivalents now forward the normalized `options=` keyword to `query_first` /
+  `query_single` (and the async equivalents) instead of validating and discarding it.
+  Subclass overrides of those four target methods must accept an `options=` keyword;
+  overrides without it now raise `TypeError` when called through the `*_or_default`
+  helpers. Add `*, options=None` to the override signature to migrate.
 * Adapter registration: `register` and `register_async` were removed. Use [`register_adapter`](adapter_registration.md) and explicit `adapter=` selection where needed.
 
 ### Other Changes

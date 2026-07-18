@@ -20,6 +20,17 @@ from tests.mocks import MockCommands
 pytestmark = pytest.mark.core
 
 
+class _EnteredRecordingCursor:
+    """Distinct object returned by cursor entry so identity assertions can prove the hooks
+    receive the entered cursor rather than the raw one."""
+
+    def __init__(self, raw_cursor):
+        self._raw_cursor = raw_cursor
+
+    def __getattr__(self, name):
+        return getattr(self._raw_cursor, name)
+
+
 class RecordingCursor:
     description = ("id", "int"), ("name", "text")
 
@@ -32,10 +43,11 @@ class RecordingCursor:
         self.exit_result = exit_result
         self.exit_args = []
         self.exit_tb_matches = []
+        self.entered = _EnteredRecordingCursor(self)
 
     def __enter__(self):
         self.log.append("enter")
-        return self
+        return self.entered
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.log.append(("exit", exc_type))
@@ -82,10 +94,11 @@ class RecordingAsyncCursor:
         self.exit_result = exit_result
         self.exit_args = []
         self.exit_tb_matches = []
+        self.entered = _EnteredRecordingCursor(self)
 
     async def __aenter__(self):
         self.log.append("enter")
-        return self
+        return self.entered
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         self.log.append(("exit", exc_type))
@@ -188,6 +201,21 @@ def _event_kinds(log):
     return [event[0] if isinstance(event, tuple) else event for event in log]
 
 
+def _canonical_events(log):
+    """Object-free view of the full event sequence so sync and async logs are directly comparable."""
+    canonical = []
+    for event in log:
+        if not isinstance(event, tuple):
+            canonical.append(event)
+        elif event[0] in ("execute", "executemany", "exit"):
+            canonical.append((event[0], event[1]))
+        elif event[0] == "prepare_command":
+            canonical.append((event[0], event[2].prepared_sql))
+        else:
+            canonical.append(event[0])
+    return canonical
+
+
 def _assert_prepared_once_in_order(log, cursor):
     kinds = _event_kinds(log)
     assert kinds[:3] == ["enter", "prepare_cursor", "prepare_command"]
@@ -200,8 +228,10 @@ def _assert_prepared_once_in_order(log, cursor):
 
     _, prepared_cursor, cursor_options = log[1]
     _, command_cursor, handler, command_options = log[2]
-    assert prepared_cursor is cursor
-    assert command_cursor is cursor
+    assert prepared_cursor is cursor.entered
+    assert prepared_cursor is not cursor
+    assert command_cursor is cursor.entered
+    assert command_cursor is not cursor
     assert handler.prepared_sql == log[3][1]
     assert cursor_options is not None
     assert command_options is not None
@@ -317,6 +347,43 @@ async def test_async_families_prepare_cursor_and_command_once_in_order(call):
     await call(commands)
 
     _assert_prepared_once_in_order(log, cursor)
+
+
+SYNC_ASYNC_FAMILY_PAIRS = [
+    pytest.param(sync_param.values[0], async_param.values[0], id=async_param.id)
+    for sync_param, async_param in zip(SYNC_FAMILY_CALLS, ASYNC_FAMILY_CALLS)
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("sync_call", "async_call"), SYNC_ASYNC_FAMILY_PAIRS)
+async def test_sync_and_async_families_produce_identical_event_sequences(sync_call, async_call):
+    sync_log, _, _, sync_commands = _sync_commands()
+    async_log, _, _, async_commands = _async_commands()
+
+    sync_call(sync_commands)
+    await async_call(async_commands)
+
+    assert _canonical_events(sync_log) == _canonical_events(async_log)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failing_hook", ["prepare_cursor_error", "prepare_command_error"])
+@pytest.mark.parametrize(("sync_call", "async_call"), SYNC_ASYNC_FAMILY_PAIRS)
+async def test_sync_and_async_preparation_failures_produce_identical_event_sequences(
+    sync_call, async_call, failing_hook
+):
+    sync_log, _, _, sync_commands = _sync_commands()
+    async_log, _, _, async_commands = _async_commands()
+    setattr(sync_commands, failing_hook, RuntimeError("preparation failed"))
+    setattr(async_commands, failing_hook, RuntimeError("preparation failed"))
+
+    with pytest.raises(RuntimeError):
+        sync_call(sync_commands)
+    with pytest.raises(RuntimeError):
+        await async_call(async_commands)
+
+    assert _canonical_events(sync_log) == _canonical_events(async_log)
 
 
 @pytest.mark.parametrize("call", SYNC_FAMILY_CALLS)
@@ -479,7 +546,7 @@ def test_sync_query_multiple_prepares_cursor_once_and_each_handler_once():
     prepared = [event for event in log if isinstance(event, tuple) and event[0] == "prepare_command"]
     assert [event[2].prepared_sql for event in prepared] == list(queries)
     assert len({id(event[2]) for event in prepared}) == 2
-    assert all(event[1] is cursor for event in prepared)
+    assert all(event[1] is cursor.entered for event in prepared)
 
 
 @pytest.mark.asyncio
@@ -503,7 +570,7 @@ async def test_async_query_multiple_prepares_cursor_once_and_each_handler_once()
     prepared = [event for event in log if isinstance(event, tuple) and event[0] == "prepare_command"]
     assert [event[2].prepared_sql for event in prepared] == list(queries)
     assert len({id(event[2]) for event in prepared}) == 2
-    assert all(event[1] is cursor for event in prepared)
+    assert all(event[1] is cursor.entered for event in prepared)
 
 
 def test_sync_unbuffered_query_defers_hooks_until_iteration_and_cleans_up_on_close():
@@ -730,7 +797,7 @@ def test_mysql_query_first_reaches_hooks_and_keeps_unread_result_drain():
         "fetchall",
         "exit",
     ]
-    assert log[1][1] is cursor
+    assert log[1][1] is cursor.entered
     assert log[1][2] is options
     assert log[2][3] is options
 

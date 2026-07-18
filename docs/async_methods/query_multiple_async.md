@@ -19,6 +19,16 @@ All command methods also accept keyword-only `options=`; see [Command options](.
 
 {!docs/.row_mapping.md!}
 
+## Batch validation and atomicity
+
+Every query in the tuple is validated client-side before any database work: placeholders are scanned and every
+referenced parameter value is resolved for the complete tuple before a cursor is acquired or the first query
+executes. A missing parameter in any query raises `MissingParameterException` and no query reaches the database.
+
+This is client-side prevalidation, not transaction atomicity. Once execution begins, the queries run sequentially on
+one cursor, and a later query can still fail at runtime (a driver error, no results, duplicate columns, or a mapper
+error) after earlier queries have executed. pydapper does not roll back or undo earlier queries in the tuple.
+
 ## Example
 Query two tables and return the serialized results.
 ```python

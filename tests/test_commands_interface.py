@@ -2111,6 +2111,138 @@ class TestCommands:
             with MockCommands(connection) as commands:
                 commands.query_multiple(("select * from whatever",))
 
+    @pytest.mark.parametrize(
+        "queries",
+        [
+            pytest.param(
+                (
+                    "select id, name from some_table where id = ?missing?",
+                    "select id, name from another_table",
+                ),
+                id="first_query",
+            ),
+            pytest.param(
+                (
+                    "select id, name from some_table",
+                    "select id, name from another_table where id = ?missing?",
+                ),
+                id="later_query",
+            ),
+        ],
+    )
+    def test_query_multiple_missing_param_fails_before_cursor_acquisition(self, queries):
+        class NoCursorConnection(MockConnection):
+            def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        with MockCommands(NoCursorConnection()) as commands:
+            with pytest.raises(MissingParameterException, match="missing"):
+                commands.query_multiple(queries, params={})
+
+    def test_query_multiple_missing_param_in_later_query_makes_no_dbapi_calls(self):
+        events = []
+
+        class RecordingCursor(MockCursor):
+            def execute(self, sql, parameters=None):
+                events.append("execute")
+
+            def executemany(self, sql, params):
+                events.append("executemany")
+
+            def fetchone(self):
+                events.append("fetchone")
+
+            def fetchall(self):
+                events.append("fetchall")
+
+        class RecordingConnection(MockConnection):
+            def cursor(self, *args, **kwargs):
+                events.append("cursor")
+                return RecordingCursor()
+
+        with MockCommands(RecordingConnection()) as commands:
+            with pytest.raises(MissingParameterException, match="missing"):
+                commands.query_multiple(
+                    (
+                        "select id, name from some_table",
+                        "select id, name from another_table where id = ?missing?",
+                    ),
+                    params={},
+                )
+
+        assert events == []
+
+    def test_query_multiple_missing_attribute_param_record_fails_before_cursor_acquisition(self):
+        class NoCursorConnection(MockConnection):
+            def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        with MockCommands(NoCursorConnection()) as commands:
+            with pytest.raises(MissingParameterException, match="missing"):
+                commands.query_multiple(
+                    (
+                        "select id, name from some_table where id = ?id?",
+                        "select id, name from another_table where id = ?missing?",
+                    ),
+                    params=SimpleNamespace(id=1),
+                )
+
+    @pytest.mark.parametrize(
+        "mapper",
+        [
+            pytest.param(lambda row: row.values, id="single_mapper"),
+            pytest.param((lambda row: row.values, lambda row: row.values), id="mapper_tuple"),
+        ],
+    )
+    def test_query_multiple_missing_param_with_mapper_fails_before_cursor_acquisition(self, mapper):
+        class NoCursorConnection(MockConnection):
+            def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        with MockCommands(NoCursorConnection()) as commands:
+            with pytest.raises(MissingParameterException, match="missing"):
+                commands.query_multiple(
+                    (
+                        "select id, name from some_table",
+                        "select id, name from another_table where id = ?missing?",
+                    ),
+                    mapper=mapper,
+                    params={},
+                )
+
+    def test_query_multiple_constructs_all_handlers_before_cursor_entry_and_reuses_them(self):
+        events = []
+
+        class SpyParamHandler(MockParamHandler):
+            def __init__(self, sql, param=None):
+                events.append(("construct", self))
+                super().__init__(sql, param)
+
+            def execute(self, cursor):
+                events.append(("execute", self))
+                return super().execute(cursor)
+
+        class SpyConnection(MockConnection):
+            def cursor(self, *args, **kwargs):
+                events.append(("cursor", None))
+                return super().cursor(*args, **kwargs)
+
+        class SpyCommands(MockCommands):
+            SqlParamHandler = SpyParamHandler
+
+        queries = ("select id, name from some_table", "select id, name from another_table")
+        with SpyCommands(SpyConnection()) as commands:
+            results = commands.query_multiple(queries)
+
+        assert [name for name, _ in events] == ["construct", "construct", "cursor", "execute", "execute"]
+        constructed = [handler for name, handler in events if name == "construct"]
+        executed = [handler for name, handler in events if name == "execute"]
+        assert all(used is created for used, created in zip(executed, constructed))
+        assert [handler._sql for handler in executed] == list(queries)
+        assert isinstance(results, tuple)
+        assert [len(rows) for rows in results] == [2, 2]
+        assert all(isinstance(row, dict) for rows in results for row in rows)
+
     def test_query_first(self, connection):
         with MockCommands(connection) as commands:
             record = commands.query_first("select id, name from some_table", model=SimpleNamespace)
@@ -3019,6 +3151,127 @@ class TestCommandsAsync:
         async with MockAsyncCommands(connection) as commands:
             with pytest.raises(NoResultException):
                 await commands.query_multiple_async(("select * from whatever",))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "queries",
+        [
+            pytest.param(
+                (
+                    "select id, name from some_table where id = ?missing?",
+                    "select id, name from another_table",
+                ),
+                id="first_query",
+            ),
+            pytest.param(
+                (
+                    "select id, name from some_table",
+                    "select id, name from another_table where id = ?missing?",
+                ),
+                id="later_query",
+            ),
+        ],
+    )
+    async def test_query_multiple_missing_param_fails_before_cursor_acquisition(self, queries):
+        class NoCursorAsyncConnection(MockAsyncConnection):
+            async def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        async with MockAsyncCommands(NoCursorAsyncConnection()) as commands:
+            with pytest.raises(MissingParameterException, match="missing"):
+                await commands.query_multiple_async(queries, params={})
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_missing_param_in_later_query_makes_no_dbapi_calls(self):
+        events = []
+
+        class RecordingAsyncCursor(MockAsyncCursor):
+            async def execute(self, sql, parameters=None):
+                events.append("execute")
+
+            async def executemany(self, sql, params=None):
+                events.append("executemany")
+
+            async def fetchone(self):
+                events.append("fetchone")
+
+            async def fetchall(self):
+                events.append("fetchall")
+
+        class RecordingAsyncConnection(MockAsyncConnection):
+            async def cursor(self, *args, **kwargs):
+                events.append("cursor")
+                return RecordingAsyncCursor()
+
+        async with MockAsyncCommands(RecordingAsyncConnection()) as commands:
+            with pytest.raises(MissingParameterException, match="missing"):
+                await commands.query_multiple_async(
+                    (
+                        "select id, name from some_table",
+                        "select id, name from another_table where id = ?missing?",
+                    ),
+                    params={},
+                )
+
+        assert events == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "mapper",
+        [
+            pytest.param(lambda row: row.values, id="single_mapper"),
+            pytest.param((lambda row: row.values, lambda row: row.values), id="mapper_tuple"),
+        ],
+    )
+    async def test_query_multiple_missing_param_with_mapper_fails_before_cursor_acquisition(self, mapper):
+        class NoCursorAsyncConnection(MockAsyncConnection):
+            async def cursor(self, *args, **kwargs):
+                raise AssertionError("cursor should not be opened")
+
+        async with MockAsyncCommands(NoCursorAsyncConnection()) as commands:
+            with pytest.raises(MissingParameterException, match="missing"):
+                await commands.query_multiple_async(
+                    (
+                        "select id, name from some_table",
+                        "select id, name from another_table where id = ?missing?",
+                    ),
+                    mapper=mapper,
+                    params={},
+                )
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_constructs_all_handlers_before_cursor_entry_and_reuses_them(self):
+        events = []
+
+        class SpyParamHandler(MockParamHandler):
+            def __init__(self, sql, param=None):
+                events.append(("construct", self))
+                super().__init__(sql, param)
+
+            async def execute_async(self, cursor):
+                events.append(("execute", self))
+                return await super().execute_async(cursor)
+
+        class SpyAsyncConnection(MockAsyncConnection):
+            async def cursor(self, *args, **kwargs):
+                events.append(("cursor", None))
+                return await super().cursor(*args, **kwargs)
+
+        class SpyAsyncCommands(MockAsyncCommands):
+            SqlParamHandler = SpyParamHandler
+
+        queries = ("select id, name from some_table", "select id, name from another_table")
+        async with SpyAsyncCommands(SpyAsyncConnection()) as commands:
+            results = await commands.query_multiple_async(queries)
+
+        assert [name for name, _ in events] == ["construct", "construct", "cursor", "execute", "execute"]
+        constructed = [handler for name, handler in events if name == "construct"]
+        executed = [handler for name, handler in events if name == "execute"]
+        assert all(used is created for used, created in zip(executed, constructed))
+        assert [handler._sql for handler in executed] == list(queries)
+        assert isinstance(results, tuple)
+        assert [len(rows) for rows in results] == [2, 2]
+        assert all(isinstance(row, dict) for rows in results for row in rows)
 
     @pytest.mark.asyncio
     async def test_query_first(self, connection):

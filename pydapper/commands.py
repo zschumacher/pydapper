@@ -363,10 +363,11 @@ class Commands(BaseCommands, ABC):
             try:
                 yield entered_cursor
             except BaseException:
+                # the cursor is command-owned, so its __exit__ may not suppress the command error: a truthy
+                # return value is ignored and a cleanup failure loses to the active command exception
                 exc_type, exc_val, exc_tb = sys.exc_info()
                 try:
-                    if exit(cursor, exc_type, exc_val, exc_tb):
-                        return
+                    exit(cursor, exc_type, exc_val, exc_tb)
                 except BaseException:
                     pass
                 raise

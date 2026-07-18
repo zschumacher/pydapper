@@ -1210,7 +1210,7 @@ class TestCommands:
         assert records == [{"id": 1, "name": "Zach"}, {"id": 2, "name": "Bob"}]
         assert connection.cursor_calls == 1
 
-    def test_cursor_context_proxy_allows_cursor_to_suppress_error(self):
+    def test_cursor_context_proxy_ignores_cursor_exit_suppression(self):
         class SuppressingCursor:
             def __init__(self):
                 self.exit_args = None
@@ -1223,10 +1223,13 @@ class TestCommands:
                 return True
 
         cursor = SuppressingCursor()
+        command_error = RuntimeError("query failed")
 
-        with MockCommands(_CursorConnection(cursor))._cursor_context_proxy():
-            raise RuntimeError("query failed")
+        with pytest.raises(RuntimeError) as exc_info:
+            with MockCommands(_CursorConnection(cursor))._cursor_context_proxy():
+                raise command_error
 
+        assert exc_info.value is command_error
         assert cursor.exit_args[0] is RuntimeError
 
     def test_cursor_context_proxy_preserves_error_when_cursor_exit_fails(self):
@@ -1240,6 +1243,192 @@ class TestCommands:
         with pytest.raises(ValueError, match="query failed"):
             with MockCommands(_CursorConnection(FailingExitCursor()))._cursor_context_proxy():
                 raise ValueError("query failed")
+
+    def test_execute_error_wins_over_native_cursor_exit_error(self):
+        command_error = ValueError("execute failed")
+
+        class ExplodingCursor:
+            def __init__(self):
+                self.enter_calls = 0
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                self.enter_calls += 1
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                self.exit_tb_was_active = exc_tb is exc_val.__traceback__
+                raise RuntimeError("cleanup failed")
+
+            def execute(self, sql, parameters=None):
+                raise command_error
+
+        class ExplodingCursorConnection:
+            def __init__(self, cursor):
+                self.cursor_instance = cursor
+                self.cursor_calls = 0
+
+            def cursor(self, *args, **kwargs):
+                self.cursor_calls += 1
+                return self.cursor_instance
+
+        cursor = ExplodingCursor()
+        connection = ExplodingCursorConnection(cursor)
+
+        with pytest.raises(ValueError) as exc_info:
+            MockCommands(connection).execute("insert into some_table (id) values (1)")
+
+        assert exc_info.value is command_error
+        assert connection.cursor_calls == 1
+        assert cursor.enter_calls == 1
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is ValueError
+        assert exc_val is command_error
+        assert cursor.exit_tb_was_active
+
+    def test_execute_error_wins_over_truthy_native_cursor_exit(self):
+        command_error = ValueError("execute failed")
+
+        class SuppressingCursor:
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                self.exit_tb_was_active = exc_tb is exc_val.__traceback__
+                return True
+
+            def execute(self, sql, parameters=None):
+                raise command_error
+
+        cursor = SuppressingCursor()
+
+        with pytest.raises(ValueError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).execute("insert into some_table (id) values (1)")
+
+        assert exc_info.value is command_error
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is ValueError
+        assert exc_val is command_error
+        assert cursor.exit_tb_was_active
+
+    def test_execute_error_propagates_with_falsey_native_cursor_exit(self):
+        command_error = ValueError("execute failed")
+
+        class NonSuppressingCursor:
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                self.exit_tb_was_active = exc_tb is exc_val.__traceback__
+                return None
+
+            def execute(self, sql, parameters=None):
+                raise command_error
+
+        cursor = NonSuppressingCursor()
+
+        with pytest.raises(ValueError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).execute("insert into some_table (id) values (1)")
+
+        assert exc_info.value is command_error
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is ValueError
+        assert exc_val is command_error
+        assert cursor.exit_tb_was_active
+
+    def test_execute_propagates_native_cursor_exit_error_after_success(self):
+        cleanup_error = RuntimeError("cleanup failed")
+
+        class FailingExitCursor:
+            rowcount = 1
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise cleanup_error
+
+            def execute(self, sql, parameters=None):
+                pass
+
+        cursor = FailingExitCursor()
+
+        with pytest.raises(RuntimeError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).execute("insert into some_table (id) values (1)")
+
+        assert exc_info.value is cleanup_error
+        assert cursor.exit_calls == 1
+        assert cursor.exit_args == (None, None, None)
+
+    def test_execute_error_wins_over_plain_cursor_close_error(self):
+        command_error = ValueError("execute failed")
+
+        class PlainExplodingCursor:
+            def __init__(self):
+                self.close_calls = 0
+
+            def execute(self, sql, parameters=None):
+                raise command_error
+
+            def close(self):
+                self.close_calls += 1
+                raise RuntimeError("close failed")
+
+        cursor = PlainExplodingCursor()
+
+        with pytest.raises(ValueError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).execute("insert into some_table (id) values (1)")
+
+        assert exc_info.value is command_error
+        assert cursor.close_calls == 1
+
+    def test_execute_propagates_plain_cursor_close_error_after_success(self):
+        close_error = RuntimeError("close failed")
+
+        class PlainFailingCloseCursor:
+            rowcount = 1
+
+            def __init__(self):
+                self.close_calls = 0
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def close(self):
+                self.close_calls += 1
+                raise close_error
+
+        cursor = PlainFailingCloseCursor()
+
+        with pytest.raises(RuntimeError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).execute("insert into some_table (id) values (1)")
+
+        assert exc_info.value is close_error
+        assert cursor.close_calls == 1
 
     def test_execute(self, connection):
         with MockCommands(connection) as commands:

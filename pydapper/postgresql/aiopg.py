@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
+from typing import ClassVar
 
+from pydapper.capabilities import AdapterCapability
 from pydapper.commands import CommandsAsync
 from pydapper.commands import DefaultSqlParamHandler
 
@@ -11,6 +13,8 @@ if TYPE_CHECKING:
 
 
 class AiopgCommands(CommandsAsync):
+    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset()
+
     class SqlParamHandler(DefaultSqlParamHandler):
         async def execute_async(self, cursor: "AsyncCursorType"):
             if isinstance(self.ordered_param_values, list):

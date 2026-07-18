@@ -1691,19 +1691,21 @@ class TestCommands:
         with MockCommands(connection) as commands, pytest.raises(ValueError, match="Pass either 'params' or 'param'"):
             call(commands, params)
 
-    def test_or_default_methods_preserve_param_only_overrides(self, connection):
-        class ParamOnlyOverrideCommands(MockCommands):
-            def query_first(self, sql, model=dict, param=None):
-                assert param == {"id": 1}
+    def test_or_default_methods_delegate_param_spelling_and_normalized_options(self, connection):
+        received = []
+
+        class ParamSpellingOverrideCommands(MockCommands):
+            def query_first(self, sql, model=dict, param=None, *, options=None):
+                received.append(("first", param, options))
                 raise NoResultException
 
-            def query_single(self, sql, model=dict, param=None):
-                assert param == {"id": 1}
+            def query_single(self, sql, model=dict, param=None, *, options=None):
+                received.append(("single", param, options))
                 raise NoResultException
 
         default = object()
 
-        with ParamOnlyOverrideCommands(connection) as commands:
+        with ParamSpellingOverrideCommands(connection) as commands:
             assert (
                 commands.query_first_or_default("select * from some_table where id = ?id?", default, params={"id": 1})
                 is default
@@ -1712,6 +1714,11 @@ class TestCommands:
                 commands.query_single_or_default("select * from some_table where id = ?id?", default, params={"id": 1})
                 is default
             )
+
+        assert received == [
+            ("first", {"id": 1}, pydapper.CommandOptions()),
+            ("single", {"id": 1}, pydapper.CommandOptions()),
+        ]
 
     def test_mysql_query_first_accepts_params(self, connection, captured_handler_params):
         from pydapper.mysql import MySqlConnectorPythonCommands
@@ -3899,19 +3906,21 @@ class TestCommandsAsync:
                 await call(commands, params)
 
     @pytest.mark.asyncio
-    async def test_or_default_methods_preserve_param_only_overrides(self, connection):
-        class ParamOnlyOverrideCommands(MockAsyncCommands):
-            async def query_first_async(self, sql, model=dict, param=None):
-                assert param == {"id": 1}
+    async def test_or_default_methods_delegate_param_spelling_and_normalized_options(self, connection):
+        received = []
+
+        class ParamSpellingOverrideCommands(MockAsyncCommands):
+            async def query_first_async(self, sql, model=dict, param=None, *, options=None):
+                received.append(("first", param, options))
                 raise NoResultException
 
-            async def query_single_async(self, sql, model=dict, param=None):
-                assert param == {"id": 1}
+            async def query_single_async(self, sql, model=dict, param=None, *, options=None):
+                received.append(("single", param, options))
                 raise NoResultException
 
         default = object()
 
-        async with ParamOnlyOverrideCommands(connection) as commands:
+        async with ParamSpellingOverrideCommands(connection) as commands:
             assert (
                 await commands.query_first_or_default_async(
                     "select * from some_table where id = ?id?", default, params={"id": 1}
@@ -3924,6 +3933,11 @@ class TestCommandsAsync:
                 )
                 is default
             )
+
+        assert received == [
+            ("first", {"id": 1}, pydapper.CommandOptions()),
+            ("single", {"id": 1}, pydapper.CommandOptions()),
+        ]
 
     @pytest.mark.asyncio
     async def test_query(self, connection):

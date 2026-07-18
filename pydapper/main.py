@@ -6,6 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ._context import _AwaitableAsyncContextManager
+from .capabilities import AdapterCapability
+from .commands import BaseCommands
 from .commands import Commands
 from .commands import CommandsAsync
 from .dsn_parser import PydapperParseResult
@@ -26,6 +28,21 @@ class _AdapterRegistration:
 _adapter_registry: dict[str, _AdapterRegistration] = {}
 
 
+def _validate_capability_declaration(command_class: type[BaseCommands], argument_name: str) -> None:
+    declared = command_class.capabilities
+    if not isinstance(declared, frozenset):
+        raise TypeError(
+            f"{argument_name}.capabilities must be a frozenset of AdapterCapability members, "
+            f"got {type(declared).__name__}"
+        )
+    for member in declared:
+        if not isinstance(member, AdapterCapability):
+            raise TypeError(
+                f"{argument_name}.capabilities must contain only AdapterCapability members, "
+                f"got {type(member).__name__}"
+            )
+
+
 def register_adapter(
     name: str,
     *,
@@ -38,6 +55,11 @@ def register_adapter(
     Registration is intentionally one-way: an adapter name may only be registered
     once so import order cannot silently replace a command implementation. The
     using_connection_predicate is used only for automatic connection selection.
+
+    Each supplied command class must declare ``capabilities`` as a frozenset of
+    AdapterCapability members. Declarations are validated per mode before the
+    registry is touched, so an invalid declaration fails the whole registration
+    without mutating the registry.
     """
     if not isinstance(name, str):
         raise TypeError("Adapter name must be a string")
@@ -55,6 +77,12 @@ def register_adapter(
         raise TypeError("async_commands must be a CommandsAsync subclass")
     if not callable(using_connection_predicate):
         raise TypeError("using_connection_predicate must be callable")
+    # both declarations must validate before the registry mutates so an invalid mode never leaves a
+    # partially registered adapter behind
+    if commands is not None:
+        _validate_capability_declaration(commands, "commands")
+    if async_commands is not None:
+        _validate_capability_declaration(async_commands, "async_commands")
 
     _adapter_registry[name] = _AdapterRegistration(
         name=name,

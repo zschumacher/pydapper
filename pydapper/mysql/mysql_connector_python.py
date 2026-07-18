@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
+from typing import ClassVar
 
+from pydapper.capabilities import AdapterCapability
 from pydapper.commands import _MAPPER_UNSET
 from pydapper.commands import _MODEL_UNSET
 from pydapper.commands import _PARAM_ALIAS_UNSET
@@ -53,6 +55,8 @@ def _discard_unread_result(cursor: "CursorType") -> None:
 
 
 class MySqlConnectorPythonCommands(Commands):
+    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset()
+
     @classmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands":
         mysql = import_dbapi_module("mysql.connector")
@@ -80,13 +84,15 @@ class MySqlConnectorPythonCommands(Commands):
         the mysql connector throws an exception if you only read one row from a cursor.  Unfortunately, we have to
         fetchall to make the lib happy.
         """
-        self._resolve_options(options)
+        resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
         _raise_if_list_params_for_read(resolved_params)
         projector, maps_raw_row = _resolve_row_projector(model, mapper)
         handler = self.SqlParamHandler(sql, resolved_params)
 
         with self._cursor_context_proxy() as cursor:
+            self._prepare_cursor(cursor, options=resolved_options)
+            self._prepare_command(cursor, handler, options=resolved_options)
             handler.execute(cursor)
             headers = get_col_names(cursor)
             row = cursor.fetchone()

@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: add private lazy entry-point discovery catalog for pydapper.adapters. PR [#556](https://github.com/zschumacher/pydapper/pull/556) by [@zschumacher](https://github.com/zschumacher).
 * feat: validate capability declarations and add command preparation hooks. PR [#555](https://github.com/zschumacher/pydapper/pull/555) by [@zschumacher](https://github.com/zschumacher).
 * feat: validate adapter capability declarations and add command preparation hooks.
   `register_adapter()` now validates each supplied command class's `capabilities`

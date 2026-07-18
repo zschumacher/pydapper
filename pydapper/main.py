@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import os
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from ._adapter_discovery import _AdapterProviderDescriptor
 from ._context import _AwaitableAsyncContextManager
 from .capabilities import AdapterCapability
 from .commands import BaseCommands
@@ -43,6 +46,33 @@ def _validate_capability_declaration(command_class: type[BaseCommands], argument
             )
 
 
+def _validate_registration_contents(
+    commands: type[Commands] | None,
+    async_commands: type[CommandsAsync] | None,
+    using_connection_predicate: Callable[[object], bool],
+) -> None:
+    """Validate registration contents without touching the registry.
+
+    Shared by register_adapter() and provider-load postcondition checks so both
+    paths enforce one definition of a valid registration. Check order and
+    exception types are part of register_adapter()'s public behavior.
+    """
+    if commands is None and async_commands is None:
+        raise ValueError("At least one sync or async command class is required")
+    if commands is not None and (not isinstance(commands, type) or not issubclass(commands, Commands)):
+        raise TypeError("commands must be a Commands subclass")
+    if async_commands is not None and (
+        not isinstance(async_commands, type) or not issubclass(async_commands, CommandsAsync)
+    ):
+        raise TypeError("async_commands must be a CommandsAsync subclass")
+    if not callable(using_connection_predicate):
+        raise TypeError("using_connection_predicate must be callable")
+    if commands is not None:
+        _validate_capability_declaration(commands, "commands")
+    if async_commands is not None:
+        _validate_capability_declaration(async_commands, "async_commands")
+
+
 def register_adapter(
     name: str,
     *,
@@ -67,22 +97,9 @@ def register_adapter(
         raise ValueError("Adapter name must be non-empty and have no surrounding whitespace")
     if name in _adapter_registry:
         raise ValueError(f"Adapter {name!r} is already registered")
-    if commands is None and async_commands is None:
-        raise ValueError("At least one sync or async command class is required")
-    if commands is not None and (not isinstance(commands, type) or not issubclass(commands, Commands)):
-        raise TypeError("commands must be a Commands subclass")
-    if async_commands is not None and (
-        not isinstance(async_commands, type) or not issubclass(async_commands, CommandsAsync)
-    ):
-        raise TypeError("async_commands must be a CommandsAsync subclass")
-    if not callable(using_connection_predicate):
-        raise TypeError("using_connection_predicate must be callable")
-    # both declarations must validate before the registry mutates so an invalid mode never leaves a
+    # everything validates before the registry mutates so an invalid registration never leaves a
     # partially registered adapter behind
-    if commands is not None:
-        _validate_capability_declaration(commands, "commands")
-    if async_commands is not None:
-        _validate_capability_declaration(async_commands, "async_commands")
+    _validate_registration_contents(commands, async_commands, using_connection_predicate)
 
     _adapter_registry[name] = _AdapterRegistration(
         name=name,
@@ -90,6 +107,135 @@ def register_adapter(
         async_commands=async_commands,
         using_connection_predicate=using_connection_predicate,
     )
+
+
+# provider loading is serialized by one private lock so concurrent loads of the same provider cannot
+# invoke a callback twice, observe partial registry state, or corrupt the success cache; successful
+# loads are cached per exact provider identity (name, distribution, entry-point value), never
+# normalized, and failed attempts are never cached so they stay retryable
+_provider_load_lock = threading.Lock()
+_loaded_provider_registrations: dict[tuple[str, str, str], _AdapterRegistration] = {}
+
+
+def _provider_load_state_key(descriptor: _AdapterProviderDescriptor) -> tuple[str, str, str]:
+    return (descriptor.name, descriptor.distribution, descriptor.entry_point.value)
+
+
+def _provider_error_context(descriptor: _AdapterProviderDescriptor) -> str:
+    return f"adapter provider {descriptor.name!r} (distribution {descriptor.distribution!r})"
+
+
+def _restore_registry(snapshot: dict[str, _AdapterRegistration]) -> None:
+    registry = _adapter_registry
+    registry.clear()
+    registry.update(snapshot)
+
+
+def _verify_provider_registration_effect(
+    descriptor: _AdapterProviderDescriptor, snapshot: dict[str, _AdapterRegistration]
+) -> _AdapterRegistration:
+    context = _provider_error_context(descriptor)
+    removed = [name for name in snapshot if name not in _adapter_registry]
+    replaced = [
+        name for name in snapshot if name in _adapter_registry and _adapter_registry[name] is not snapshot[name]
+    ]
+    if removed or replaced:
+        raise ValueError(
+            f"Callback for {context} removed or replaced existing adapter registrations "
+            f"(removed: {removed!r}, replaced: {replaced!r})"
+        )
+    added = [name for name in _adapter_registry if name not in snapshot]
+    if not added:
+        raise ValueError(
+            f"Callback for {context} registered no adapter; expected exactly one registration named {descriptor.name!r}"
+        )
+    if added != [descriptor.name]:
+        raise ValueError(
+            f"Callback for {context} registered {added!r}; expected exactly one registration named {descriptor.name!r}"
+        )
+    registration = _adapter_registry[descriptor.name]
+    if not isinstance(registration, _AdapterRegistration):
+        raise ValueError(
+            f"Callback for {context} left an invalid registry record of type {type(registration).__name__} "
+            f"for adapter {descriptor.name!r}"
+        )
+    if registration.name != descriptor.name:
+        raise ValueError(
+            f"Callback for {context} left a registration named {registration.name!r} "
+            f"under adapter name {descriptor.name!r}"
+        )
+    try:
+        _validate_registration_contents(
+            registration.commands, registration.async_commands, registration.using_connection_predicate
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Callback for {context} produced an invalid registration for {descriptor.name!r}") from exc
+    return registration
+
+
+def _load_adapter_provider(descriptor: _AdapterProviderDescriptor) -> _AdapterRegistration:
+    """Load one already-selected provider entry point and return its registration.
+
+    The caller (a later resolution slice) is responsible for choosing the
+    descriptor; this helper never consults the discovery catalog. The whole
+    attempt — registry snapshot, EntryPoint.load(), callback invocation,
+    postcondition validation, rollback, and success caching — is one serialized
+    operation, so a concurrent caller observes either the completed success or
+    the completed rollback. Any failure restores the registry to its exact
+    pre-attempt contents and stays retryable; a success is cached so the
+    callback runs at most once per process.
+    """
+    context = _provider_error_context(descriptor)
+    key = _provider_load_state_key(descriptor)
+    with _provider_load_lock:
+        cached = _loaded_provider_registrations.get(key)
+        if cached is not None:
+            if _adapter_registry.get(descriptor.name) is not cached:
+                raise ValueError(f"Previously loaded {context} no longer matches the adapter registry")
+            return cached
+
+        if descriptor.name in _adapter_registry:
+            raise ValueError(
+                f"Adapter {descriptor.name!r} is already registered; "
+                f"refusing to load {context} over the existing registration"
+            )
+
+        snapshot = dict(_adapter_registry)
+        try:
+            try:
+                callback = descriptor.entry_point.load()
+            except Exception as exc:
+                raise ValueError(f"Failed to load {context}") from exc
+            if not callable(callback):
+                raise ValueError(f"Entry point for {context} must resolve to a callable, got {type(callback).__name__}")
+            if inspect.iscoroutinefunction(callback) or inspect.isasyncgenfunction(callback):
+                raise ValueError(f"Callback for {context} must be synchronous; async callbacks are not supported")
+            try:
+                result = callback()
+            except Exception as exc:
+                raise ValueError(f"Callback for {context} failed") from exc
+            if inspect.isawaitable(result):
+                close = getattr(result, "close", None)
+                if callable(close):
+                    close()
+                raise ValueError(
+                    f"Callback for {context} returned an awaitable; async provider initialization is not supported"
+                )
+            if result is not None:
+                raise ValueError(f"Callback for {context} must return None, got {type(result).__name__}")
+            registration = _verify_provider_registration_effect(descriptor, snapshot)
+        except BaseException:
+            _restore_registry(snapshot)
+            raise
+        _loaded_provider_registrations[key] = registration
+        return registration
+
+
+def _reset_provider_load_state_for_tests() -> None:
+    # clears only private loader success state; callers are responsible for separately
+    # snapshotting/restoring the adapter registry itself
+    with _provider_load_lock:
+        _loaded_provider_registrations.clear()
 
 
 def parse_dsn(dsn: str | None) -> PydapperParseResult:

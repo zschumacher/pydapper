@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from pydapper.bigquery import google_bigquery_client as bigquery_module
+from pydapper.exceptions import DuplicateColumnException
+from pydapper.exceptions import NoResultException
 from pydapper.mssql import pymssql as mssql_module
 from pydapper.mysql import mysql_connector_python as mysql_module
 from pydapper.oracle import oracledb as oracle_module
@@ -138,6 +140,251 @@ def test_mysql_connect_imports_dbapi_and_wraps_connection(monkeypatch):
         }
     ]
     assert import_calls == ["mysql.connector"]
+
+
+class MySqlLifecycleCursor:
+    def __init__(
+        self,
+        rows=(),
+        description=(("id",), ("name",)),
+        execute_exc=None,
+        fetchone_exc=None,
+        fetchall_exc=None,
+        exit_exc=None,
+        exit_result=False,
+    ):
+        self.rows = list(rows)
+        self._description = list(description)
+        self.execute_exc = execute_exc
+        self.fetchone_exc = fetchone_exc
+        self.fetchall_exc = fetchall_exc
+        self.exit_exc = exit_exc
+        self.exit_result = exit_result
+        self.rowcount = -1
+        self.calls = []
+        self.exit_args = []
+        self.exit_tb_matches = []
+
+    @property
+    def description(self):
+        self.calls.append("description")
+        return self._description
+
+    def __enter__(self):
+        self.calls.append("enter")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.calls.append("exit")
+        self.exit_args.append((exc_type, exc_val, exc_tb))
+        self.exit_tb_matches.append(exc_val is not None and exc_tb is exc_val.__traceback__)
+        if self.exit_exc is not None:
+            raise self.exit_exc
+        return self.exit_result
+
+    def execute(self, sql, parameters=None):
+        self.calls.append("execute")
+        if self.execute_exc is not None:
+            raise self.execute_exc
+
+    def fetchone(self):
+        self.calls.append("fetchone")
+        if self.fetchone_exc is not None:
+            raise self.fetchone_exc
+        if not self.rows:
+            return None
+        return self.rows.pop(0)
+
+    def fetchall(self):
+        self.calls.append("fetchall")
+        if self.fetchall_exc is not None:
+            raise self.fetchall_exc
+        remaining, self.rows = self.rows, []
+        return remaining
+
+
+def mysql_commands_with_cursor(cursor):
+    def acquire_cursor(*args, **kwargs):
+        cursor.calls.append("cursor")
+        return cursor
+
+    connection = SimpleNamespace(cursor=acquire_cursor)
+    return mysql_module.MySqlConnectorPythonCommands(connection)
+
+
+def test_mysql_query_first_drains_unread_results_before_projection():
+    cursor = MySqlLifecycleCursor(rows=[(1, "zach"), (2, "sam")])
+    commands = mysql_commands_with_cursor(cursor)
+
+    projection_calls = []
+
+    def mapper(raw_row):
+        projection_calls.append(list(cursor.calls))
+        return dict(zip(raw_row.columns, raw_row.values))
+
+    result = commands.query_first("select id, name from task", mapper=mapper)
+
+    assert result == {"id": 1, "name": "zach"}
+    assert cursor.calls == ["cursor", "enter", "execute", "description", "fetchone", "fetchall", "exit"]
+    assert projection_calls == [["cursor", "enter", "execute", "description", "fetchone", "fetchall"]]
+    assert cursor.exit_args == [(None, None, None)]
+
+
+def test_mysql_query_first_mapper_error_wins_over_cleanup_failure():
+    mapper_error = RuntimeError("mapper failed")
+    cursor = MySqlLifecycleCursor(rows=[(1, "zach")], exit_exc=OSError("cleanup failed"))
+    commands = mysql_commands_with_cursor(cursor)
+
+    def mapper(raw_row):
+        raise mapper_error
+
+    with pytest.raises(RuntimeError) as exc_info:
+        commands.query_first("select id, name from task", mapper=mapper)
+
+    assert exc_info.value is mapper_error
+    assert cursor.calls == ["cursor", "enter", "execute", "description", "fetchone", "fetchall", "exit"]
+    exc_type, exc_val, exc_tb = cursor.exit_args[0]
+    assert exc_type is RuntimeError
+    assert exc_val is mapper_error
+    assert cursor.exit_tb_matches == [True]
+
+
+def test_mysql_query_first_execute_error_wins_over_cleanup_failure():
+    execute_error = RuntimeError("execute failed")
+    cursor = MySqlLifecycleCursor(execute_exc=execute_error, exit_exc=OSError("cleanup failed"))
+    commands = mysql_commands_with_cursor(cursor)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        commands.query_first("select id, name from task")
+
+    assert exc_info.value is execute_error
+    assert cursor.calls == ["cursor", "enter", "execute", "exit"]
+    exc_type, exc_val, exc_tb = cursor.exit_args[0]
+    assert exc_type is RuntimeError
+    assert exc_val is execute_error
+    assert cursor.exit_tb_matches == [True]
+
+
+def test_mysql_query_first_fetch_error_wins_over_cleanup_failure():
+    fetch_error = RuntimeError("fetchone failed")
+    cursor = MySqlLifecycleCursor(fetchone_exc=fetch_error, exit_exc=OSError("cleanup failed"))
+    commands = mysql_commands_with_cursor(cursor)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        commands.query_first("select id, name from task")
+
+    assert exc_info.value is fetch_error
+    assert cursor.calls == ["cursor", "enter", "execute", "description", "fetchone", "exit"]
+    exc_type, exc_val, _ = cursor.exit_args[0]
+    assert exc_type is RuntimeError
+    assert exc_val is fetch_error
+
+
+def test_mysql_query_first_drain_error_wins_over_cleanup_failure():
+    drain_error = RuntimeError("fetchall failed")
+    cursor = MySqlLifecycleCursor(
+        rows=[(1, "zach"), (2, "sam")],
+        fetchall_exc=drain_error,
+        exit_exc=OSError("cleanup failed"),
+    )
+    commands = mysql_commands_with_cursor(cursor)
+
+    projection_calls = []
+
+    def mapper(raw_row):
+        projection_calls.append(raw_row)
+        return raw_row
+
+    with pytest.raises(RuntimeError) as exc_info:
+        commands.query_first("select id, name from task", mapper=mapper)
+
+    assert exc_info.value is drain_error
+    assert projection_calls == []
+    assert cursor.calls == ["cursor", "enter", "execute", "description", "fetchone", "fetchall", "exit"]
+    exc_type, exc_val, exc_tb = cursor.exit_args[0]
+    assert exc_type is RuntimeError
+    assert exc_val is drain_error
+    assert cursor.exit_tb_matches == [True]
+
+
+def test_mysql_query_first_truthy_cursor_exit_does_not_suppress_command_error():
+    execute_error = RuntimeError("execute failed")
+    cursor = MySqlLifecycleCursor(execute_exc=execute_error, exit_result=True)
+    commands = mysql_commands_with_cursor(cursor)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        commands.query_first("select id, name from task")
+
+    assert exc_info.value is execute_error
+    assert cursor.calls == ["cursor", "enter", "execute", "exit"]
+
+
+def test_mysql_query_first_no_result_wins_over_cleanup_failure():
+    cursor = MySqlLifecycleCursor(rows=[], exit_exc=OSError("cleanup failed"))
+    commands = mysql_commands_with_cursor(cursor)
+
+    with pytest.raises(NoResultException) as exc_info:
+        commands.query_first("select id, name from task")
+
+    assert cursor.calls == ["cursor", "enter", "execute", "description", "fetchone", "exit"]
+    exc_type, exc_val, _ = cursor.exit_args[0]
+    assert exc_type is NoResultException
+    assert exc_val is exc_info.value
+
+
+def test_mysql_query_first_duplicate_column_error_wins_over_cleanup_failure():
+    cursor = MySqlLifecycleCursor(
+        rows=[(1, 2)],
+        description=[("id",), ("id",)],
+        exit_exc=OSError("cleanup failed"),
+    )
+    commands = mysql_commands_with_cursor(cursor)
+
+    model_calls = []
+
+    def model(**kwargs):
+        model_calls.append(kwargs)
+        return kwargs
+
+    with pytest.raises(DuplicateColumnException) as exc_info:
+        commands.query_first("select id, id from task", model=model)
+
+    assert model_calls == []
+    assert cursor.calls == ["cursor", "enter", "execute", "description", "fetchone", "fetchall", "exit"]
+    exc_type, exc_val, _ = cursor.exit_args[0]
+    assert exc_type is DuplicateColumnException
+    assert exc_val is exc_info.value
+    assert cursor.exit_tb_matches == [True]
+
+
+def test_mysql_query_first_mapper_receives_duplicate_columns_after_drain():
+    cursor = MySqlLifecycleCursor(rows=[(1, 2), (3, 4)], description=[("id",), ("id",)])
+    commands = mysql_commands_with_cursor(cursor)
+
+    result = commands.query_first("select id, id from task", mapper=lambda raw_row: raw_row.values)
+
+    assert result == (1, 2)
+    assert cursor.calls == ["cursor", "enter", "execute", "description", "fetchone", "fetchall", "exit"]
+
+
+def test_mysql_query_first_cleanup_failure_propagates_after_successful_body():
+    cleanup_error = OSError("cleanup failed")
+    cursor = MySqlLifecycleCursor(rows=[(1, "zach")], exit_exc=cleanup_error)
+    commands = mysql_commands_with_cursor(cursor)
+
+    projection_calls = []
+
+    def mapper(raw_row):
+        projection_calls.append(raw_row.values)
+        return raw_row.values
+
+    with pytest.raises(OSError) as exc_info:
+        commands.query_first("select id, name from task", mapper=mapper)
+
+    assert exc_info.value is cleanup_error
+    assert projection_calls == [(1, "zach")]
+    assert cursor.calls == ["cursor", "enter", "execute", "description", "fetchone", "fetchall", "exit"]
+    assert cursor.exit_args == [(None, None, None)]
 
 
 def test_oracledb_param_handler_uses_named_placeholder():

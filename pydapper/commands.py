@@ -1426,7 +1426,7 @@ class Commands(BaseCommands, ABC):
             if not maps_raw_row:
                 validate_no_duplicate_columns(headers)
 
-        return _project_row(projector, maps_raw_row, headers, data[0])
+            return _project_row(projector, maps_raw_row, headers, data[0])
 
     @overload
     def query_single_or_default(

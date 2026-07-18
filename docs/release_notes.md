@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: validate capability declarations and add command preparation hooks. PR [#555](https://github.com/zschumacher/pydapper/pull/555) by [@zschumacher](https://github.com/zschumacher).
 * feat: validate adapter capability declarations and add command preparation hooks.
   `register_adapter()` now validates each supplied command class's `capabilities`
   declaration (a `frozenset` of `AdapterCapability` members) for both modes before the

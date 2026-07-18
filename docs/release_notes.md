@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* fix: run mysql query_first inside the command-owned cursor lifecycle. PR [#552](https://github.com/zschumacher/pydapper/pull/552) by [@zschumacher](https://github.com/zschumacher).
 * fix: project query_single rows inside the command-owned cursor lifecycle. PR [#550](https://github.com/zschumacher/pydapper/pull/550) by [@zschumacher](https://github.com/zschumacher).
 * fix: validate and extract scalar results inside the command-owned cursor lifecycle. PR [#549](https://github.com/zschumacher/pydapper/pull/549) by [@zschumacher](https://github.com/zschumacher).
 * fix: project query_first rows inside the command-owned cursor lifecycle. PR [#548](https://github.com/zschumacher/pydapper/pull/548) by [@zschumacher](https://github.com/zschumacher).

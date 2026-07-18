@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* fix: validate complete query batches before DBAPI work. PR [#545](https://github.com/zschumacher/pydapper/pull/545) by [@zschumacher](https://github.com/zschumacher).
 * fix: validate complete query batches before DBAPI work. `query_multiple` and
   `query_multiple_async` now construct and validate every parameter handler before acquiring
   a cursor, so a missing or invalid parameter in any query of the tuple fails before any

@@ -1,4 +1,3 @@
-import os
 import sqlite3
 from sqlite3 import Cursor
 from typing import TYPE_CHECKING
@@ -21,9 +20,5 @@ class Sqlite3Commands(Commands):
 
     @classmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands":
-        db_path = parsed_dsn.host or ""
-        if parsed_dsn.database:
-            db_path = os.path.join(db_path, parsed_dsn.database)
-
-        conn = sqlite3.connect(db_path, **connect_kwargs)
+        conn = sqlite3.connect(parsed_dsn.database, **connect_kwargs)
         return cls(conn)  # type: ignore

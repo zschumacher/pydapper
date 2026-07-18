@@ -24,6 +24,89 @@ There are four core concepts to understand about each dbapi *pydapper* supports:
 
 
 
+## DSN format
+
+Connections managed by *pydapper* use URL-style DSNs with this grammar:
+
+```text
+<database>[+<adapter>]://[<user>[:<password>]@][<host>][:<port>]/<target>[?<query>][#<fragment>]
+```
+
+The scheme must follow the RFC URL-scheme rules: it starts with an ASCII letter and then contains only ASCII letters,
+digits, `+`, `-`, or `.`. A scheme has either one database component or one database and one adapter component. Empty
+components, underscores, and additional `+` components are invalid.
+
+A one-component scheme selects the database's default adapter:
+
+| database     | default adapter |
+|--------------|-----------------|
+| `postgresql` | `psycopg2`      |
+| `sqlite`     | `sqlite3`       |
+| `mssql`      | `pymssql`       |
+| `mysql`      | `mysql`         |
+| `oracle`     | `oracledb`      |
+| `bigquery`   | `google`        |
+
+These default database names should be written exactly as shown. An explicit scheme such as
+`postgresql+psycopg://...` uses the adapter component exactly as written. Adapter registration names are case-sensitive,
+so the explicit adapter spelling must exactly match the registered name. Explicit third-party schemes are supported:
+for example, `acme+acmedb://...` selects an adapter registered as `acmedb`, even though `acme` has no built-in default.
+An unknown one-component scheme is invalid because *pydapper* cannot derive an adapter. See
+[Adapter registration](../adapter_registration.md) for the registration and selection contract.
+
+Place the port after the host, not in the user information:
+
+```text
+postgresql+psycopg://myuser:mypassword@localhost:5432/mydb
+```
+
+Bracket IPv6 hosts so their colons cannot be confused with the port separator:
+
+```text
+postgresql://myuser:mypassword@[2001:db8::1]:5432/mydb
+```
+
+### Percent encoding
+
+URL delimiters are recognized before components are percent-decoded. Percent-encode reserved characters when they are
+data: for example, use `%40` for `@`, `%3A` for `:`, `%2F` for `/`, and `%20` for a space in credentials or paths. A
+literal colon after the first username/password separator remains part of the password, but encoding reserved characters
+is often clearer. Usernames, passwords, hosts, and paths are decoded before adapters receive them. A plus sign in a path
+or credential remains a plus sign; it is not decoded as a space.
+
+Percent-encoding does not make authority delimiters valid hostname data. After decoding, network hosts must still be
+valid hostnames, IPv4 addresses, or bracketed IPv6 literals; control characters and Unicode characters that normalize
+to delimiters such as `/`, `:`, `?`, `#`, or `@` are rejected.
+
+Queries use URL-query decoding rules. Keys and values are percent-decoded, `+` becomes a space, and `%2B` represents a
+literal plus sign. A key seen once maps to a string, a repeated key maps to a list in encounter order, and a blank value
+remains an empty string. Numeric-looking and boolean-looking values are not converted:
+
+```text
+?mode=read+only&tag=one&tag=two&empty=&code=001&enabled=true
+```
+
+produces:
+
+```python
+{
+    "mode": "read only",
+    "tag": ["one", "two"],
+    "empty": "",
+    "code": "001",
+    "enabled": "true",
+}
+```
+
+The parse result's `query` and `query_str` fields retain the original encoded substring without the leading `?`, while
+`query_params` contains the decoded mapping.
+
+### Credential safety
+
+Parsed credentials are available to adapters, but the parse result's representation and parser-generated errors redact
+them. The original DSN is still retained in the result's `dsn` field for equality and routing, so treat both the DSN and
+parse result as sensitive values and do not log them directly.
+
 ## Connection Management
 *pydapper* supports BYOC (bring your own connection) via the `using` entry point or will manage the connection
 lifecyle for you using `connect`.
@@ -32,7 +115,9 @@ lifecyle for you using `connect`.
 *connect* will manage the connection for you.  When instantiating connect using a context manager, *connect* will use
 the context manager that is implemented on the dbapi you are using.
 
-You can optionally not pass the dsn into *connect* and set the `PYDAPPER_DSN` environment variable instead.
+When no DSN argument is supplied, both *connect* and *connect_async* fall back to the `PYDAPPER_DSN` environment
+variable. An explicit DSN always takes precedence. Explicit empty or malformed input raises an error and is not silently
+replaced by the environment value.
 
 Below is a generic example of using *pydapper* to connect to `sqlite`.
 

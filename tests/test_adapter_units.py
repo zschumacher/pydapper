@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from pydapper.bigquery import google_bigquery_client as bigquery_module
+from pydapper.dsn_parser import PydapperParseResult
 from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import NoResultException
 from pydapper.mssql import pymssql as mssql_module
@@ -71,7 +72,7 @@ def test_bigquery_connect_imports_dbapi_and_wraps_connection(monkeypatch):
     import_calls = patch_dbapi_import(monkeypatch, bigquery_module, "google.cloud.bigquery.dbapi", dbapi)
     client = object()
 
-    commands = bigquery_module.GoogleBigqueryClientCommands.connect(parsed_dsn(), client=client)
+    commands = bigquery_module.GoogleBigqueryClientCommands.connect(PydapperParseResult("bigquery:////"), client=client)
 
     assert isinstance(commands, bigquery_module.GoogleBigqueryClientCommands)
     assert commands.connection is dbapi.connection
@@ -119,6 +120,24 @@ def test_pymssql_connect_imports_dbapi_and_wraps_connection(monkeypatch):
         }
     ]
     assert import_calls == ["pymssql"]
+
+
+@pytest.mark.parametrize(
+    ("module", "commands_class", "dbapi_name", "dsn"),
+    [
+        (mssql_module, mssql_module.PymssqlCommands, "pymssql", "mssql://host/database"),
+        (mysql_module, mysql_module.MySqlConnectorPythonCommands, "mysql.connector", "mysql://host/database"),
+    ],
+)
+def test_network_adapters_preserve_driver_default_behavior_for_an_absent_port(
+    monkeypatch, module, commands_class, dbapi_name, dsn
+):
+    dbapi = RecordingDbApi()
+    patch_dbapi_import(monkeypatch, module, dbapi_name, dbapi)
+
+    commands_class.connect(PydapperParseResult(dsn))
+
+    assert dbapi.calls[0]["port"] is None
 
 
 def test_mysql_connect_imports_dbapi_and_wraps_connection(monkeypatch):
@@ -412,6 +431,22 @@ def test_oracledb_connect_imports_dbapi_and_wraps_connection(monkeypatch):
     assert import_calls == ["oracledb"]
 
 
+def test_oracledb_connect_forwards_ipv6_hostloc_and_decoded_parser_fields(monkeypatch):
+    dbapi = RecordingDbApi()
+    patch_dbapi_import(monkeypatch, oracle_module, "oracledb", dbapi)
+    dsn = PydapperParseResult("oracle+oracledb://ora%40user:p%3Ass%2Fword@[2001:db8::1]:1521/service%20name")
+
+    oracle_module.OracledbCommands.connect(dsn)
+
+    assert dbapi.calls == [
+        {
+            "user": "ora@user",
+            "password": "p:ss/word",
+            "dsn": "[2001:db8::1]:1521/service name",
+        }
+    ]
+
+
 @pytest.mark.asyncio
 async def test_aiopg_param_handler_emulates_executemany():
     class TrackingCursor:
@@ -476,6 +511,25 @@ async def test_aiopg_connect_imports_dbapi_and_wraps_connection(monkeypatch):
     assert import_calls == ["aiopg"]
 
 
+@pytest.mark.asyncio
+async def test_aiopg_connect_forwards_decoded_parser_fields_and_integer_port(monkeypatch):
+    dbapi = RecordingAsyncDbApi()
+    patch_dbapi_import(monkeypatch, aiopg_module, "aiopg", dbapi)
+    dsn = PydapperParseResult("postgresql+aiopg://async%40user:p%3Ass%2Fword@async-db.example:6544/async%20database")
+
+    await aiopg_module.AiopgCommands.connect_async(dsn)
+
+    assert dbapi.calls == [
+        {
+            "dbname": "async database",
+            "user": "async@user",
+            "password": "p:ss/word",
+            "host": "async-db.example",
+            "port": 6544,
+        }
+    ]
+
+
 def test_psycopg2_connect_imports_dbapi_and_wraps_connection(monkeypatch):
     dbapi = RecordingDbApi()
     import_calls = patch_dbapi_import(monkeypatch, psycopg2_module, "psycopg2", dbapi)
@@ -495,6 +549,42 @@ def test_psycopg2_connect_imports_dbapi_and_wraps_connection(monkeypatch):
         }
     ]
     assert import_calls == ["psycopg2"]
+
+
+def test_psycopg2_connect_forwards_decoded_parser_fields_and_integer_port(monkeypatch):
+    dbapi = RecordingDbApi()
+    patch_dbapi_import(monkeypatch, psycopg2_module, "psycopg2", dbapi)
+    dsn = PydapperParseResult("postgresql+psycopg2://sync%40user:p%3Ass%2Fword@sync-db.example:6543/sync%20database")
+
+    psycopg2_module.Psycopg2Commands.connect(dsn)
+
+    assert dbapi.calls == [
+        {
+            "dbname": "sync database",
+            "user": "sync@user",
+            "password": "p:ss/word",
+            "host": "sync-db.example",
+            "port": 6543,
+        }
+    ]
+
+
+def test_psycopg2_connect_preserves_a_supplied_zero_port(monkeypatch):
+    dbapi = RecordingDbApi()
+    patch_dbapi_import(monkeypatch, psycopg2_module, "psycopg2", dbapi)
+
+    psycopg2_module.Psycopg2Commands.connect(PydapperParseResult("postgresql://host:0/database"))
+
+    assert dbapi.calls[0]["port"] == 0
+
+
+def test_psycopg2_connect_preserves_its_default_for_a_real_parser_without_a_port(monkeypatch):
+    dbapi = RecordingDbApi()
+    patch_dbapi_import(monkeypatch, psycopg2_module, "psycopg2", dbapi)
+
+    psycopg2_module.Psycopg2Commands.connect(PydapperParseResult("postgresql://host/database"))
+
+    assert dbapi.calls[0]["port"] == "5432"
 
 
 def test_psycopg3_connect_imports_dbapi_and_wraps_connection(monkeypatch):
@@ -582,8 +672,13 @@ def test_sqlite_param_handler_uses_question_mark_placeholder():
 @pytest.mark.parametrize(
     "dsn, expected_path",
     [
-        (parsed_dsn(host="/tmp", database="app.db"), "/tmp/app.db"),
-        (parsed_dsn(host="/tmp/app.db", database=""), "/tmp/app.db"),
+        ("sqlite://relative.db", "relative.db"),
+        ("sqlite+sqlite3://relative.db", "relative.db"),
+        ("sqlite:///relative/path.db", "relative/path.db"),
+        ("sqlite:////absolute/path.db", "/absolute/path.db"),
+        ("sqlite:///:memory:", ":memory:"),
+        ("sqlite://", ""),
+        ("sqlite:///relative/my%20database.db", "relative/my database.db"),
     ],
 )
 def test_sqlite_connect_wraps_connection(monkeypatch, dsn, expected_path):
@@ -596,7 +691,7 @@ def test_sqlite_connect_wraps_connection(monkeypatch, dsn, expected_path):
 
     monkeypatch.setattr(sqlite_module.sqlite3, "connect", connect)
 
-    commands = sqlite_module.Sqlite3Commands.connect(dsn, isolation_level=None)
+    commands = sqlite_module.Sqlite3Commands.connect(PydapperParseResult(dsn), isolation_level=None)
 
     assert isinstance(commands, sqlite_module.Sqlite3Commands)
     assert commands.connection is connection

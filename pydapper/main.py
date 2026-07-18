@@ -114,7 +114,10 @@ def register_adapter(
 # loads are cached per exact provider identity (name, distribution, entry-point value), never
 # normalized, and failed attempts are never cached so they stay retryable. Both the registry and the
 # success cache are restored by object identity (binding and contents) so a hostile callback cannot
-# corrupt loader state by rebinding or mutating the module globals.
+# corrupt loader state by rebinding or mutating those module globals. The lock itself is bound into
+# the loader and reset helper at definition time and must never be read at call time, so a callback
+# rebinding this global cannot hand a concurrent caller a different lock; the rebound global is
+# simply inert. (A callback that rewrites this module's functions is beyond any in-process defense.)
 _provider_load_lock = threading.Lock()
 _loaded_provider_registrations: dict[tuple[str, str, str], _AdapterRegistration] = {}
 
@@ -190,7 +193,11 @@ def _verify_provider_registration_effect(
     return registration
 
 
-def _load_adapter_provider(descriptor: _AdapterProviderDescriptor) -> _AdapterRegistration:
+def _load_adapter_provider(
+    descriptor: _AdapterProviderDescriptor,
+    *,
+    _lock: threading.Lock = _provider_load_lock,
+) -> _AdapterRegistration:
     """Load one already-selected provider entry point and return its registration.
 
     The caller (a later resolution slice) is responsible for choosing the
@@ -202,10 +209,14 @@ def _load_adapter_provider(descriptor: _AdapterProviderDescriptor) -> _AdapterRe
     success cache to their exact pre-attempt bindings and contents and stays
     retryable; a success is cached so the callback runs at most once per
     process, discarding any loader-state tampering by the callback.
+
+    ``_lock`` defaults to the module lock captured at definition time — it is
+    never read from the module global at call time — and exists as a parameter
+    only so tests can inject an instrumented lock deterministically.
     """
     context = _provider_error_context(descriptor)
     key = _provider_load_state_key(descriptor)
-    with _provider_load_lock:
+    with _lock:
         registry = _adapter_registry
         cache = _loaded_provider_registrations
         cached = cache.get(key)
@@ -254,10 +265,11 @@ def _load_adapter_provider(descriptor: _AdapterProviderDescriptor) -> _AdapterRe
         return registration
 
 
-def _reset_provider_load_state_for_tests() -> None:
+def _reset_provider_load_state_for_tests(*, _lock: threading.Lock = _provider_load_lock) -> None:
     # clears only private loader success state; callers are responsible for separately
-    # snapshotting/restoring the adapter registry itself
-    with _provider_load_lock:
+    # snapshotting/restoring the adapter registry itself. The lock is captured at definition
+    # time for the same rebinding defense as _load_adapter_provider.
+    with _lock:
         _loaded_provider_registrations.clear()
 
 

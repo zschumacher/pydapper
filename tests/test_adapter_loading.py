@@ -65,12 +65,24 @@ def registering_callback(name, *, commands=MockCommands, async_commands=None, pr
     return register, calls
 
 
+class MustNotAcquireLock:
+    """Stands in for a hostile replacement of the private load lock."""
+
+    def __enter__(self):  # pragma: no cover - must never run
+        raise AssertionError("replacement load lock must never be acquired")
+
+    def __exit__(self, *exc_info):  # pragma: no cover - must never run
+        raise AssertionError("replacement load lock must never be released")
+
+
 @pytest.fixture(autouse=True)
 def isolated_registry(monkeypatch):
     registry = main._adapter_registry.copy()
     monkeypatch.setattr(main, "_adapter_registry", registry)
+    original_lock = main._provider_load_lock
     main._reset_provider_load_state_for_tests()
     yield registry
+    main._provider_load_lock = original_lock
     main._reset_provider_load_state_for_tests()
 
 
@@ -207,7 +219,7 @@ def test_success_cache_is_per_provider_identity_not_per_name():
     assert main._adapter_registry["acmedb"] is loaded
 
 
-def test_concurrent_loads_invoke_load_and_callback_exactly_once(monkeypatch):
+def test_concurrent_loads_invoke_load_and_callback_exactly_once():
     # the first worker to win the load lock blocks inside the provider callback until the main
     # thread releases it, and the lock is instrumented to count acquire attempts, so the callback
     # is only released once every other worker is provably blocked on the lock mid-load; a
@@ -244,7 +256,7 @@ def test_concurrent_loads_invoke_load_and_callback_exactly_once(monkeypatch):
         pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
 
     descriptor = make_descriptor("acmedb", loaded=register)
-    monkeypatch.setattr(main, "_provider_load_lock", CountingLock(threading.Lock()))
+    shared_lock = CountingLock(threading.Lock())
 
     results = []
     errors = []
@@ -252,7 +264,7 @@ def test_concurrent_loads_invoke_load_and_callback_exactly_once(monkeypatch):
     def worker():
         try:
             start_barrier.wait(timeout=30)
-            results.append(main._load_adapter_provider(descriptor))
+            results.append(main._load_adapter_provider(descriptor, _lock=shared_lock))
         except Exception as exc:  # pragma: no cover - failure reporting only
             errors.append(exc)
 
@@ -271,6 +283,116 @@ def test_concurrent_loads_invoke_load_and_callback_exactly_once(monkeypatch):
     assert descriptor.entry_point.load_calls == 1
     assert len(results) == thread_count
     assert all(result is results[0] for result in results)
+    assert main._adapter_registry["acmedb"] is results[0]
+
+
+def test_callback_rebinding_the_load_lock_is_inert_for_later_loads():
+    original_lock = main._provider_load_lock
+    # production callers share the original lock through the definition-time default, so a
+    # rebound module global is never read at call time
+    assert main._load_adapter_provider.__kwdefaults__["_lock"] is original_lock
+    assert main._reset_provider_load_state_for_tests.__kwdefaults__["_lock"] is original_lock
+
+    def register():
+        main._provider_load_lock = MustNotAcquireLock()
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    registration = main._load_adapter_provider(descriptor)
+
+    # the cached-hit path, a fresh load, and the test reset would all raise if any of them
+    # acquired the hostile replacement instead of the definition-time lock
+    assert main._load_adapter_provider(descriptor) is registration
+    other_callback, other_calls = registering_callback("otherdb")
+    main._load_adapter_provider(make_descriptor("otherdb", loaded=other_callback))
+    assert other_calls == ["called"]
+    main._reset_provider_load_state_for_tests()
+    assert isinstance(main._provider_load_lock, MustNotAcquireLock)
+
+
+def test_failing_callback_rebinding_the_load_lock_keeps_future_loads_usable():
+    behavior = {"fail": True}
+
+    def register():
+        if behavior["fail"]:
+            main._provider_load_lock = MustNotAcquireLock()
+            raise RuntimeError("fail after swapping the lock")
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+
+    with pytest.raises(ValueError):
+        main._load_adapter_provider(descriptor)
+
+    behavior["fail"] = False
+    registration = main._load_adapter_provider(descriptor)
+
+    assert main._adapter_registry["acmedb"] is registration
+
+
+def test_concurrent_caller_is_not_unblocked_by_lock_rebinding_during_callback():
+    # deterministic repro of the reported attack: while the first caller holds the original
+    # load lock inside a callback that rebinds main._provider_load_lock, a second caller for
+    # the same provider must still serialize on the original lock (which production callers
+    # share via the definition-time default) and must never acquire the replacement
+    in_callback = threading.Event()
+    second_attempt = threading.Event()
+    release = threading.Event()
+    callback_calls = []
+
+    class CountingLock:
+        def __init__(self, inner):
+            self._inner = inner
+            self._count_guard = threading.Lock()
+            self._acquire_attempts = 0
+
+        def __enter__(self):
+            with self._count_guard:
+                self._acquire_attempts += 1
+                if self._acquire_attempts >= 2:
+                    second_attempt.set()
+            self._inner.acquire()
+            return self
+
+        def __exit__(self, *exc_info):
+            self._inner.release()
+
+    shared_lock = CountingLock(threading.Lock())
+
+    def register():
+        callback_calls.append("called")
+        main._provider_load_lock = MustNotAcquireLock()
+        in_callback.set()
+        assert release.wait(timeout=30)
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    results = []
+    errors = []
+
+    def worker():
+        try:
+            results.append(main._load_adapter_provider(descriptor, _lock=shared_lock))
+        except Exception as exc:  # pragma: no cover - failure reporting only
+            errors.append(exc)
+
+    first = threading.Thread(target=worker)
+    first.start()
+    assert in_callback.wait(timeout=30)
+    second = threading.Thread(target=worker)
+    second.start()
+    # the second caller is provably attempting the original lock, not the replacement, while
+    # the first caller is still paused inside the callback after the rebinding
+    assert second_attempt.wait(timeout=30)
+    release.set()
+    first.join(timeout=30)
+    second.join(timeout=30)
+
+    assert not errors
+    assert callback_calls == ["called"]
+    assert descriptor.entry_point.load_calls == 1
+    assert len(results) == 2
+    assert results[0] is results[1]
     assert main._adapter_registry["acmedb"] is results[0]
 
 

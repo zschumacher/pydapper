@@ -29,12 +29,12 @@ Supported drivers:
 
 === "Example"
     ```python
-    dsn = "postgresql+psycopg2://myuser:mypassword:1521@localhost/mydb"
+    dsn = "postgresql+psycopg2://myuser:mypassword@localhost:5432/mydb"
     ```
 
 === "Example (Default Driver)"
     ```python
-    dsn = "postgresql://myuser:mypassword:1521@localhost/mydb"
+    dsn = "postgresql://myuser:mypassword@localhost:5432/mydb"
     ```
 
 ### Example - `connect`
@@ -88,7 +88,7 @@ async mode.
 
 === "Example"
     ```python
-    dsn = "postgresql+psycopg://myuser:mypassword:1521@localhost/mydb"
+    dsn = "postgresql+psycopg://myuser:mypassword@localhost:5432/mydb"
     ```
 
 ### Example - `connect`
@@ -151,7 +151,7 @@ separately from the `psycopg`, and is called `psycopg_pool`; it supports both sy
 
 === "Example"
     ```python
-    dsn = "postgresql+aiopg://myuser:mypassword:1521@localhost/mydb"
+    dsn = "postgresql+aiopg://myuser:mypassword@localhost:5432/mydb"
     ```
 
 ### Example - `connect_async`

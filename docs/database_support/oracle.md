@@ -30,12 +30,12 @@ Supported drivers:
 
 === "Example"
     ```python
-    dsn = "oracle+oracledb://myuser:mypassword:1521@localhost/myservicename"
+    dsn = "oracle+oracledb://myuser:mypassword@localhost:1521/myservicename"
     ```
 
 === "Example (Default Driver)"
     ```python
-    dsn = "oracle://myuser:mypassword:1521@localhost/myservicename"
+    dsn = "oracle://myuser:mypassword@localhost:1521/myservicename"
     ```
 
 !!! note

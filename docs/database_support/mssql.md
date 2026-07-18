@@ -28,12 +28,12 @@ Supported drivers:
 
 === "Example"
     ```python
-    dsn = "mssql+pymssql://myuser:mypassword:1433@localhost/mydb"
+    dsn = "mssql+pymssql://myuser:mypassword@localhost:1433/mydb"
     ```
 
 === "Example (Default Driver)"
     ```python
-    dsn = "mssql://myuser:mypassword:1433@localhost/mydb"
+    dsn = "mssql://myuser:mypassword@localhost:1433/mydb"
     ```
 
 

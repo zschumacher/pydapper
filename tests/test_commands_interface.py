@@ -2764,6 +2764,169 @@ class TestCommands:
 
         assert calls == [connection.cursor_instance]
 
+    @pytest.mark.parametrize("exit_behavior", ["raises", "truthy"])
+    def test_query_single_mapper_error_wins_over_native_cursor_exit(self, exit_behavior):
+        mapper_error = ValueError("mapper failed")
+
+        class RecordingExitCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                self.exit_tb_was_active = exc_tb is exc_val.__traceback__
+                if exit_behavior == "raises":
+                    raise RuntimeError("cleanup failed")
+                return True
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchmany(self, size):
+                return [(1, "Zach")]
+
+        def mapper(row):
+            raise mapper_error
+
+        cursor = RecordingExitCursor()
+
+        with pytest.raises(ValueError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).query_single("select id, name from some_table", mapper=mapper)
+
+        assert exc_info.value is mapper_error
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is ValueError
+        assert exc_val is mapper_error
+        assert cursor.exit_tb_was_active
+
+    def test_query_single_propagates_native_cursor_exit_error_after_successful_mapping(self):
+        cleanup_error = RuntimeError("cleanup failed")
+
+        class FailingExitCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise cleanup_error
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchmany(self, size):
+                return [(1, "Zach")]
+
+        cursor = FailingExitCursor()
+
+        with pytest.raises(RuntimeError) as exc_info:
+            MockCommands(_CursorConnection(cursor)).query_single(
+                "select id, name from some_table", mapper=lambda row: row["id"]
+            )
+
+        assert exc_info.value is cleanup_error
+        assert cursor.exit_calls == 1
+        assert cursor.exit_args == (None, None, None)
+
+    @pytest.mark.parametrize(
+        "rows, expected_exception",
+        [
+            ([], NoResultException),
+            ([(1, "Zach"), (2, "Bob")], MoreThanOneResultException),
+        ],
+    )
+    def test_query_single_cardinality_error_wins_over_native_cursor_exit_error(self, rows, expected_exception):
+        hook_calls = []
+
+        class FailingExitCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise RuntimeError("cleanup failed")
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchmany(self, size):
+                return list(rows)
+
+        class HookedCommands(MockCommands):
+            def _on_query_single_more_than_one_result(self, cursor):
+                hook_calls.append(cursor)
+
+        cursor = FailingExitCursor()
+
+        with pytest.raises(expected_exception) as exc_info:
+            HookedCommands(_CursorConnection(cursor)).query_single("select id, name from some_table")
+
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is expected_exception
+        assert exc_val is exc_info.value
+        if expected_exception is MoreThanOneResultException:
+            assert hook_calls == [cursor]
+        else:
+            assert hook_calls == []
+
+    def test_query_single_duplicate_column_error_wins_over_native_cursor_exit_error(self):
+        class FailingExitCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text"), ("id", "int")
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise RuntimeError("cleanup failed")
+
+            def execute(self, sql, parameters=None):
+                pass
+
+            def fetchmany(self, size):
+                return [(1, "Zach", 2)]
+
+        cursor = FailingExitCursor()
+
+        with pytest.raises(DuplicateColumnException) as exc_info:
+            MockCommands(_CursorConnection(cursor)).query_single("select id, name, id from some_table")
+
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is DuplicateColumnException
+        assert exc_val is exc_info.value
+
     def test_query_single_or_default(self, connection, set_fetchone_to_return_none):
         default = SimpleNamespace(id=10, name="default")
         with MockCommands(connection) as commands:

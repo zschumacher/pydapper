@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* fix: sync command-owned cursor exception precedence. PR [#546](https://github.com/zschumacher/pydapper/pull/546) by [@zschumacher](https://github.com/zschumacher).
 * fix: validate complete query batches before DBAPI work. PR [#545](https://github.com/zschumacher/pydapper/pull/545) by [@zschumacher](https://github.com/zschumacher).
 * fix: validate complete query batches before DBAPI work. `query_multiple` and
   `query_multiple_async` now construct and validate every parameter handler before acquiring

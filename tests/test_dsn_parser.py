@@ -46,6 +46,12 @@ def test_every_existing_and_documented_dsn_constructs(dsn):
     assert parsed.dsn == dsn
 
 
+@pytest.mark.parametrize("dsn", [None, 1, object()])
+def test_non_string_dsn_is_rejected(dsn):
+    with pytest.raises(TypeError):
+        PydapperParseResult(dsn)
+
+
 @pytest.mark.parametrize(
     ("dsn", "scheme", "schemes", "dbms", "dbapi"),
     [
@@ -354,6 +360,23 @@ def test_standard_idna_dot_equivalents_remain_valid(dsn):
     assert parsed.hostname in {"例え。テスト", "例え｡テスト"}
 
 
+def test_idna_encoding_error_is_credential_safe():
+    encoded_secret = "idna%3Asecret%2Fsentinel"
+    decoded_secret = "idna:secret/sentinel"
+    overlong_unicode_label = "é" * 64
+    dsn = f"postgresql://user:{encoded_secret}@{overlong_unicode_label}/database"
+
+    with pytest.raises(ValueError) as exc_info:
+        PydapperParseResult(dsn)
+
+    error_text = repr(exc_info.value)
+    assert "host" in error_text.lower() or "authority" in error_text.lower()
+    assert dsn not in error_text
+    assert encoded_secret not in error_text
+    assert decoded_secret not in error_text
+    assert exc_info.value.__context__ is None
+
+
 @pytest.mark.parametrize("hostname", ["a" * 64, "a..b", "foo_bar"])
 def test_valid_ascii_reg_names_are_not_restricted_by_dns_rules(hostname):
     parsed = PydapperParseResult(f"postgresql://{hostname}/database")
@@ -384,7 +407,8 @@ def test_path_uses_url_decoding_without_treating_plus_as_space():
 
 def test_query_text_and_decoded_parameters_preserve_strings_repeats_and_blanks():
     query = (
-        "single=value&repeat=first&repeat=second&blank=&bare&unicode=caf%C3%A9&space=a+b&literal_plus=a%2Bb"
+        "single=value&repeat=first&repeat=second&repeat=third&blank=&bare&unicode=caf%C3%A9&space=a+b"
+        "&literal_plus=a%2Bb"
         "&integer=001&decimal=1.5&true=true&false=false"
     )
     parsed = PydapperParseResult(f"postgresql://host/database?{query}")
@@ -393,7 +417,7 @@ def test_query_text_and_decoded_parameters_preserve_strings_repeats_and_blanks()
     assert parsed.query_str == query
     assert parsed.query_params == {
         "single": "value",
-        "repeat": ["first", "second"],
+        "repeat": ["first", "second", "third"],
         "blank": "",
         "bare": "",
         "unicode": "café",

@@ -53,7 +53,12 @@ class _AwaitableAsyncContextManager(Generic[_AwaitResultT, _EnterResultT]):
         obj = await self._resolve()
         try:
             if self._aexit is not None:
-                return await _await_if_needed(self._aexit(obj, exc_type, exc_val, exc_tb))
+                suppress = await _await_if_needed(self._aexit(obj, exc_type, exc_val, exc_tb))
+                if self._preserve_active_error and exc_type is not None:
+                    # a command-owned resource may not suppress the active command error, so a truthy
+                    # native __aexit__ result is ignored
+                    return False
+                return suppress
 
             close = getattr(obj, "close", None)
             if callable(close):

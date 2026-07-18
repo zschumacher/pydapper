@@ -1114,7 +1114,7 @@ class Commands(BaseCommands, ABC):
                 raise NoResultException("Query returned no results")
             if not maps_raw_row:
                 validate_no_duplicate_columns(headers)
-        return _project_row(projector, maps_raw_row, headers, row)
+            return _project_row(projector, maps_raw_row, headers, row)
 
     @overload
     def query_first_or_default(

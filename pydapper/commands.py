@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import AsyncGenerator
 from typing import Callable
+from typing import ClassVar
 from typing import Dict
 from typing import Generator
 from typing import List
@@ -26,6 +27,7 @@ from typing import overload
 from ._context import _AwaitableAsyncContextManager
 from ._sql_placeholders import PlaceholderSpan
 from ._sql_placeholders import scan_placeholder_spans
+from .capabilities import AdapterCapability
 from .command_options import CommandKind
 from .command_options import CommandOptions
 from .exceptions import DuplicateColumnException
@@ -311,6 +313,17 @@ class DefaultSqlParamHandler(BaseSqlParamHandler):
 
 class BaseCommands(ABC):
     SqlParamHandler: Type[BaseSqlParamHandler] = DefaultSqlParamHandler
+
+    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset()
+
+    def supports(self, capability: AdapterCapability) -> bool:
+        if not isinstance(capability, AdapterCapability):
+            raise TypeError(f"capability must be an AdapterCapability, got {type(capability).__name__}")
+        return capability in self.capabilities
+
+    def _require_capability(self, capability: AdapterCapability) -> None:
+        if not self.supports(capability):
+            raise UnsupportedFeatureError(f"Capability {capability.value!r} is not supported by {type(self).__name__}")
 
     @staticmethod
     def _resolve_params(param=_PARAM_ALIAS_UNSET, params=_PARAM_ALIAS_UNSET):

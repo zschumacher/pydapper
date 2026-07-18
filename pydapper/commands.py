@@ -988,10 +988,13 @@ class Commands(BaseCommands, ABC):
             projectors = models
             maps_raw_row = False
 
+        # every handler must construct (and therefore validate its placeholders and param values) before any
+        # query reaches the DBAPI; this does not make execution transactional
+        handlers = tuple(self.SqlParamHandler(query, resolved_params) for query in queries)
+
         results = list()
         with self._cursor_context_proxy() as cursor:
-            for query, projector in zip(queries, projectors):
-                handler = self.SqlParamHandler(query, resolved_params)
+            for query, projector, handler in zip(queries, projectors, handlers):
                 handler.execute(cursor)
                 headers = get_col_names(cursor)
                 data = cursor.fetchall()
@@ -2261,10 +2264,13 @@ class CommandsAsync(BaseCommands, ABC):
             projectors = models
             maps_raw_row = False
 
+        # every handler must construct (and therefore validate its placeholders and param values) before any
+        # query reaches the DBAPI; this does not make execution transactional
+        handlers = tuple(self.SqlParamHandler(query, resolved_params) for query in queries)
+
         results = list()
         async with self.cursor() as cursor:
-            for query, projector in zip(queries, projectors):
-                handler = self.SqlParamHandler(query, resolved_params)
+            for query, projector, handler in zip(queries, projectors, handlers):
                 await handler.execute_async(cursor)
                 headers = get_col_names(cursor)
                 data = await cursor.fetchall()

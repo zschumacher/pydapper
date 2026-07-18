@@ -1,5 +1,11 @@
 ## Latest Changes
 
+* fix: validate complete query batches before DBAPI work. `query_multiple` and
+  `query_multiple_async` now construct and validate every parameter handler before acquiring
+  a cursor, so a missing or invalid parameter in any query of the tuple fails before any
+  query executes or fetches. This is client-side prevalidation, not transactional execution;
+  a validated batch can still fail partway through on a runtime database, fetch, column, or
+  mapping error.
 * chore(ai): Add CLAUDE.md symlink to AGENTS.md. PR [#544](https://github.com/zschumacher/pydapper/pull/544) by [@zschumacher](https://github.com/zschumacher).
 * fix: harden async context lifecycle. PR [#540](https://github.com/zschumacher/pydapper/pull/540) by [@zschumacher](https://github.com/zschumacher).
 * fix: harden async context lifecycle. Async resources now resolve exactly once and

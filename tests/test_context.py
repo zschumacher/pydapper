@@ -12,13 +12,17 @@ class ContextObject:
         self.exit_result = exit_result
         self.exit_error = exit_error
         self.entered = object()
+        self.enter_calls = 0
         self.exit_calls = 0
+        self.exit_args = None
 
     async def __aenter__(self):
+        self.enter_calls += 1
         return self.entered
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         self.exit_calls += 1
+        self.exit_args = exc_type, exc_val, exc_tb
         if self.exit_error:
             raise self.exit_error
         return self.exit_result
@@ -115,11 +119,81 @@ async def test_exit_result_is_propagated(exit_result, suppresses):
     obj = ContextObject(exit_result=exit_result)
     caught = False
     try:
-        async with _AwaitableAsyncContextManager(asyncio.sleep(0, result=obj)):
+        async with _AwaitableAsyncContextManager(asyncio.sleep(0, result=obj), preserve_active_error=False):
             raise ValueError("body")
     except ValueError:
         caught = True
     assert caught is not suppresses
+
+
+@pytest.mark.asyncio
+async def test_preserve_active_error_ignores_truthy_native_exit():
+    calls = 0
+    obj = ContextObject(exit_result=True)
+
+    async def source():
+        nonlocal calls
+        calls += 1
+        return obj
+
+    body_error = ValueError("body")
+    wrapper = _AwaitableAsyncContextManager(source(), preserve_active_error=True)
+    with pytest.raises(ValueError) as exc_info:
+        async with wrapper:
+            raise body_error
+
+    assert exc_info.value is body_error
+    assert calls == 1
+    assert obj.enter_calls == 1
+    assert obj.exit_calls == 1
+    exc_type, exc_val, exc_tb = obj.exit_args
+    assert exc_type is ValueError
+    assert exc_val is body_error
+    assert exc_tb is body_error.__traceback__
+
+
+@pytest.mark.asyncio
+async def test_preserve_active_error_wins_over_native_exit_failure():
+    body_error = ValueError("body")
+    obj = ContextObject(exit_error=RuntimeError("cleanup"))
+
+    with pytest.raises(ValueError) as exc_info:
+        async with _AwaitableAsyncContextManager(asyncio.sleep(0, result=obj), preserve_active_error=True):
+            raise body_error
+
+    assert exc_info.value is body_error
+    assert obj.enter_calls == 1
+    assert obj.exit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_preserve_active_error_propagates_native_exit_failure_after_success():
+    cleanup_error = RuntimeError("cleanup")
+    obj = ContextObject(exit_error=cleanup_error)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        async with _AwaitableAsyncContextManager(asyncio.sleep(0, result=obj), preserve_active_error=True):
+            pass
+
+    assert exc_info.value is cleanup_error
+    assert obj.exit_calls == 1
+    assert obj.exit_args == (None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_preserve_active_error_passes_through_native_exit_result_without_active_error():
+    # async with discards __aexit__'s return value when no exception is active, so drive the
+    # protocol directly to observe that the native result passes through unchanged
+    marker = object()
+    obj = ContextObject(exit_result=marker)
+    wrapper = _AwaitableAsyncContextManager(asyncio.sleep(0, result=obj), preserve_active_error=True)
+
+    entered = await wrapper.__aenter__()
+    result = await wrapper.__aexit__(None, None, None)
+
+    assert entered is obj.entered
+    assert result is marker
+    assert obj.exit_calls == 1
 
 
 @pytest.mark.asyncio

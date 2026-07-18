@@ -9,6 +9,7 @@ import pytest
 
 import pydapper
 from pydapper import RawRow
+from pydapper._context import _AwaitableAsyncContextManager
 from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
@@ -2938,6 +2939,220 @@ class TestCommandsAsync:
         assert connection.cursor_instance.calls == [
             ("insert into some_table (id) values (%s)", [(1,), (2,)]),
         ]
+
+    @pytest.mark.asyncio
+    async def test_execute_async_error_wins_over_native_cursor_exit_error(self):
+        command_error = ValueError("execute failed")
+
+        class ExplodingAsyncCursor:
+            def __init__(self):
+                self.enter_calls = 0
+                self.exit_calls = 0
+                self.exit_args = None
+
+            async def __aenter__(self):
+                self.enter_calls += 1
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                self.exit_tb_was_active = exc_tb is exc_val.__traceback__
+                raise RuntimeError("cleanup failed")
+
+            async def execute(self, sql, parameters=None):
+                raise command_error
+
+        class CountingAsyncCursorConnection:
+            def __init__(self, cursor):
+                self.cursor_instance = cursor
+                self.cursor_calls = 0
+
+            async def cursor(self, *args, **kwargs):
+                self.cursor_calls += 1
+                return self.cursor_instance
+
+        cursor = ExplodingAsyncCursor()
+        connection = CountingAsyncCursorConnection(cursor)
+
+        with pytest.raises(ValueError) as exc_info:
+            await MockAsyncCommands(connection).execute_async("insert into some_table (id) values (1)")
+
+        assert exc_info.value is command_error
+        assert connection.cursor_calls == 1
+        assert cursor.enter_calls == 1
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is ValueError
+        assert exc_val is command_error
+        assert cursor.exit_tb_was_active
+
+    @pytest.mark.asyncio
+    async def test_execute_async_error_wins_over_truthy_native_cursor_exit(self):
+        command_error = ValueError("execute failed")
+
+        class SuppressingAsyncCursor:
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                self.exit_tb_was_active = exc_tb is exc_val.__traceback__
+                return True
+
+            async def execute(self, sql, parameters=None):
+                raise command_error
+
+        cursor = SuppressingAsyncCursor()
+
+        with pytest.raises(ValueError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).execute_async(
+                "insert into some_table (id) values (1)"
+            )
+
+        assert exc_info.value is command_error
+        assert cursor.exit_calls == 1
+        exc_type, exc_val, exc_tb = cursor.exit_args
+        assert exc_type is ValueError
+        assert exc_val is command_error
+        assert cursor.exit_tb_was_active
+
+    @pytest.mark.asyncio
+    async def test_execute_async_propagates_native_cursor_exit_error_after_success(self):
+        cleanup_error = RuntimeError("cleanup failed")
+
+        class FailingExitCursor:
+            rowcount = 3
+
+            def __init__(self):
+                self.exit_calls = 0
+                self.exit_args = None
+                self.execute_calls = 0
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                self.exit_args = exc_type, exc_val, exc_tb
+                raise cleanup_error
+
+            async def execute(self, sql, parameters=None):
+                self.execute_calls += 1
+
+        cursor = FailingExitCursor()
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).execute_async(
+                "insert into some_table (id) values (1)"
+            )
+
+        assert exc_info.value is cleanup_error
+        assert cursor.execute_calls == 1
+        assert cursor.exit_calls == 1
+        assert cursor.exit_args == (None, None, None)
+
+    @pytest.mark.asyncio
+    async def test_execute_async_error_wins_over_plain_cursor_sync_close_error(self):
+        command_error = ValueError("execute failed")
+
+        class SyncClosePlainCursor:
+            rowcount = 0
+
+            def __init__(self):
+                self.close_calls = 0
+
+            async def execute(self, sql, parameters=None):
+                raise command_error
+
+            def close(self):
+                self.close_calls += 1
+                raise RuntimeError("close failed")
+
+        cursor = SyncClosePlainCursor()
+
+        with pytest.raises(ValueError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).execute_async(
+                "insert into some_table (id) values (1)"
+            )
+
+        assert exc_info.value is command_error
+        assert cursor.close_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_execute_async_error_wins_over_plain_cursor_awaitable_close_error(self):
+        command_error = ValueError("execute failed")
+        cursor = _PlainAsyncQueryCursor()
+        cursor.execute_error = command_error
+        cursor.close_error = RuntimeError("close failed")
+
+        with pytest.raises(ValueError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).execute_async(
+                "insert into some_table (id) values (1)"
+            )
+
+        assert exc_info.value is command_error
+        assert cursor.close_calls == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("close_style", ["sync", "awaitable"])
+    async def test_execute_async_propagates_plain_cursor_close_error_after_success(self, close_style):
+        cleanup_error = RuntimeError("close failed")
+
+        class SyncClosePlainCursor:
+            rowcount = 1
+
+            def __init__(self):
+                self.close_calls = 0
+
+            async def execute(self, sql, parameters=None):
+                pass
+
+            def close(self):
+                self.close_calls += 1
+                raise cleanup_error
+
+        if close_style == "sync":
+            cursor = SyncClosePlainCursor()
+        else:
+            cursor = _PlainAsyncQueryCursor()
+            cursor.close_error = cleanup_error
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).execute_async(
+                "insert into some_table (id) values (1)"
+            )
+
+        assert exc_info.value is cleanup_error
+        assert cursor.close_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_connection_wrapper_still_honors_truthy_connection_exit(self):
+        class SuppressingAsyncConnection(MockAsyncConnection):
+            def __init__(self):
+                super().__init__()
+                self.exit_calls = 0
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+                return True
+
+        connection = SuppressingAsyncConnection()
+
+        async def connect():
+            return MockAsyncCommands(connection)
+
+        # mirrors CommandFactory.from_dsn_async, which wraps the connection without preserve_active_error
+        async with _AwaitableAsyncContextManager(connect()) as commands:
+            assert commands.connection is connection
+            raise ValueError("body")
+
+        assert connection.exit_calls == 1
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

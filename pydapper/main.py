@@ -112,7 +112,9 @@ def register_adapter(
 # provider loading is serialized by one private lock so concurrent loads of the same provider cannot
 # invoke a callback twice, observe partial registry state, or corrupt the success cache; successful
 # loads are cached per exact provider identity (name, distribution, entry-point value), never
-# normalized, and failed attempts are never cached so they stay retryable
+# normalized, and failed attempts are never cached so they stay retryable. Both the registry and the
+# success cache are restored by object identity (binding and contents) so a hostile callback cannot
+# corrupt loader state by rebinding or mutating the module globals.
 _provider_load_lock = threading.Lock()
 _loaded_provider_registrations: dict[tuple[str, str, str], _AdapterRegistration] = {}
 
@@ -125,26 +127,39 @@ def _provider_error_context(descriptor: _AdapterProviderDescriptor) -> str:
     return f"adapter provider {descriptor.name!r} (distribution {descriptor.distribution!r})"
 
 
-def _restore_registry(snapshot: dict[str, _AdapterRegistration]) -> None:
-    registry = _adapter_registry
+def _restore_registry(registry: dict[str, _AdapterRegistration], snapshot: dict[str, _AdapterRegistration]) -> None:
+    global _adapter_registry
+    _adapter_registry = registry
     registry.clear()
     registry.update(snapshot)
 
 
+def _restore_provider_cache(
+    cache: dict[tuple[str, str, str], _AdapterRegistration],
+    snapshot: dict[tuple[str, str, str], _AdapterRegistration],
+) -> None:
+    global _loaded_provider_registrations
+    _loaded_provider_registrations = cache
+    cache.clear()
+    cache.update(snapshot)
+
+
 def _verify_provider_registration_effect(
-    descriptor: _AdapterProviderDescriptor, snapshot: dict[str, _AdapterRegistration]
+    descriptor: _AdapterProviderDescriptor,
+    registry: dict[str, _AdapterRegistration],
+    snapshot: dict[str, _AdapterRegistration],
 ) -> _AdapterRegistration:
     context = _provider_error_context(descriptor)
-    removed = [name for name in snapshot if name not in _adapter_registry]
-    replaced = [
-        name for name in snapshot if name in _adapter_registry and _adapter_registry[name] is not snapshot[name]
-    ]
+    if _adapter_registry is not registry:
+        raise ValueError(f"Callback for {context} replaced the adapter registry itself")
+    removed = [name for name in snapshot if name not in registry]
+    replaced = [name for name in snapshot if name in registry and registry[name] is not snapshot[name]]
     if removed or replaced:
         raise ValueError(
             f"Callback for {context} removed or replaced existing adapter registrations "
             f"(removed: {removed!r}, replaced: {replaced!r})"
         )
-    added = [name for name in _adapter_registry if name not in snapshot]
+    added = [name for name in registry if name not in snapshot]
     if not added:
         raise ValueError(
             f"Callback for {context} registered no adapter; expected exactly one registration named {descriptor.name!r}"
@@ -153,7 +168,9 @@ def _verify_provider_registration_effect(
         raise ValueError(
             f"Callback for {context} registered {added!r}; expected exactly one registration named {descriptor.name!r}"
         )
-    registration = _adapter_registry[descriptor.name]
+    if list(registry) != list(snapshot) + [descriptor.name]:
+        raise ValueError(f"Callback for {context} reordered existing adapter registrations")
+    registration = registry[descriptor.name]
     if not isinstance(registration, _AdapterRegistration):
         raise ValueError(
             f"Callback for {context} left an invalid registry record of type {type(registration).__name__} "
@@ -168,7 +185,7 @@ def _verify_provider_registration_effect(
         _validate_registration_contents(
             registration.commands, registration.async_commands, registration.using_connection_predicate
         )
-    except (TypeError, ValueError) as exc:
+    except Exception as exc:
         raise ValueError(f"Callback for {context} produced an invalid registration for {descriptor.name!r}") from exc
     return registration
 
@@ -181,26 +198,30 @@ def _load_adapter_provider(descriptor: _AdapterProviderDescriptor) -> _AdapterRe
     attempt — registry snapshot, EntryPoint.load(), callback invocation,
     postcondition validation, rollback, and success caching — is one serialized
     operation, so a concurrent caller observes either the completed success or
-    the completed rollback. Any failure restores the registry to its exact
-    pre-attempt contents and stays retryable; a success is cached so the
-    callback runs at most once per process.
+    the completed rollback. Any failure restores the registry and the loader
+    success cache to their exact pre-attempt bindings and contents and stays
+    retryable; a success is cached so the callback runs at most once per
+    process, discarding any loader-state tampering by the callback.
     """
     context = _provider_error_context(descriptor)
     key = _provider_load_state_key(descriptor)
     with _provider_load_lock:
-        cached = _loaded_provider_registrations.get(key)
+        registry = _adapter_registry
+        cache = _loaded_provider_registrations
+        cached = cache.get(key)
         if cached is not None:
-            if _adapter_registry.get(descriptor.name) is not cached:
+            if registry.get(descriptor.name) is not cached:
                 raise ValueError(f"Previously loaded {context} no longer matches the adapter registry")
             return cached
 
-        if descriptor.name in _adapter_registry:
+        if descriptor.name in registry:
             raise ValueError(
                 f"Adapter {descriptor.name!r} is already registered; "
                 f"refusing to load {context} over the existing registration"
             )
 
-        snapshot = dict(_adapter_registry)
+        snapshot = dict(registry)
+        cache_snapshot = dict(cache)
         try:
             try:
                 callback = descriptor.entry_point.load()
@@ -223,11 +244,13 @@ def _load_adapter_provider(descriptor: _AdapterProviderDescriptor) -> _AdapterRe
                 )
             if result is not None:
                 raise ValueError(f"Callback for {context} must return None, got {type(result).__name__}")
-            registration = _verify_provider_registration_effect(descriptor, snapshot)
+            registration = _verify_provider_registration_effect(descriptor, registry, snapshot)
         except BaseException:
-            _restore_registry(snapshot)
+            _restore_registry(registry, snapshot)
+            _restore_provider_cache(cache, cache_snapshot)
             raise
-        _loaded_provider_registrations[key] = registration
+        _restore_provider_cache(cache, cache_snapshot)
+        cache[key] = registration
         return registration
 
 

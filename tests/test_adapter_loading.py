@@ -1,5 +1,6 @@
 import importlib.metadata
 import threading
+import types
 
 import pytest
 
@@ -376,6 +377,36 @@ def test_async_callback_is_rejected_without_invocation():
 
 
 @pytest.mark.filterwarnings("error::RuntimeWarning")
+def test_async_generator_callback_is_rejected_without_invocation():
+    async def register():  # pragma: no cover - must never be invoked
+        yield
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    before = dict(main._adapter_registry)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._load_adapter_provider(descriptor)
+
+    assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
+
+
+def test_base_exception_from_callback_rolls_back_and_propagates():
+    def register():
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+        raise KeyboardInterrupt
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    before = dict(main._adapter_registry)
+
+    with pytest.raises(KeyboardInterrupt):
+        main._load_adapter_provider(descriptor)
+
+    assert "acmedb" not in main._adapter_registry
+    assert_registry_exactly(before)
+    assert main._loaded_provider_registrations == {}
+
+
+@pytest.mark.filterwarnings("error::RuntimeWarning")
 def test_awaitable_callback_return_is_rejected_safely_and_rolled_back():
     async def async_register():  # pragma: no cover - never awaited
         return None
@@ -507,6 +538,65 @@ def test_callback_replacing_an_existing_registration_fails_and_restores_it():
     assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
 
 
+def test_callback_reordering_existing_registrations_fails_and_restores_order():
+    assert len(main._adapter_registry) >= 2
+    first_name = next(iter(main._adapter_registry))
+    original_record = main._adapter_registry[first_name]
+
+    def register():
+        record = main._adapter_registry.pop(first_name)
+        main._adapter_registry[first_name] = record
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    before = dict(main._adapter_registry)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._load_adapter_provider(descriptor)
+
+    assert next(iter(main._adapter_registry)) == first_name
+    assert main._adapter_registry[first_name] is original_record
+    assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
+
+
+def test_callback_rebinding_the_registry_fails_and_restores_the_binding(isolated_registry):
+    def register():
+        main._adapter_registry = {
+            "acmedb": main._AdapterRegistration(
+                name="acmedb",
+                commands=MockCommands,
+                async_commands=None,
+                using_connection_predicate=never_matches,
+            )
+        }
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    before = dict(isolated_registry)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._load_adapter_provider(descriptor)
+
+    assert main._adapter_registry is isolated_registry
+    assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
+
+
+def test_callback_rebinding_the_registry_and_raising_still_rolls_back(isolated_registry):
+    original = RuntimeError("provider exploded after rebinding")
+
+    def register():
+        main._adapter_registry = None
+        raise original
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    before = dict(isolated_registry)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._load_adapter_provider(descriptor)
+
+    assert main._adapter_registry is isolated_registry
+    assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter", cause=original)
+
+
 def test_direct_insertion_of_an_invalid_registry_object_fails_and_rolls_back():
     def register():
         main._adapter_registry["acmedb"] = object()
@@ -558,6 +648,34 @@ def test_direct_insertion_with_mismatched_internal_name_fails():
     assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
 
 
+class RaisingCapabilitiesDescriptor:
+    def __get__(self, obj, objtype=None):
+        raise RuntimeError("capabilities read exploded")
+
+
+class ExplodingCapabilityCommands(MockCommands):
+    capabilities = RaisingCapabilitiesDescriptor()
+
+
+def test_unexpected_validation_exception_is_wrapped_with_context_and_rolled_back():
+    def register():
+        main._adapter_registry["acmedb"] = main._AdapterRegistration(
+            name="acmedb",
+            commands=ExplodingCapabilityCommands,
+            async_commands=None,
+            using_connection_predicate=never_matches,
+        )
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    before = dict(main._adapter_registry)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._load_adapter_provider(descriptor)
+
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
+    assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
+
+
 class BadCapabilityCommands(MockCommands):
     capabilities = ["not-a-frozenset"]
 
@@ -605,6 +723,45 @@ def test_directly_registered_name_is_not_overwritten_or_claimed_as_provider_succ
     assert calls == []
     assert main._adapter_registry["acmedb"] is direct_record
     assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
+
+
+def test_failing_callback_cannot_poison_the_success_cache():
+    behavior = {"fail": True}
+    calls = []
+
+    def register():
+        calls.append("called")
+        if behavior["fail"]:
+            main._loaded_provider_registrations[main._provider_load_state_key(descriptor)] = object()
+            raise RuntimeError("fail after poisoning the cache")
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+
+    with pytest.raises(ValueError):
+        main._load_adapter_provider(descriptor)
+    assert main._loaded_provider_registrations == {}
+
+    behavior["fail"] = False
+    registration = main._load_adapter_provider(descriptor)
+
+    assert calls == ["called", "called"]
+    assert main._adapter_registry["acmedb"] is registration
+
+
+def test_callback_tampering_with_the_success_cache_is_discarded_on_success():
+    original_cache = main._loaded_provider_registrations
+
+    def register():
+        main._loaded_provider_registrations = {("poison", "poison", "poison"): object()}
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+
+    registration = main._load_adapter_provider(descriptor)
+
+    assert main._loaded_provider_registrations is original_cache
+    assert main._loaded_provider_registrations == {main._provider_load_state_key(descriptor): registration}
 
 
 # ---------------------------------------------------------------------------- retryability
@@ -718,7 +875,48 @@ def test_loading_never_calls_connection_paths_or_predicates(monkeypatch):
 
 
 def test_no_new_public_package_root_api():
-    public_names = [name for name in vars(pydapper) if not name.startswith("_")]
-    assert not any(
-        keyword in name.lower() for name in public_names for keyword in ("load", "provider", "discover", "catalog")
-    )
+    public_names = {
+        name
+        for name, value in vars(pydapper).items()
+        if not name.startswith("_") and not isinstance(value, types.ModuleType)
+    }
+    assert public_names == {
+        "AdapterCapability",
+        "CommandKind",
+        "CommandOptions",
+        "Mapper",
+        "RawRow",
+        "connect",
+        "connect_async",
+        "register_adapter",
+        "using",
+        "using_async",
+    }
+
+
+def test_shared_validation_order_is_preserved_with_multiple_invalid_fields():
+    # pins the check order of the validation shared by register_adapter() and provider
+    # postconditions so the extraction cannot silently reorder public behavior
+    with pytest.raises(ValueError) as excinfo:
+        pydapper.register_adapter("sqlite3", commands=object, using_connection_predicate=None)
+    assert "already registered" in str(excinfo.value)
+
+    with pytest.raises(ValueError) as excinfo:
+        pydapper.register_adapter("new-name", using_connection_predicate=None)
+    assert "At least one sync or async command class" in str(excinfo.value)
+
+    with pytest.raises(TypeError) as excinfo:
+        pydapper.register_adapter("new-name", commands=object, async_commands=object, using_connection_predicate=None)
+    assert "commands must be a Commands subclass" in str(excinfo.value)
+
+    with pytest.raises(TypeError) as excinfo:
+        pydapper.register_adapter(
+            "new-name", commands=MockCommands, async_commands=object, using_connection_predicate=None
+        )
+    assert "async_commands must be a CommandsAsync subclass" in str(excinfo.value)
+
+    with pytest.raises(TypeError) as excinfo:
+        pydapper.register_adapter("new-name", commands=BadCapabilityCommands, using_connection_predicate=None)
+    assert "using_connection_predicate must be callable" in str(excinfo.value)
+
+    assert "new-name" not in main._adapter_registry

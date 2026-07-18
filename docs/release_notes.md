@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* fix: project query_first rows inside the command-owned cursor lifecycle. PR [#548](https://github.com/zschumacher/pydapper/pull/548) by [@zschumacher](https://github.com/zschumacher).
 * fix: async command-owned cursor exception precedence. PR [#547](https://github.com/zschumacher/pydapper/pull/547) by [@zschumacher](https://github.com/zschumacher).
 * fix: sync command-owned cursor exception precedence. PR [#546](https://github.com/zschumacher/pydapper/pull/546) by [@zschumacher](https://github.com/zschumacher).
 * fix: validate complete query batches before DBAPI work. PR [#545](https://github.com/zschumacher/pydapper/pull/545) by [@zschumacher](https://github.com/zschumacher).

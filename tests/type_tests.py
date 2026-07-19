@@ -18,6 +18,8 @@ import pydapper
 from pydapper.commands import BaseSqlParamHandler
 from pydapper.commands import Commands as PydapperCommands
 from pydapper.commands import CommandsAsync as PydapperCommandsAsync
+from pydapper.dsn_parser import PydapperParseResult
+from pydapper.dsn_parser import parse
 from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
@@ -114,6 +116,34 @@ def public_exceptions() -> None:
     assert_type(InvalidParameterShapeException(), InvalidParameterShapeException)
     assert_type(UnsupportedFeatureError(), UnsupportedFeatureError)
     assert_type(RowMappingException(), RowMappingException)
+
+
+def dsn_parser_types() -> None:
+    parsed = PydapperParseResult("postgresql://user:password@localhost:5432/database?key=value")
+    parsed_from_alias = parse("postgresql+psycopg://localhost/database")
+
+    assert_type(parsed, PydapperParseResult)
+    assert_type(parsed_from_alias, PydapperParseResult)
+    assert_type(parsed.dsn, str)
+    assert_type(parsed.scheme, str)
+    assert_type(parsed.schemes, List[str])
+    assert_type(parsed.dbms, str)
+    assert_type(parsed.dbapi, str)
+    assert_type(parsed.username, Union[str, None])
+    assert_type(parsed.user, Union[str, None])
+    assert_type(parsed.password, Union[str, None])
+    assert_type(parsed.hostname, Union[str, None])
+    assert_type(parsed.host, Union[str, None])
+    assert_type(parsed.port, Union[int, None])
+    assert_type(parsed.hostloc, str)
+    assert_type(parsed.path, str)
+    assert_type(parsed.database, str)
+    assert_type(parsed.dbname, str)
+    assert_type(parsed.query, str)
+    assert_type(parsed.query_str, str)
+    assert_type(parsed.query_params, Dict[str, Union[str, List[str]]])
+    assert_type(parsed.fragment, str)
+    assert_type(parsed == parsed_from_alias, bool)
 
 
 def adapter_capability_types() -> None:

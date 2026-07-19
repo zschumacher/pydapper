@@ -23,7 +23,7 @@ class Psycopg3Commands(Commands):
             user=parsed_dsn.username,
             password=parsed_dsn.password,
             host=parsed_dsn.host,
-            port=parsed_dsn.port if parsed_dsn.port else "5432",
+            port=parsed_dsn.port if parsed_dsn.port is not None else "5432",
             **connect_kwargs,
         )
         return cls(conn)
@@ -40,7 +40,7 @@ class Psycopg3CommandsAsync(CommandsAsync):
             user=parsed_dsn.username,
             password=parsed_dsn.password,
             host=parsed_dsn.host,
-            port=parsed_dsn.port if parsed_dsn.port else "5432",
+            port=parsed_dsn.port if parsed_dsn.port is not None else "5432",
             **connect_kwargs,
         )
         return cls(conn)

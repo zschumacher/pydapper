@@ -1,5 +1,12 @@
 ## Latest Changes
 
+* feat: replace dsnparse with an owned URL DSN parser. PR [#557](https://github.com/zschumacher/pydapper/pull/557) by [@zschumacher](https://github.com/zschumacher).
+* v1: pydapper now owns its narrow URL-style DSN parser using the standard library's `urllib.parse`. A direct
+  implementation is smaller and lower risk than vendoring a generic parser API that pydapper does not consume. This
+  removes the mandatory `dsnparse` dependency, so it is no longer installed with pydapper, while preserving default and
+  exact explicit adapter routing, including third-party adapters. Parse-result fields now have accurate public types,
+  and representations and parser-generated errors no longer expose credential-bearing DSNs or passwords. Decoded
+  network hosts are revalidated so encoded controls and Unicode delimiter lookalikes cannot bypass authority parsing.
 * feat: add private lazy entry-point discovery catalog for pydapper.adapters. PR [#556](https://github.com/zschumacher/pydapper/pull/556) by [@zschumacher](https://github.com/zschumacher).
 * feat: validate capability declarations and add command preparation hooks. PR [#555](https://github.com/zschumacher/pydapper/pull/555) by [@zschumacher](https://github.com/zschumacher).
 * feat: validate adapter capability declarations and add command preparation hooks.
@@ -40,6 +47,16 @@
 
 ### Breaking Changes
 
+* DSNs now follow the focused `<database>[+<adapter>]://...` v1 grammar. Incidental inherited conveniences such as
+  `name=value` strings, constructor default injection, dict-like mutation, tuple-style iteration or indexing,
+  environment helpers, and multiple hosts are intentionally not reproduced. Multi-plus input such as
+  `db+adapter+extra://...` previously invented the adapter name `adapter_extra`; it is now rejected. Query values are no
+  longer implicitly coerced: for example,
+  `?code=001&enabled=true` previously produced `1` and `True` but now preserves `"001"` and `"true"`; a bare query key
+  such as `?flag` now maps to `{"flag": ""}` instead of raising. Corrected DSN examples place ports after the host;
+  literal and percent-encoded colons in passwords remain valid. SQLite slash counts are now explicit:
+  `sqlite:///relative/path.db` targets `relative/path.db`; use `sqlite:////absolute/path.db` for `/absolute/path.db`
+  (the three-slash form previously targeted `/relative/path.db`).
 * Command delegation: `query_first_or_default`, `query_single_or_default`, and their async
   equivalents now forward the normalized `options=` keyword to `query_first` /
   `query_single` (and the async equivalents) instead of validating and discarding it.

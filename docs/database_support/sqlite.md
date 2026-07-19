@@ -23,7 +23,7 @@ Supported drivers:
 ### DSN format
 === "Template"
     ```python
-    dsn = f"sqlite+sqlite3://{path_to_db}"
+    dsn = f"sqlite+sqlite3:///{relative_or_absolute_path_to_db}"
     ```
 
 === "Example"
@@ -35,6 +35,22 @@ Supported drivers:
     ```python
     dsn = "sqlite://my.db"
     ```
+
+SQLite slash counts distinguish relative and absolute paths. The connection target below is the value available as
+`database` / `dbname` and passed to `sqlite3.connect()`; the parse result's `path` remains the decoded URL path before
+this convenience normalization.
+
+| DSN                                      | SQLite connection target |
+|------------------------------------------|--------------------------|
+| `sqlite://relative.db`                   | `relative.db`            |
+| `sqlite+sqlite3://relative.db`           | `relative.db`            |
+| `sqlite:///relative/path.db`             | `relative/path.db`       |
+| `sqlite:////absolute/path.db`             | `/absolute/path.db`      |
+| `sqlite:///:memory:`                      | `:memory:`               |
+| `sqlite://`                               | empty string             |
+
+Paths are percent-decoded without treating plus signs as spaces. For example,
+`sqlite:///data/my%20database%23one.db` connects to `data/my database#one.db`.
 
 
 ### Example - `connect`

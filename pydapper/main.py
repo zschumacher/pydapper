@@ -274,7 +274,8 @@ def _reset_provider_load_state_for_tests(*, _lock: threading.Lock = _provider_lo
 
 
 def parse_dsn(dsn: str | None) -> PydapperParseResult:
-    dsn = dsn or os.getenv("PYDAPPER_DSN")
+    if dsn is None:
+        dsn = os.getenv("PYDAPPER_DSN")
     if dsn is None:  # pragma: no cover
         raise ValueError("dsn must be passed to connect or env var `PYDAPPER_DSN` must be set.")
     return PydapperParseResult(dsn)

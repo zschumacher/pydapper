@@ -39,12 +39,12 @@ because that is the name of the actual package that is installed.
 
 === "Example"
     ```python
-    dsn = "mysql+mysql://myuser:mypassword:3306@localhost/mydb"
+    dsn = "mysql+mysql://myuser:mypassword@localhost:3306/mydb"
     ```
 
 === "Example (Default Driver)"
     ```python
-    dsn = "mysql://myuser:mypassword:3306@localhost/mydb"
+    dsn = "mysql://myuser:mypassword@localhost:3306/mydb"
     ```
 
 !!! note
@@ -63,4 +63,3 @@ Use *pydapper* with a `mysql-connector-python` connection pool.
 ```python
 {!docs/../docs_src/connections/mysql_connector_python_using.py!}
 ```
-

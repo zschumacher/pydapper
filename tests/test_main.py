@@ -18,7 +18,7 @@ from tests.mocks import MockAsyncConnection
 from tests.mocks import MockCommands
 from tests.mocks import MockConnection
 
-DSN = "some_db+tests://localhost"
+DSN = "somedb+tests://localhost"
 
 pytestmark = pytest.mark.core
 
@@ -483,16 +483,155 @@ async def test_connect_async_uses_the_environment_dsn_fallback(adapter_registry,
     assert isinstance(await pydapper.connect_async(), MockAsyncCommands)
 
 
+def test_explicit_dsn_takes_precedence_over_environment_for_connect(adapter_registry, monkeypatch):
+    class EnvironmentCommands(MockCommands): ...
+
+    class ExplicitCommands(MockCommands): ...
+
+    pydapper.register_adapter(
+        "environment",
+        commands=EnvironmentCommands,
+        using_connection_predicate=never_matches,
+    )
+    pydapper.register_adapter(
+        "explicit",
+        commands=ExplicitCommands,
+        using_connection_predicate=never_matches,
+    )
+    monkeypatch.setenv("PYDAPPER_DSN", "somedb+environment://localhost")
+
+    assert isinstance(pydapper.connect("somedb+explicit://localhost"), ExplicitCommands)
+
+
+@pytest.mark.asyncio
+async def test_explicit_dsn_takes_precedence_over_environment_for_connect_async(adapter_registry, monkeypatch):
+    class EnvironmentCommands(MockAsyncCommands): ...
+
+    class ExplicitCommands(MockAsyncCommands): ...
+
+    pydapper.register_adapter(
+        "environment",
+        async_commands=EnvironmentCommands,
+        using_connection_predicate=never_matches,
+    )
+    pydapper.register_adapter(
+        "explicit",
+        async_commands=ExplicitCommands,
+        using_connection_predicate=never_matches,
+    )
+    monkeypatch.setenv("PYDAPPER_DSN", "somedb+environment://localhost")
+
+    assert isinstance(await pydapper.connect_async("somedb+explicit://localhost"), ExplicitCommands)
+
+
+@pytest.mark.parametrize("factory", [pydapper.connect, pydapper.connect_async])
+@pytest.mark.parametrize("invalid_dsn", ["", "missing-scheme"])
+def test_invalid_explicit_dsn_is_not_replaced_by_environment(
+    adapter_registry,
+    monkeypatch,
+    factory,
+    invalid_dsn,
+):
+    pydapper.register_adapter(
+        "environment",
+        commands=MockCommands,
+        async_commands=MockAsyncCommands,
+        using_connection_predicate=never_matches,
+    )
+    monkeypatch.setenv("PYDAPPER_DSN", "somedb+environment://localhost")
+
+    with pytest.raises(ValueError):
+        factory(invalid_dsn)
+
+
+@pytest.mark.parametrize("factory", [pydapper.connect, pydapper.connect_async])
+@pytest.mark.parametrize("environment_dsn", ["", "missing-scheme"])
+def test_invalid_environment_dsn_is_rejected(adapter_registry, monkeypatch, factory, environment_dsn):
+    monkeypatch.setenv("PYDAPPER_DSN", environment_dsn)
+
+    with pytest.raises(ValueError):
+        factory()
+
+
+@pytest.mark.parametrize(
+    ("dsn", "adapter_name"),
+    [
+        ("sqlite://routing.db", "sqlite3"),
+        ("postgresql://user:password@localhost/database", "psycopg2"),
+        ("mssql://user:password@localhost/database", "pymssql"),
+        ("mysql://user:password@localhost/database", "mysql"),
+        ("oracle://user:password@localhost/database", "oracledb"),
+        ("bigquery:////", "google"),
+        ("sqlite+sqlite3://routing.db", "sqlite3"),
+        ("postgresql+psycopg://user:password@localhost/database", "psycopg"),
+    ],
+)
+def test_connect_routes_default_and_explicit_dsn_adapter_names(adapter_registry, dsn, adapter_name):
+    registration = adapter_registry[adapter_name]
+    adapter_registry[adapter_name] = main._AdapterRegistration(
+        name=registration.name,
+        commands=MockCommands,
+        async_commands=registration.async_commands,
+        using_connection_predicate=registration.using_connection_predicate,
+    )
+
+    assert isinstance(pydapper.connect(dsn), MockCommands)
+
+
+@pytest.mark.parametrize(
+    ("dsn", "adapter_name"),
+    [
+        ("postgresql+psycopg://user:password@localhost/database", "psycopg"),
+        ("postgresql+aiopg://user:password@localhost/database", "aiopg"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_connect_async_routes_explicit_dsn_adapter_names(adapter_registry, dsn, adapter_name):
+    registration = adapter_registry[adapter_name]
+    adapter_registry[adapter_name] = main._AdapterRegistration(
+        name=registration.name,
+        commands=registration.commands,
+        async_commands=MockAsyncCommands,
+        using_connection_predicate=registration.using_connection_predicate,
+    )
+
+    assert isinstance(await pydapper.connect_async(dsn), MockAsyncCommands)
+
+
+@pytest.mark.asyncio
+async def test_third_party_explicit_adapter_name_routes_exactly_for_sync_and_async(adapter_registry):
+    class AcmeCommands(MockCommands): ...
+
+    class AcmeCommandsAsync(MockAsyncCommands): ...
+
+    pydapper.register_adapter(
+        "AcmeDB",
+        commands=AcmeCommands,
+        async_commands=AcmeCommandsAsync,
+        using_connection_predicate=never_matches,
+    )
+
+    assert isinstance(pydapper.connect("acme+AcmeDB://localhost/database"), AcmeCommands)
+    assert isinstance(await pydapper.connect_async("acme+AcmeDB://localhost/database"), AcmeCommandsAsync)
+
+
+def test_default_dsn_adapter_still_checks_requested_mode(adapter_registry):
+    with pytest.raises(ValueError, match="psycopg2") as exc_info:
+        pydapper.connect_async("postgresql://user:password@localhost/database")
+
+    assert "async" in str(exc_info.value)
+
+
 def test_connect_rejects_an_unknown_dsn_adapter(adapter_registry):
     with pytest.raises(ValueError, match="unknown") as exc_info:
-        pydapper.connect("some_db+unknown://localhost")
+        pydapper.connect("somedb+unknown://localhost")
 
     assert "sync" in str(exc_info.value)
 
 
 def test_connect_async_rejects_an_unknown_dsn_adapter(adapter_registry):
     with pytest.raises(ValueError, match="unknown") as exc_info:
-        pydapper.connect_async("some_db+unknown://localhost")
+        pydapper.connect_async("somedb+unknown://localhost")
 
     assert "async" in str(exc_info.value)
 
@@ -501,7 +640,7 @@ def test_connect_async_rejects_an_adapter_without_async_support(adapter_registry
     pydapper.register_adapter("sync-only", commands=MockCommands, using_connection_predicate=never_matches)
 
     with pytest.raises(ValueError, match="sync-only") as exc_info:
-        pydapper.connect_async("some_db+sync-only://localhost")
+        pydapper.connect_async("somedb+sync-only://localhost")
 
     assert "async" in str(exc_info.value)
 
@@ -514,7 +653,7 @@ def test_connect_rejects_an_adapter_without_sync_support(adapter_registry):
     )
 
     with pytest.raises(ValueError, match="async-only") as exc_info:
-        pydapper.connect("some_db+async-only://localhost")
+        pydapper.connect("somedb+async-only://localhost")
 
     assert "sync" in str(exc_info.value)
 

@@ -33,7 +33,7 @@ def test_using(database_name):
 
 @pytest.mark.parametrize("driver", ["sqlite", "sqlite+sqlite3"])
 def test_connect_subfolder(driver, database_name, setup_sql_dir):
-    with connect(f"{driver}://{setup_sql_dir}{os.path.sep}{database_name}.db") as commands:
+    with connect(f"{driver}:///{setup_sql_dir}{os.path.sep}{database_name}.db") as commands:
         assert isinstance(commands, Sqlite3Commands)
 
 

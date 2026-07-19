@@ -547,6 +547,27 @@ def test_awaitable_callback_return_is_rejected_safely_and_rolled_back():
     assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
 
 
+class AwaitableWithoutClose:
+    def __await__(self):  # pragma: no cover - must never be awaited
+        yield
+
+
+@pytest.mark.filterwarnings("error::RuntimeWarning")
+def test_awaitable_return_without_close_is_rejected_safely_and_rolled_back():
+    def register():
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+        return AwaitableWithoutClose()
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    before = dict(main._adapter_registry)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._load_adapter_provider(descriptor)
+
+    assert "acmedb" not in main._adapter_registry
+    assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
+
+
 def test_non_none_return_is_rejected_and_rolled_back():
     def register():
         pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)

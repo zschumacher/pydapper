@@ -903,7 +903,7 @@ class ClearRecordingDict(dict):
 
 
 def test_rollback_never_clears_the_live_registry_unless_existing_entries_were_tampered_with(monkeypatch):
-    # registry readers (_get_registration/_select_registration) run without the load lock, so a
+    # registry readers (_select_registration) run without the load lock, so a
     # clear()+update() restore would let a concurrent reader observe long-registered adapters as
     # transiently missing; untouched and append-only rollbacks must never empty the live dict
     registry = ClearRecordingDict(main._adapter_registry)

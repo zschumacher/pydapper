@@ -464,22 +464,23 @@ def parse_dsn(dsn: str | None) -> PydapperParseResult:
     return PydapperParseResult(dsn)
 
 
-def _get_registration(name: str, mode: str) -> _AdapterRegistration:
-    try:
-        return _adapter_registry[name]
-    except KeyError:
-        raise ValueError(f"No adapter named {name!r} is registered for {mode} mode") from None
-
-
 def _get_sync_commands_class(name: str) -> type[Commands]:
-    registration = _get_registration(name, "sync")
+    # every name-based public path (connect() via parsed_dsn.dbapi, and using(adapter=)) funnels
+    # through here, so resolution is the one place that consults the registry, the catalog,
+    # precedence, and the loader. The requested-mode check deliberately runs *after* resolution:
+    # a provider owns its exact adapter name even when it supplies only one mode, so a mode
+    # mismatch is a mode error, never a reason to look for a different same-name provider. It is
+    # also not a failed load — the registration stays, and a later call for the supported mode
+    # reuses it without invoking the provider again.
+    registration = _resolve_adapter_registration(name)
     if registration.commands is None:
         raise ValueError(f"Adapter {name!r} does not support sync mode")
     return registration.commands
 
 
 def _get_async_commands_class(name: str) -> type[CommandsAsync]:
-    registration = _get_registration(name, "async")
+    # same post-resolution mode ordering as the sync path
+    registration = _resolve_adapter_registration(name)
     if registration.async_commands is None:
         raise ValueError(f"Adapter {name!r} does not support async mode")
     return registration.async_commands

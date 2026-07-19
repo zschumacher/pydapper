@@ -3,11 +3,15 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import re
 import threading
+from collections import Counter
 from collections.abc import Callable
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from ._adapter_discovery import _AdapterProviderDescriptor
+from ._adapter_discovery import _get_provider_catalog
 from ._context import _AwaitableAsyncContextManager
 from .capabilities import AdapterCapability
 from .commands import BaseCommands
@@ -322,6 +326,134 @@ def _reset_provider_load_state_for_tests(*, _lock: threading.RLock = _provider_l
     # time for the same rebinding defense as _load_adapter_provider.
     with _lock:
         _loaded_provider_registrations.clear()
+
+
+# the pydapper distribution itself is the first-party provider of the stable adapter names
+_FIRST_PARTY_DISTRIBUTION = "pydapper"
+
+
+def _canonicalize_distribution_name(name: str) -> str:
+    """Canonicalize a distribution project name the way packaging tools do.
+
+    Applies PEP 503 name normalization with the standard library alone: runs of
+    ``-``, ``_``, and ``.`` collapse to a single ``-`` and the result is
+    lowercased, so ``PyDapper`` and ``PYDAPPER`` are recognized as the same
+    project as ``pydapper``.
+
+    This governs *distribution* identity only. Adapter entry-point names are
+    never normalized: they stay exact and case-sensitive, so ``AcmeDB``,
+    ``acmedb``, ``acme-db``, and ``acme_db`` remain four distinct adapters.
+    """
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+_CANONICAL_FIRST_PARTY_DISTRIBUTION = _canonicalize_distribution_name(_FIRST_PARTY_DISTRIBUTION)
+
+
+def _is_first_party_provider(descriptor: _AdapterProviderDescriptor) -> bool:
+    return _canonicalize_distribution_name(descriptor.distribution) == _CANONICAL_FIRST_PARTY_DISTRIBUTION
+
+
+def _distribution_list(descriptors: Iterable[_AdapterProviderDescriptor]) -> str:
+    """Render provider distributions deterministically for errors and debug logs.
+
+    Sorted and de-duplicated so text never depends on metadata enumeration
+    order, and annotated with a count whenever one distribution declares the
+    same adapter name more than once (duplicate installs), so a conflict is
+    never described as if it came from a single declaration.
+
+    Only distribution names are rendered. Entry-point values are arbitrary
+    installed metadata pydapper does not control, so they never reach an error
+    message or a log record.
+    """
+    counts = Counter(descriptor.distribution for descriptor in descriptors)
+    return ", ".join(
+        f"{distribution!r} ({count} declarations)" if count > 1 else repr(distribution)
+        for distribution, count in sorted(counts.items())
+    )
+
+
+def _select_provider_descriptor(
+    name: str, providers: tuple[_AdapterProviderDescriptor, ...]
+) -> _AdapterProviderDescriptor:
+    """Choose the single provider that owns an exact adapter name.
+
+    Pure: it reads no registry, loads no entry point, and never lets the order
+    of ``providers`` decide a winner — a name is owned by the first-party
+    provider, by exactly one external provider, or by nobody. ``providers`` must
+    be non-empty; the caller reports unknown names.
+    """
+    first_party = [descriptor for descriptor in providers if _is_first_party_provider(descriptor)]
+    external = [descriptor for descriptor in providers if not _is_first_party_provider(descriptor)]
+
+    # validated before any candidate is handed to the loader, so a broken pydapper installation
+    # fails instead of quietly loading one of its colliding entry points
+    if len(first_party) > 1:
+        raise ValueError(
+            f"Adapter {name!r} is declared by {len(first_party)} first-party "
+            f"{_FIRST_PARTY_DISTRIBUTION} entry points ({_distribution_list(first_party)}); "
+            "this is a pydapper packaging/configuration error"
+        )
+
+    if first_party:
+        if external:
+            # metadata only: the ignored distributions are named but never imported or loaded, and
+            # nothing here can carry a DSN, credential, or connection representation
+            logger.debug(
+                "Adapter %r is provided by the first-party %s distribution; ignoring same-name "
+                "external providers from: %s",
+                name,
+                _FIRST_PARTY_DISTRIBUTION,
+                _distribution_list(external),
+            )
+        return first_party[0]
+
+    if len(external) > 1:
+        # counted by declaration rather than by distribution: duplicate installs of one
+        # distribution are a real conflict and must not be reported as a single declaration
+        raise ValueError(
+            f"Adapter {name!r} is declared by {len(external)} installed providers "
+            f"({_distribution_list(external)}); uninstall or rename all but one provider "
+            "so exactly one declares that adapter name"
+        )
+
+    return external[0]
+
+
+def _resolve_adapter_registration(
+    name: str,
+    *,
+    _lock: threading.RLock = _provider_load_lock,
+) -> _AdapterRegistration:
+    """Return the registration for an exact adapter name, loading one provider if needed.
+
+    An adapter already present in the registry wins outright: ``register_adapter()``
+    stays the highest-precedence, one-way runtime override and no catalog is
+    discovered and no entry point is loaded for it. Otherwise the exact
+    (case-sensitive, never normalized) name is looked up in the provider catalog,
+    exactly one provider is selected by the precedence rules, and only that
+    descriptor is loaded.
+
+    The registry check, catalog selection, and load are one serialized operation
+    under the same reentrant lock the loader uses, so a concurrent caller cannot
+    slip a registration in between the check and the load and invoke a provider
+    twice. ``_lock`` defaults to the module lock captured at definition time —
+    never read from the module global at call time — and is threaded through to
+    the loader so both halves share one lock; it is a parameter only so tests can
+    inject an instrumented lock deterministically.
+    """
+    with _lock:
+        if name in _adapter_registry:
+            return _adapter_registry[name]
+
+        providers = _get_provider_catalog().get(name)
+        if not providers:
+            raise ValueError(
+                f"No registered or installed adapter has the exact name {name!r}; "
+                "adapter names are case-sensitive and are never normalized"
+            )
+
+        return _load_adapter_provider(_select_provider_descriptor(name, providers), _lock=_lock)
 
 
 def parse_dsn(dsn: str | None) -> PydapperParseResult:

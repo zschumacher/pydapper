@@ -449,6 +449,9 @@ def test_distribution_canonicalization_follows_package_name_semantics():
 # ---------------------------------------------------------------------------- duplicate providers
 
 
+HOSTILE_VALUE = "postgres://user:hunter2@db.example.com/register"
+
+
 def test_multiple_first_party_providers_fail_before_any_load(install_entry_points):
     first, first_calls = provider("acmedb", distribution=FIRST_PARTY, value="pydapper.one:register")
     second, second_calls = provider("acmedb", distribution="PyDapper", value="pydapper.two:register")
@@ -462,11 +465,68 @@ def test_multiple_first_party_providers_fail_before_any_load(install_entry_point
     message = str(excinfo.value)
     assert repr("acmedb") in message
     assert "packaging" in message
-    assert "://" not in message
+    # both first-party distributions are named, so a duplicate install is diagnosable
+    assert repr("PyDapper") in message and repr(FIRST_PARTY) in message
     assert first_calls == second_calls == external_calls == []
     assert_nothing_loaded([first, second, external])
     assert dict(main._adapter_registry) == before
     assert main._loaded_provider_registrations == {}
+
+
+@pytest.mark.parametrize("distributions", [(FIRST_PARTY, "PyDapper"), ("one-dist", "two-dist")])
+def test_conflict_errors_never_disclose_entry_point_values(install_entry_points, distributions):
+    # entry-point values are arbitrary installed metadata pydapper does not control; a value
+    # carrying credentials must never reach an error message. Both conflict branches are covered.
+    entries = [
+        provider("acmedb", distribution=distributions[0], value=HOSTILE_VALUE)[0],
+        provider("acmedb", distribution=distributions[1], value="safe_module:register")[0],
+    ]
+    install_entry_points(entries)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._resolve_adapter_registration("acmedb")
+
+    message = str(excinfo.value)
+    assert HOSTILE_VALUE not in message
+    assert "hunter2" not in message
+    assert "://" not in message
+    assert "safe_module" not in message
+    assert_nothing_loaded(entries)
+
+
+def test_duplicate_declarations_from_one_distribution_are_reported_honestly(install_entry_points):
+    # a duplicate install declares the same name twice from one distribution name; de-duplicating
+    # the distribution must not make the message claim a single declaration
+    entries = [
+        provider("acmedb", distribution="one-dist", value="one_mod:register")[0],
+        provider("acmedb", distribution="one-dist", value="two_mod:register")[0],
+    ]
+    install_entry_points(entries)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._resolve_adapter_registration("acmedb")
+
+    message = str(excinfo.value)
+    assert repr("acmedb") in message
+    assert "2 installed providers" in message
+    assert f"{'one-dist'!r} (2 declarations)" in message
+    assert_nothing_loaded(entries)
+
+
+def test_duplicate_declarations_from_one_first_party_distribution_are_counted(install_entry_points):
+    entries = [
+        provider("acmedb", distribution=FIRST_PARTY, value="one_mod:register")[0],
+        provider("acmedb", distribution=FIRST_PARTY, value="two_mod:register")[0],
+    ]
+    install_entry_points(entries)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._resolve_adapter_registration("acmedb")
+
+    message = str(excinfo.value)
+    assert "packaging" in message
+    assert f"{FIRST_PARTY!r} (2 declarations)" in message
+    assert_nothing_loaded(entries)
 
 
 def test_multiple_external_providers_fail_before_any_load_and_report_all(install_entry_points):
@@ -827,7 +887,36 @@ def test_resolution_adds_no_public_api():
         "using",
         "using_async",
     }
-    assert not [name for name in vars(main) if not name.startswith("_") and "resolve" in name.lower()]
+    # every resolution symbol is private, pinned by the exact non-underscore surface of main rather
+    # than by a substring guess. Plain stdlib/typing imports are the file's existing convention
+    # (os, threading, inspect, logging, Callable, dataclass predate this slice).
+    assert {name for name in vars(main) if not name.startswith("_")} == {
+        "AdapterCapability",
+        "AsyncConnectionType",
+        "BaseCommands",
+        "Callable",
+        "CommandFactory",
+        "Commands",
+        "CommandsAsync",
+        "ConnectionType",
+        "Counter",
+        "Iterable",
+        "PydapperParseResult",
+        "annotations",
+        "connect",
+        "connect_async",
+        "dataclass",
+        "inspect",
+        "logger",
+        "logging",
+        "os",
+        "parse_dsn",
+        "re",
+        "register_adapter",
+        "threading",
+        "using",
+        "using_async",
+    }
 
 
 def test_public_connection_paths_are_untouched_by_this_slice(install_entry_points):

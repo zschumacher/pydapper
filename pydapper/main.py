@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import threading
+from collections import Counter
 from collections.abc import Callable
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -354,8 +355,22 @@ def _is_first_party_provider(descriptor: _AdapterProviderDescriptor) -> bool:
 
 
 def _distribution_list(descriptors: Iterable[_AdapterProviderDescriptor]) -> str:
-    # sorted and de-duplicated so error text and debug logs never depend on metadata enumeration order
-    return ", ".join(repr(distribution) for distribution in sorted({d.distribution for d in descriptors}))
+    """Render provider distributions deterministically for errors and debug logs.
+
+    Sorted and de-duplicated so text never depends on metadata enumeration
+    order, and annotated with a count whenever one distribution declares the
+    same adapter name more than once (duplicate installs), so a conflict is
+    never described as if it came from a single declaration.
+
+    Only distribution names are rendered. Entry-point values are arbitrary
+    installed metadata pydapper does not control, so they never reach an error
+    message or a log record.
+    """
+    counts = Counter(descriptor.distribution for descriptor in descriptors)
+    return ", ".join(
+        f"{distribution!r} ({count} declarations)" if count > 1 else repr(distribution)
+        for distribution, count in sorted(counts.items())
+    )
 
 
 def _select_provider_descriptor(
@@ -374,10 +389,9 @@ def _select_provider_descriptor(
     # validated before any candidate is handed to the loader, so a broken pydapper installation
     # fails instead of quietly loading one of its colliding entry points
     if len(first_party) > 1:
-        values = ", ".join(sorted(repr(descriptor.entry_point.value) for descriptor in first_party))
         raise ValueError(
             f"Adapter {name!r} is declared by {len(first_party)} first-party "
-            f"{_FIRST_PARTY_DISTRIBUTION} entry points ({values}); "
+            f"{_FIRST_PARTY_DISTRIBUTION} entry points ({_distribution_list(first_party)}); "
             "this is a pydapper packaging/configuration error"
         )
 
@@ -395,10 +409,12 @@ def _select_provider_descriptor(
         return first_party[0]
 
     if len(external) > 1:
+        # counted by declaration rather than by distribution: duplicate installs of one
+        # distribution are a real conflict and must not be reported as a single declaration
         raise ValueError(
-            f"Adapter {name!r} is declared by multiple installed distributions "
+            f"Adapter {name!r} is declared by {len(external)} installed providers "
             f"({_distribution_list(external)}); uninstall or rename all but one provider "
-            "so exactly one distribution declares that adapter name"
+            "so exactly one declares that adapter name"
         )
 
     return external[0]

@@ -1,4 +1,5 @@
 import importlib.metadata
+import inspect
 import threading
 import types
 
@@ -219,6 +220,43 @@ def test_success_cache_is_per_provider_identity_not_per_name():
     assert main._adapter_registry["acmedb"] is loaded
 
 
+def test_success_cache_key_includes_entry_point_value():
+    callback, _ = registering_callback("acmedb")
+    main._load_adapter_provider(make_descriptor("acmedb", loaded=callback, value="first_mod:register"))
+
+    # same name and distribution but a different entry-point value is a different provider: it
+    # must not silently claim the first provider's cached success
+    other_callback, other_calls = registering_callback("acmedb")
+    other = make_descriptor("acmedb", loaded=other_callback, value="second_mod:register")
+
+    with pytest.raises(ValueError):
+        main._load_adapter_provider(other)
+    assert other_calls == []
+    assert other.entry_point.load_calls == 0
+
+
+def test_cached_success_coherence_uses_object_identity_not_equality():
+    callback, calls = registering_callback("acmedb")
+    descriptor = make_descriptor("acmedb", loaded=callback)
+    registration = main._load_adapter_provider(descriptor)
+
+    clone = main._AdapterRegistration(
+        name=registration.name,
+        commands=registration.commands,
+        async_commands=registration.async_commands,
+        using_connection_predicate=registration.using_connection_predicate,
+    )
+    assert clone == registration
+    assert clone is not registration
+    main._adapter_registry["acmedb"] = clone
+
+    with pytest.raises(ValueError) as excinfo:
+        main._load_adapter_provider(descriptor)
+    assert calls == ["called"]
+    assert repr("acmedb") in str(excinfo.value)
+    assert repr("acme-adapter") in str(excinfo.value)
+
+
 def test_concurrent_loads_invoke_load_and_callback_exactly_once():
     # the first worker to win the load lock blocks inside the provider callback until the main
     # thread releases it, and the lock is instrumented to count acquire attempts, so the callback
@@ -276,7 +314,8 @@ def test_concurrent_loads_invoke_load_and_callback_exactly_once():
     assert all_workers_at_lock.wait(timeout=30)
     release.set()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=30)
+    assert not any(thread.is_alive() for thread in threads)
 
     assert not errors
     assert callback_calls == ["called"]
@@ -286,22 +325,25 @@ def test_concurrent_loads_invoke_load_and_callback_exactly_once():
     assert main._adapter_registry["acmedb"] is results[0]
 
 
-def test_callback_rebinding_the_load_lock_is_restored_and_never_acquired_by_the_loader():
+def test_callback_rebinding_the_load_lock_is_restored_and_never_acquired():
     original_lock = main._provider_load_lock
-    # the loader and reset helper hold the original lock through the definition-time default and
-    # never read the rebindable module global at call time
+    # every acquiring function holds the original lock through its definition-time default and
+    # never reads the rebindable module global at call time
     assert main._load_adapter_provider.__kwdefaults__["_lock"] is original_lock
+    assert main._register_adapter_under_lock.__kwdefaults__["_lock"] is original_lock
     assert main._reset_provider_load_state_for_tests.__kwdefaults__["_lock"] is original_lock
 
     def register():
-        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+        # rebinding before registering proves register_adapter() itself is immune: the hostile
+        # replacement raises on any acquire
         main._provider_load_lock = MustNotAcquireLock()
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
 
     descriptor = make_descriptor("acmedb", loaded=register)
     registration = main._load_adapter_provider(descriptor)
 
-    # the binding is restored with the rest of the loader state, so later direct registrations
-    # and loads never acquire the hostile replacement (which raises on any acquire)
+    # the binding is restored with the rest of the loader state, so any future call-time reader
+    # of the global still finds the real lock
     assert main._provider_load_lock is original_lock
     assert main._load_adapter_provider(descriptor) is registration
     other_callback, other_calls = registering_callback("otherdb")
@@ -365,7 +407,7 @@ def test_concurrent_caller_is_not_unblocked_by_lock_rebinding_during_callback():
 
     def register():
         callback_calls.append("called")
-        main._provider_load_lock = threading.Lock()
+        main._provider_load_lock = MustNotAcquireLock()
         in_callback.set()
         assert release.wait(timeout=30)
         pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
@@ -391,6 +433,8 @@ def test_concurrent_caller_is_not_unblocked_by_lock_rebinding_during_callback():
     release.set()
     first.join(timeout=30)
     second.join(timeout=30)
+    assert not first.is_alive()
+    assert not second.is_alive()
 
     assert not errors
     assert callback_calls == ["called"]
@@ -427,7 +471,8 @@ def test_direct_registration_during_failing_provider_load_is_serialized_and_neve
             self._inner.release()
 
     shared_lock = CountingRLock()
-    monkeypatch.setattr(main, "_provider_load_lock", shared_lock)
+    # swap the definition-time default so direct registrations serialize on the instrumented lock
+    monkeypatch.setitem(main._register_adapter_under_lock.__kwdefaults__, "_lock", shared_lock)
 
     def register():
         in_callback.set()
@@ -462,6 +507,8 @@ def test_direct_registration_during_failing_provider_load_is_serialized_and_neve
     release.set()
     loader.join(timeout=30)
     direct.join(timeout=30)
+    assert not loader.is_alive()
+    assert not direct.is_alive()
 
     assert not direct_errors
     assert len(load_errors) == 1
@@ -570,6 +617,9 @@ def test_async_callback_is_rejected_without_invocation():
         main._load_adapter_provider(descriptor)
 
     assert ran == []
+    # rejection must come from the pre-invocation guard, not from the awaitable-return check that
+    # would fire if the callback had actually been called
+    assert "synchronous" in str(excinfo.value)
     assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
 
 
@@ -584,6 +634,7 @@ def test_async_generator_callback_is_rejected_without_invocation():
     with pytest.raises(ValueError) as excinfo:
         main._load_adapter_provider(descriptor)
 
+    assert "synchronous" in str(excinfo.value)
     assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
 
 
@@ -605,12 +656,16 @@ def test_base_exception_from_callback_rolls_back_and_propagates():
 
 @pytest.mark.filterwarnings("error::RuntimeWarning")
 def test_awaitable_callback_return_is_rejected_safely_and_rolled_back():
+    created = []
+
     async def async_register():  # pragma: no cover - never awaited
         return None
 
     def register():
         pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
-        return async_register()
+        coro = async_register()
+        created.append(coro)
+        return coro
 
     descriptor = make_descriptor("acmedb", loaded=register)
     before = dict(main._adapter_registry)
@@ -618,6 +673,10 @@ def test_awaitable_callback_return_is_rejected_safely_and_rolled_back():
     with pytest.raises(ValueError) as excinfo:
         main._load_adapter_provider(descriptor)
 
+    assert "awaitable" in str(excinfo.value)
+    # the returned coroutine must be explicitly closed — a GC-time "never awaited" warning could
+    # escape the filterwarnings mark, so prove closure directly
+    assert inspect.getcoroutinestate(created[0]) == "CORO_CLOSED"
     assert "acmedb" not in main._adapter_registry
     assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
 
@@ -639,6 +698,62 @@ def test_awaitable_return_without_close_is_rejected_safely_and_rolled_back():
     with pytest.raises(ValueError) as excinfo:
         main._load_adapter_provider(descriptor)
 
+    assert "awaitable" in str(excinfo.value)
+    assert "acmedb" not in main._adapter_registry
+    assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
+
+
+class AwaitableWithRaisingClose:
+    def __init__(self, error):
+        self.error = error
+
+    def __await__(self):  # pragma: no cover - must never be awaited
+        yield
+
+    def close(self):
+        raise self.error
+
+
+class AwaitableWithRaisingCloseAttribute:
+    def __await__(self):  # pragma: no cover - must never be awaited
+        yield
+
+    @property
+    def close(self):
+        raise RuntimeError("close attribute access exploded")
+
+
+def test_awaitable_return_with_raising_close_is_wrapped_and_rolled_back():
+    original = RuntimeError("close exploded")
+
+    def register():
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+        return AwaitableWithRaisingClose(original)
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    before = dict(main._adapter_registry)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._load_adapter_provider(descriptor)
+
+    assert "awaitable" in str(excinfo.value)
+    assert "acmedb" not in main._adapter_registry
+    assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter", cause=original)
+
+
+def test_awaitable_return_with_raising_close_attribute_is_wrapped_and_rolled_back():
+    def register():
+        pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+        return AwaitableWithRaisingCloseAttribute()
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    before = dict(main._adapter_registry)
+
+    with pytest.raises(ValueError) as excinfo:
+        main._load_adapter_provider(descriptor)
+
+    assert "awaitable" in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
     assert "acmedb" not in main._adapter_registry
     assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
 
@@ -775,6 +890,51 @@ def test_callback_reordering_existing_registrations_fails_and_restores_order():
     assert next(iter(main._adapter_registry)) == first_name
     assert main._adapter_registry[first_name] is original_record
     assert_failed_attempt(excinfo, before, name="acmedb", distribution="acme-adapter")
+
+
+class ClearRecordingDict(dict):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.clear_calls = 0
+
+    def clear(self):
+        self.clear_calls += 1
+        super().clear()
+
+
+def test_rollback_never_clears_the_live_registry_unless_existing_entries_were_tampered_with(monkeypatch):
+    # registry readers (_get_registration/_select_registration) run without the load lock, so a
+    # clear()+update() restore would let a concurrent reader observe long-registered adapters as
+    # transiently missing; untouched and append-only rollbacks must never empty the live dict
+    registry = ClearRecordingDict(main._adapter_registry)
+    monkeypatch.setattr(main, "_adapter_registry", registry)
+    before = dict(registry)
+
+    with pytest.raises(ValueError):
+        main._load_adapter_provider(make_descriptor("acmedb", load_error=RuntimeError("load exploded")))
+    assert registry.clear_calls == 0
+
+    def register_wrong_names():
+        pydapper.register_adapter("acmedb-one", commands=MockCommands, using_connection_predicate=never_matches)
+        pydapper.register_adapter("acmedb-two", commands=MockCommands, using_connection_predicate=never_matches)
+
+    with pytest.raises(ValueError):
+        main._load_adapter_provider(make_descriptor("acmedb", loaded=register_wrong_names))
+    assert registry.clear_calls == 0
+    assert dict(registry) == before
+    assert list(registry) == list(before)
+
+    # tampering with a pre-existing entry still forces the exact full rebuild
+    first_name = next(iter(registry))
+
+    def remove_existing():
+        del main._adapter_registry[first_name]
+
+    with pytest.raises(ValueError):
+        main._load_adapter_provider(make_descriptor("acmedb", loaded=remove_existing))
+    assert registry.clear_calls == 1
+    assert dict(registry) == before
+    assert list(registry) == list(before)
 
 
 def test_callback_rebinding_the_registry_fails_and_restores_the_binding(isolated_registry):
@@ -965,6 +1125,22 @@ def test_failing_callback_cannot_poison_the_success_cache():
 
     assert calls == ["called", "called"]
     assert main._adapter_registry["acmedb"] is registration
+
+
+def test_failing_callback_rebinding_the_success_cache_is_restored():
+    original_cache = main._loaded_provider_registrations
+
+    def register():
+        main._loaded_provider_registrations = {("poison", "poison", "poison"): object()}
+        raise RuntimeError("fail after rebinding the cache")
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+
+    with pytest.raises(ValueError):
+        main._load_adapter_provider(descriptor)
+
+    assert main._loaded_provider_registrations is original_cache
+    assert main._loaded_provider_registrations == {}
 
 
 def test_callback_tampering_with_the_success_cache_is_discarded_on_success():

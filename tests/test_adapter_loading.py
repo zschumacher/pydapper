@@ -286,28 +286,28 @@ def test_concurrent_loads_invoke_load_and_callback_exactly_once():
     assert main._adapter_registry["acmedb"] is results[0]
 
 
-def test_callback_rebinding_the_load_lock_is_inert_for_later_loads():
+def test_callback_rebinding_the_load_lock_is_restored_and_never_acquired_by_the_loader():
     original_lock = main._provider_load_lock
-    # production callers share the original lock through the definition-time default, so a
-    # rebound module global is never read at call time
+    # the loader and reset helper hold the original lock through the definition-time default and
+    # never read the rebindable module global at call time
     assert main._load_adapter_provider.__kwdefaults__["_lock"] is original_lock
     assert main._reset_provider_load_state_for_tests.__kwdefaults__["_lock"] is original_lock
 
     def register():
-        main._provider_load_lock = MustNotAcquireLock()
         pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
+        main._provider_load_lock = MustNotAcquireLock()
 
     descriptor = make_descriptor("acmedb", loaded=register)
     registration = main._load_adapter_provider(descriptor)
 
-    # the cached-hit path, a fresh load, and the test reset would all raise if any of them
-    # acquired the hostile replacement instead of the definition-time lock
+    # the binding is restored with the rest of the loader state, so later direct registrations
+    # and loads never acquire the hostile replacement (which raises on any acquire)
+    assert main._provider_load_lock is original_lock
     assert main._load_adapter_provider(descriptor) is registration
     other_callback, other_calls = registering_callback("otherdb")
     main._load_adapter_provider(make_descriptor("otherdb", loaded=other_callback))
     assert other_calls == ["called"]
     main._reset_provider_load_state_for_tests()
-    assert isinstance(main._provider_load_lock, MustNotAcquireLock)
 
 
 def test_failing_callback_rebinding_the_load_lock_keeps_future_loads_usable():
@@ -320,9 +320,12 @@ def test_failing_callback_rebinding_the_load_lock_keeps_future_loads_usable():
         pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
 
     descriptor = make_descriptor("acmedb", loaded=register)
+    original_lock = main._provider_load_lock
 
     with pytest.raises(ValueError):
         main._load_adapter_provider(descriptor)
+
+    assert main._provider_load_lock is original_lock
 
     behavior["fail"] = False
     registration = main._load_adapter_provider(descriptor)
@@ -358,10 +361,11 @@ def test_concurrent_caller_is_not_unblocked_by_lock_rebinding_during_callback():
             self._inner.release()
 
     shared_lock = CountingLock(threading.Lock())
+    original_lock = main._provider_load_lock
 
     def register():
         callback_calls.append("called")
-        main._provider_load_lock = MustNotAcquireLock()
+        main._provider_load_lock = threading.Lock()
         in_callback.set()
         assert release.wait(timeout=30)
         pydapper.register_adapter("acmedb", commands=MockCommands, using_connection_predicate=never_matches)
@@ -394,6 +398,77 @@ def test_concurrent_caller_is_not_unblocked_by_lock_rebinding_during_callback():
     assert len(results) == 2
     assert results[0] is results[1]
     assert main._adapter_registry["acmedb"] is results[0]
+    assert main._provider_load_lock is original_lock
+
+
+def test_direct_registration_during_failing_provider_load_is_serialized_and_never_dropped(monkeypatch):
+    # register_adapter() serializes on the same lock as the loader, so a direct registration on
+    # another thread waits for the whole load attempt and cannot be clobbered when the failing
+    # attempt's rollback restores the pre-load snapshot
+    in_callback = threading.Event()
+    direct_attempt = threading.Event()
+    release = threading.Event()
+
+    class CountingRLock:
+        def __init__(self):
+            self._inner = threading.RLock()
+            self._count_guard = threading.Lock()
+            self._acquire_attempts = 0
+
+        def __enter__(self):
+            with self._count_guard:
+                self._acquire_attempts += 1
+                if self._acquire_attempts >= 2:
+                    direct_attempt.set()
+            self._inner.acquire()
+            return self
+
+        def __exit__(self, *exc_info):
+            self._inner.release()
+
+    shared_lock = CountingRLock()
+    monkeypatch.setattr(main, "_provider_load_lock", shared_lock)
+
+    def register():
+        in_callback.set()
+        assert release.wait(timeout=30)
+        # registers the wrong name so the load attempt fails postconditions and rolls back
+        pydapper.register_adapter("wrong-name", commands=MockCommands, using_connection_predicate=never_matches)
+
+    descriptor = make_descriptor("acmedb", loaded=register)
+    load_errors = []
+    direct_errors = []
+
+    def loading_worker():
+        try:
+            main._load_adapter_provider(descriptor, _lock=shared_lock)
+        except ValueError as exc:
+            load_errors.append(exc)
+
+    def direct_worker():
+        try:
+            pydapper.register_adapter("direct-name", commands=MockCommands, using_connection_predicate=never_matches)
+        except Exception as exc:  # pragma: no cover - failure reporting only
+            direct_errors.append(exc)
+
+    loader = threading.Thread(target=loading_worker)
+    loader.start()
+    assert in_callback.wait(timeout=30)
+    direct = threading.Thread(target=direct_worker)
+    direct.start()
+    # the direct registration is provably waiting on the shared lock while the load attempt is
+    # still paused inside its callback
+    assert direct_attempt.wait(timeout=30)
+    release.set()
+    loader.join(timeout=30)
+    direct.join(timeout=30)
+
+    assert not direct_errors
+    assert len(load_errors) == 1
+    assert "wrong-name" not in main._adapter_registry
+    assert "acmedb" not in main._adapter_registry
+    assert "direct-name" in main._adapter_registry
+    assert main._loaded_provider_registrations == {}
 
 
 # ---------------------------------------------------------------------------- load/callback failures

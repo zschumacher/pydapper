@@ -95,30 +95,37 @@ def register_adapter(
         raise TypeError("Adapter name must be a string")
     if not name or name != name.strip():
         raise ValueError("Adapter name must be non-empty and have no surrounding whitespace")
-    if name in _adapter_registry:
-        raise ValueError(f"Adapter {name!r} is already registered")
-    # everything validates before the registry mutates so an invalid registration never leaves a
-    # partially registered adapter behind
-    _validate_registration_contents(commands, async_commands, using_connection_predicate)
+    # the provider load lock is reentrant, so provider callbacks registering from inside a
+    # serialized load attempt re-enter it; a direct registration on another thread instead waits
+    # for the attempt to finish and cannot be clobbered by its snapshot rollback
+    with _provider_load_lock:
+        if name in _adapter_registry:
+            raise ValueError(f"Adapter {name!r} is already registered")
+        # everything validates before the registry mutates so an invalid registration never leaves a
+        # partially registered adapter behind
+        _validate_registration_contents(commands, async_commands, using_connection_predicate)
 
-    _adapter_registry[name] = _AdapterRegistration(
-        name=name,
-        commands=commands,
-        async_commands=async_commands,
-        using_connection_predicate=using_connection_predicate,
-    )
+        _adapter_registry[name] = _AdapterRegistration(
+            name=name,
+            commands=commands,
+            async_commands=async_commands,
+            using_connection_predicate=using_connection_predicate,
+        )
 
 
-# provider loading is serialized by one private lock so concurrent loads of the same provider cannot
-# invoke a callback twice, observe partial registry state, or corrupt the success cache; successful
-# loads are cached per exact provider identity (name, distribution, entry-point value), never
-# normalized, and failed attempts are never cached so they stay retryable. Both the registry and the
-# success cache are restored by object identity (binding and contents) so a hostile callback cannot
-# corrupt loader state by rebinding or mutating those module globals. The lock itself is bound into
-# the loader and reset helper at definition time and must never be read at call time, so a callback
-# rebinding this global cannot hand a concurrent caller a different lock; the rebound global is
-# simply inert. (A callback that rewrites this module's functions is beyond any in-process defense.)
-_provider_load_lock = threading.Lock()
+# provider loading is serialized by one private reentrant lock so concurrent loads of the same
+# provider cannot invoke a callback twice, observe partial registry state, or corrupt the success
+# cache. register_adapter() serializes registry mutation on the same lock (reentrantly, since
+# provider callbacks call it inside the loader's critical section), so a direct registration on
+# another thread during a provider load waits for the attempt to finish instead of racing the
+# snapshot and being silently dropped by rollback. Successful loads are cached per exact provider
+# identity (name, distribution, entry-point value), never normalized, and failed attempts are never
+# cached so they stay retryable. The registry, the success cache, and this lock binding are all
+# restored by object identity after every attempt so a hostile callback cannot corrupt loader state
+# by rebinding or mutating these module globals; the loader itself only ever acquires the lock
+# bound in at definition time and never reads this global at call time. (A callback that rewrites
+# this module's functions is beyond any in-process defense.)
+_provider_load_lock = threading.RLock()
 _loaded_provider_registrations: dict[tuple[str, str, str], _AdapterRegistration] = {}
 
 
@@ -145,6 +152,11 @@ def _restore_provider_cache(
     _loaded_provider_registrations = cache
     cache.clear()
     cache.update(snapshot)
+
+
+def _restore_load_lock_binding(lock: threading.RLock) -> None:
+    global _provider_load_lock
+    _provider_load_lock = lock
 
 
 def _verify_provider_registration_effect(
@@ -196,7 +208,7 @@ def _verify_provider_registration_effect(
 def _load_adapter_provider(
     descriptor: _AdapterProviderDescriptor,
     *,
-    _lock: threading.Lock = _provider_load_lock,
+    _lock: threading.RLock = _provider_load_lock,
 ) -> _AdapterRegistration:
     """Load one already-selected provider entry point and return its registration.
 
@@ -231,6 +243,7 @@ def _load_adapter_provider(
                 f"refusing to load {context} over the existing registration"
             )
 
+        lock_binding = _provider_load_lock
         snapshot = dict(registry)
         cache_snapshot = dict(cache)
         try:
@@ -259,13 +272,15 @@ def _load_adapter_provider(
         except BaseException:
             _restore_registry(registry, snapshot)
             _restore_provider_cache(cache, cache_snapshot)
+            _restore_load_lock_binding(lock_binding)
             raise
         _restore_provider_cache(cache, cache_snapshot)
+        _restore_load_lock_binding(lock_binding)
         cache[key] = registration
         return registration
 
 
-def _reset_provider_load_state_for_tests(*, _lock: threading.Lock = _provider_load_lock) -> None:
+def _reset_provider_load_state_for_tests(*, _lock: threading.RLock = _provider_load_lock) -> None:
     # clears only private loader success state; callers are responsible for separately
     # snapshotting/restoring the adapter registry itself. The lock is captured at definition
     # time for the same rebinding defense as _load_adapter_provider.

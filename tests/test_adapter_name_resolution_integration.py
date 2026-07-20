@@ -16,6 +16,7 @@ duplicated here.
 import importlib.metadata
 import inspect
 import logging
+from types import SimpleNamespace
 
 import pytest
 
@@ -23,6 +24,7 @@ import pydapper
 import pydapper.main as main
 from pydapper import _adapter_discovery
 from pydapper._context import _AwaitableAsyncContextManager
+from pydapper.dsn_parser import PydapperParseResult
 from tests.mocks import MockAsyncCommands
 from tests.mocks import MockAsyncConnection
 from tests.mocks import MockCommands
@@ -31,6 +33,7 @@ from tests.mocks import MockConnection
 pytestmark = pytest.mark.core
 
 GROUP = "pydapper.adapters"
+FIRST_PARTY = "pydapper"
 
 
 def dsn_for(adapter_name):
@@ -155,20 +158,21 @@ def assert_no_key_error(error):
 
 @pytest.fixture(autouse=True)
 def isolated_state(monkeypatch):
-    """Snapshot/restore the registry, provider catalog, and loader success state.
+    """Give each test a private registry, provider catalog, and loader cache.
 
-    First-party adapters are still eagerly registered at import time in this
-    slice, so the registry is copied rather than emptied; catalog and loader
-    state are reset on both sides so no test here depends on execution order or
-    leaks a fake catalog into another module.
+    Every piece of process state these tests touch is swapped through
+    monkeypatch, so this is a real snapshot/restore rather than a reset: a
+    catalog or loader cache the process had already built is put back verbatim
+    at teardown instead of being emptied, and nothing here can decide whether a
+    name resolves in another module. First-party adapters are still eagerly
+    registered at import time in this slice, so the registry is copied rather
+    than emptied.
     """
     registry = main._adapter_registry.copy()
     monkeypatch.setattr(main, "_adapter_registry", registry)
-    main._reset_provider_load_state_for_tests()
-    _adapter_discovery._reset_provider_catalog_for_tests()
+    monkeypatch.setattr(_adapter_discovery, "_catalog", None)
+    monkeypatch.setattr(main, "_loaded_provider_registrations", {})
     yield registry
-    main._reset_provider_load_state_for_tests()
-    _adapter_discovery._reset_provider_catalog_for_tests()
 
 
 @pytest.fixture
@@ -189,6 +193,36 @@ def install_entry_points(monkeypatch):
 
 
 @pytest.fixture
+def dsn_parse_log(monkeypatch):
+    """Record what the DSN path parsed, and every real parser construction.
+
+    ``parsed`` holds the objects ``parse_dsn()`` handed back to CommandFactory,
+    so a test can assert that the *same object* reached the command class.
+    ``constructions`` counts ``PydapperParseResult.__init__`` calls, so a
+    downstream reparse is still visible even when it bypasses ``parse_dsn()``
+    entirely -- checking only the fields of whatever object arrives would let a
+    silently reparsed DSN pass.
+    """
+    parsed = []
+    constructions = []
+    real_parse_dsn = main.parse_dsn
+    real_init = PydapperParseResult.__init__
+
+    def counting_init(self, dsn):
+        constructions.append(dsn)
+        real_init(self, dsn)
+
+    def recording_parse_dsn(dsn=None):
+        result = real_parse_dsn(dsn)
+        parsed.append(result)
+        return result
+
+    monkeypatch.setattr(PydapperParseResult, "__init__", counting_init)
+    monkeypatch.setattr(main, "parse_dsn", recording_parse_dsn)
+    return SimpleNamespace(parsed=parsed, constructions=constructions)
+
+
+@pytest.fixture
 def forbid_discovery(monkeypatch):
     def fail_enumeration(*args, **kwargs):  # pragma: no cover - must never run
         raise AssertionError("this path must not enumerate entry points")
@@ -200,7 +234,7 @@ def forbid_discovery(monkeypatch):
 # ---------------------------------------------------------------------------- DSN paths
 
 
-def test_connect_lazily_loads_a_sync_provider_named_by_the_dsn(install_entry_points):
+def test_connect_lazily_loads_a_sync_provider_named_by_the_dsn(install_entry_points, dsn_parse_log):
     commands_class = recording_sync_commands()
     entry_point, calls = provider("acmedb", commands=commands_class)
     install_entry_points([entry_point])
@@ -211,15 +245,18 @@ def test_connect_lazily_loads_a_sync_provider_named_by_the_dsn(install_entry_poi
     assert isinstance(commands, commands_class)
     assert calls == ["called"]
     assert entry_point.load_calls == 1
-    # the parsed DSN object and every connect kwarg reach the selected command class untouched
+    # the DSN is parsed exactly once, and that very object -- not an equal copy -- is what reaches
+    # the selected command class, along with every connect kwarg untouched
     ((parsed_dsn, connect_kwargs),) = commands_class.connect_calls
+    assert dsn_parse_log.constructions == [dsn_for("acmedb")]
+    assert parsed_dsn is dsn_parse_log.parsed[0]
     assert parsed_dsn.dbapi == "acmedb"
     assert parsed_dsn.hostname == "localhost"
     assert connect_kwargs == {"timeout": 5, "application_name": "pydapper"}
 
 
 @pytest.mark.asyncio
-async def test_connect_async_lazily_loads_an_async_provider_named_by_the_dsn(install_entry_points):
+async def test_connect_async_lazily_loads_an_async_provider_named_by_the_dsn(install_entry_points, dsn_parse_log):
     commands_class = recording_async_commands()
     entry_point, calls = provider("acmedb", commands=None, async_commands=commands_class)
     install_entry_points([entry_point])
@@ -233,7 +270,10 @@ async def test_connect_async_lazily_loads_an_async_provider_named_by_the_dsn(ins
     assert isinstance(commands, commands_class)
     assert calls == ["called"]
     assert entry_point.load_calls == 1
+    # same parse-once and object-identity guarantee as the sync path
     ((parsed_dsn, connect_kwargs),) = commands_class.connect_calls
+    assert dsn_parse_log.constructions == [dsn_for("acmedb")]
+    assert parsed_dsn is dsn_parse_log.parsed[0]
     assert parsed_dsn.dbapi == "acmedb"
     assert connect_kwargs == {"timeout": 5}
 
@@ -244,23 +284,18 @@ async def test_connect_async_lazily_loads_an_async_provider_named_by_the_dsn(ins
     assert entry_point.load_calls == 1
 
 
-def test_connect_parses_the_dsn_once_and_resolves_only_that_exact_name(install_entry_points, monkeypatch):
+def test_connect_resolves_only_the_exact_dsn_name_without_reparsing(install_entry_points, dsn_parse_log):
     commands_class = recording_sync_commands()
     entry_point, calls = provider("acmedb", commands=commands_class)
     other_entry, other_calls = provider("otherdb", distribution="other-adapter")
     install_entry_points([entry_point, other_entry])
 
-    parse_calls = []
-    real_parse_dsn = main.parse_dsn
-
-    def counting_parse_dsn(dsn=None):
-        parse_calls.append(dsn)
-        return real_parse_dsn(dsn)
-
-    monkeypatch.setattr(main, "parse_dsn", counting_parse_dsn)
     pydapper.connect(dsn_for("acmedb"))
 
-    assert parse_calls == [dsn_for("acmedb")]
+    # lazily loading a provider must not cost an extra parse: one parse_dsn() call, one parser
+    # construction, and the resolver only ever sees the bare dbapi name from it
+    assert len(dsn_parse_log.parsed) == 1
+    assert dsn_parse_log.constructions == [dsn_for("acmedb")]
     assert calls == ["called"]
     assert other_calls == []
     assert_nothing_loaded([other_entry])
@@ -440,18 +475,28 @@ def test_sync_only_provider_loads_then_raises_the_async_mode_error(install_entry
 
 
 def test_mode_mismatch_does_not_fall_back_to_another_same_name_provider(install_entry_points):
-    # one provider owns the name; a mode mismatch must surface as a mode error rather than send
-    # resolution looking for some other provider that happens to declare the same name
-    owner_entry, owner_calls = provider("acmedb", commands=None, async_commands=MockAsyncCommands)
-    other_entry, other_calls = provider("acmedb", distribution="other-adapter", commands=MockCommands)
-    install_entry_points([owner_entry])
+    # both providers declare the same name and are genuinely installed. #559 precedence gives the
+    # name to the first-party pydapper distribution, and that owner supplies async only -- so a
+    # sync request must raise the mode error rather than fall through to the same-name external
+    # provider that *would* have satisfied sync mode. Selection must not be mode-aware.
+    owner_entry, owner_calls = provider(
+        "acmedb",
+        distribution=FIRST_PARTY,
+        commands=None,
+        async_commands=MockAsyncCommands,
+    )
+    external_entry, external_calls = provider("acmedb", distribution="other-adapter", commands=MockCommands)
+    install_entry_points([owner_entry, external_entry])
+    # the losing candidate really is in the catalog and really does support the requested mode
+    assert len(_adapter_discovery._get_provider_catalog()["acmedb"]) == 2
 
     with pytest.raises(ValueError, match="does not support sync mode"):
         pydapper.connect(dsn_for("acmedb"))
 
     assert owner_calls == ["called"]
-    assert other_calls == []
-    assert_nothing_loaded([other_entry])
+    assert owner_entry.load_calls == 1
+    assert external_calls == []
+    assert_nothing_loaded([external_entry])
     assert main._adapter_registry["acmedb"].commands is None
 
 

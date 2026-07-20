@@ -30,12 +30,11 @@ def adapter_registry(monkeypatch):
     monkeypatch.setattr(main, "_adapter_registry", registry)
     # name-based public paths resolve through the provider catalog and loader now, so this fixture
     # also isolates that state: a fake catalog or cached load leaked by another module must never
-    # decide whether a name resolves here, in either direction
-    main._reset_provider_load_state_for_tests()
-    _adapter_discovery._reset_provider_catalog_for_tests()
-    yield registry
-    main._reset_provider_load_state_for_tests()
-    _adapter_discovery._reset_provider_catalog_for_tests()
+    # decide whether a name resolves here, in either direction. monkeypatch restores the real
+    # catalog and loader cache at teardown rather than leaving them emptied.
+    monkeypatch.setattr(_adapter_discovery, "_catalog", None)
+    monkeypatch.setattr(main, "_loaded_provider_registrations", {})
+    return registry
 
 
 def never_matches(connection):

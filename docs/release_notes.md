@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: resolve installed adapter providers from name-based public paths. PR [#560](https://github.com/zschumacher/pydapper/pull/560) by [@zschumacher](https://github.com/zschumacher).
 * feat: add private exact-name adapter resolution and provider precedence. PR [#559](https://github.com/zschumacher/pydapper/pull/559) by [@zschumacher](https://github.com/zschumacher).
 * feat: add private transactional loader for adapter provider entry points. PR [#558](https://github.com/zschumacher/pydapper/pull/558) by [@zschumacher](https://github.com/zschumacher).
 * feat: replace dsnparse with an owned URL DSN parser. PR [#557](https://github.com/zschumacher/pydapper/pull/557) by [@zschumacher](https://github.com/zschumacher).

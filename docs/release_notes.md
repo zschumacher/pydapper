@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: load installed adapter providers before automatic selection. PR [#562](https://github.com/zschumacher/pydapper/pull/562) by [@zschumacher](https://github.com/zschumacher).
 * feat: add private deterministic load-all-providers pass. PR [#561](https://github.com/zschumacher/pydapper/pull/561) by [@zschumacher](https://github.com/zschumacher).
 * feat: resolve installed adapter providers from name-based public paths. PR [#560](https://github.com/zschumacher/pydapper/pull/560) by [@zschumacher](https://github.com/zschumacher).
 * feat: add private exact-name adapter resolution and provider precedence. PR [#559](https://github.com/zschumacher/pydapper/pull/559) by [@zschumacher](https://github.com/zschumacher).

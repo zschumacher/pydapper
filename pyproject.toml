@@ -82,6 +82,19 @@ mkdocs = "1.*.*"
 mkdocs-material = "9.*.*"
 markdown-include = "*"
 
+# standard `pydapper.adapters` entry points for the first-party adapters. Poetry's plugin table
+# emits the standard entry-point group in the installed distribution metadata, which is what the
+# private lazy loader discovers; the adapters are not imported or registered at package import.
+[tool.poetry.plugins."pydapper.adapters"]
+sqlite3 = "pydapper._adapter_providers:_register_sqlite3_provider"
+psycopg2 = "pydapper._adapter_providers:_register_psycopg2_provider"
+psycopg = "pydapper._adapter_providers:_register_psycopg_provider"
+aiopg = "pydapper._adapter_providers:_register_aiopg_provider"
+mysql = "pydapper._adapter_providers:_register_mysql_provider"
+pymssql = "pydapper._adapter_providers:_register_pymssql_provider"
+oracledb = "pydapper._adapter_providers:_register_oracledb_provider"
+google = "pydapper._adapter_providers:_register_google_provider"
+
 [tool.poetry.extras]
 psycopg = ["psycopg"]
 psycopg2 = ["psycopg2-binary", "types-psycopg2"]

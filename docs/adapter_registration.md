@@ -1,8 +1,20 @@
 # Adapter registration
 
-`pydapper.register_adapter()` is the single way to register a DB-API adapter. An adapter registration provides
-the command implementation for one or both modes and a synchronous `using_connection_predicate` used only for
-automatic adapter selection of externally supplied connections through `using()` and `using_async()`.
+`pydapper.register_adapter()` is the single registration primitive for a DB-API adapter. An adapter registration
+provides the command implementation for one or both modes and a synchronous `using_connection_predicate` used only
+for automatic adapter selection of externally supplied connections through `using()` and `using_async()`.
+
+There are two supported ways for a registration to happen, and both end in the same `register_adapter()` call:
+
+* **Runtime registration** — application code calls `pydapper.register_adapter()` directly, as shown below. This
+  remains fully supported and is process-local.
+* **Installed entry points** — an installed distribution declares a `pydapper.adapters` entry point whose callback
+  calls `register_adapter()`. pydapper discovers and invokes these callbacks lazily; see
+  [Installing adapters as entry points](#installing-adapters-as-entry-points) below. pydapper's own eight
+  first-party adapters are declared this way, so a plain `import pydapper` no longer initializes any adapter.
+
+A runtime registration always takes precedence over an installed entry point of the same name for the rest of the
+process; entry points are never the only legal way to register an adapter.
 
 The example below is a complete third-party adapter: sync and async command classes, explicit capability
 declarations, optional preparation hooks, and one `register_adapter()` call.
@@ -97,6 +109,141 @@ invalid predicate, or an invalid capability declaration raises an error without 
 modes are supplied, both declarations are validated before the registry is touched, so an invalid declaration in
 either mode fails the entire registration. A second registration of the same exact name always raises `ValueError`,
 even if it appears identical. There is no replacement, priority, alias, or unregister API.
+
+## Installing adapters as entry points
+
+An installed distribution makes an adapter available without any application-side import or registration call by
+declaring an entry point in the exact group:
+
+```text
+pydapper.adapters
+```
+
+pydapper's first-party adapters (`sqlite3`, `psycopg2`, `psycopg`, `aiopg`, `mysql`, `pymssql`, `oracledb`,
+`google`) are declared through this same group by the `pydapper` distribution itself and satisfy the same callback
+contract as a third-party adapter.
+
+### Package metadata
+
+A minimal, buildable third-party adapter package declares one entry point per adapter name. A complete
+`pyproject.toml` for a package named `pydapper-acmedb`:
+
+```toml
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pydapper-acmedb"
+version = "1.0.0"
+description = "AcmeDB adapter for pydapper"
+requires-python = ">=3.10"
+dependencies = ["pydapper"]
+
+[project.entry-points."pydapper.adapters"]
+acmedb = "pydapper_acmedb.plugin:register"
+```
+
+The entry-point *name* (`acmedb`) is the adapter name. The entry-point *value*
+(`pydapper_acmedb.plugin:register`) must resolve to a synchronous, zero-argument callable.
+
+### The registration callback
+
+The value above points at a `register()` function in the package's `pydapper_acmedb/plugin.py` module:
+
+```python
+import pydapper
+
+from .commands import AcmeCommands
+from .commands import AcmeCommandsAsync
+
+
+def is_acme_connection(connection: object) -> bool:
+    module = type(connection).__module__
+    return module == "acmedb" or module.startswith("acmedb.")
+
+
+def register() -> None:
+    pydapper.register_adapter(
+        "acmedb",
+        commands=AcmeCommands,
+        async_commands=AcmeCommandsAsync,
+        using_connection_predicate=is_acme_connection,
+    )
+```
+
+`AcmeCommands` and `AcmeCommandsAsync` are ordinary command classes exactly like the runtime-registration example
+above, defined in the package's `pydapper_acmedb/commands.py` module. The callback must:
+
+* be synchronous and take zero arguments;
+* call `pydapper.register_adapter()` exactly once, registering exactly the entry-point name;
+* return `None`;
+* not register at import time — pydapper invokes the callable explicitly, and importing the module must have no
+  registration side effect; and
+* not open a connection, perform network I/O, touch credentials, or start any async initialization. Command
+  classes should keep importing their database driver lazily inside `connect()` / `connect_async()`, as the
+  first-party adapters do, so loading a provider never imports an optional driver.
+
+### Exact names
+
+The entry-point name, the `register_adapter()` name, the explicit `adapter=` argument, and the DB-API component of
+a DSN (`acme+acmedb://...`) are all the same exact, case-sensitive string. Nothing is normalized: case, hyphens,
+and underscores are significant, so `AcmeDB`, `acmedb`, `acme-db`, and `acme_db` are four distinct adapter names.
+The callback must register exactly the entry-point name.
+
+A provider that breaks the contract fails with a clear `ValueError` identifying the adapter name and the provider
+distribution: a non-callable entry-point value, a callback that requires arguments, an async callback, a non-`None`
+return value, and a callback that registers zero names, more than one name, or a different name are all failures,
+not near-misses.
+
+### Loading behavior
+
+Providers load lazily, and the two selection styles intentionally load differently:
+
+* **DSN and explicit `adapter=` selection load only the requested provider.** `connect()`, `connect_async()`,
+  `using(..., adapter=name)`, and `using_async(..., adapter=name)` resolve the exact name and load at most that one
+  entry point. Explicit selection never calls any `using_connection_predicate`. A broken *unrelated* provider
+  cannot affect these paths, because it is never loaded on them.
+* **Automatic `using()` / `using_async()` selection loads every installed provider.** Without a name, pydapper
+  cannot know which unloaded provider's predicate would match, so it loads all installed providers first — for
+  both modes, regardless of the requested one — and only then filters by requested mode and evaluates predicates
+  under the existing exactly-one-match rule. Automatic selection is therefore affected by an unrelated broken
+  provider: it fails fast with an error identifying that provider rather than silently pretending the provider
+  did not match.
+
+The requested sync/async mode is checked *after* the provider loads: a provider owns its exact name even when it
+supplies only one mode, so a mode mismatch raises the ordinary mode error and never falls back to a different
+same-name provider.
+
+### Precedence and duplicates
+
+Name collisions resolve deterministically. Metadata enumeration order, package versions, and alphabetical order
+never choose a winner:
+
+1. An adapter already registered through `register_adapter()` at runtime wins for the process. The same-name entry
+   point is never loaded.
+2. When the name is not registered and the `pydapper` distribution itself declares it, the first-party provider
+   wins over any external distribution using the same name. The ignored external distributions are recorded in a
+   debug log without ever being imported.
+3. When two or more *external* distributions declare the same otherwise-unregistered name, resolution raises
+   `ValueError` before loading either candidate, names the adapter and every conflicting distribution, and asks
+   you to remove the conflict.
+4. Two first-party entries with the same name are a `pydapper` packaging error and fail deterministically.
+
+### Failures, rollback, and caching
+
+* Provider import, callback, and postcondition-validation failures raise `ValueError` identifying the adapter name
+  and the provider distribution, with the original exception preserved as `__cause__` where one exists.
+* A failed provider load rolls back its registry mutations: the private registry is restored to its pre-load
+  state, so a broken provider never leaves a partial registration behind.
+* A successfully loaded callback runs at most once per process — including under concurrent resolution of the same
+  name — and later resolutions reuse its registration. A *failed* provider is not cached and remains retryable.
+* The installed entry-point catalog is discovered lazily and cached for the process. Installed distributions are
+  treated as static: installing a new adapter package after discovery has run requires a new process to be seen.
+* All of this state is private. There is no public discover, refresh, reload, unload, list, or registry-access
+  API, and no public adapter descriptor or plugin object.
+* Provider errors and debug logs never include entry-point values, DSN credentials, or connection representations
+  that could carry credentials.
 
 ## Declaring capabilities
 

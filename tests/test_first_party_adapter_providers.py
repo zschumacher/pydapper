@@ -1,8 +1,7 @@
 """Focused coverage for the first-party adapter provider callbacks.
 
-Exercises ``pydapper._adapter_providers`` -- the eight zero-argument callbacks a
-later #468 slice will target from ``pydapper.adapters`` entry-point metadata --
-and the eager ``_builtin_adapters`` bootstrap that currently delegates to them.
+Exercises ``pydapper._adapter_providers`` -- the eight zero-argument callbacks
+the ``pydapper`` distribution declares as ``pydapper.adapters`` entry points.
 
 These tests own the *callback contract* and the *registration table*: the exact
 name each callback registers, its sync/async shape, its command classes, its
@@ -11,17 +10,25 @@ nor evaluating a predicate imports an optional database driver. The generic
 provider loader's callback validation, hostile-callback defenses, and
 transactional rollback already have dedicated coverage in
 tests/test_adapter_loading.py, tests/test_adapter_resolution.py, and
-tests/test_adapter_load_all.py and are not duplicated here.
+tests/test_adapter_load_all.py; the installed entry-point *metadata* itself is
+covered in tests/test_first_party_adapter_packaging.py. Neither is duplicated
+here.
 
-Process-level facts -- driver import laziness and fresh-interpreter bootstrap
-order -- are asserted in clean subprocesses rather than by deleting entries from
-this process's ``sys.modules``.
+Process-level facts -- driver import laziness and fresh-interpreter lazy
+bootstrap behavior -- are asserted in clean subprocesses rather than by
+deleting entries from this process's ``sys.modules``. Subprocesses run
+metadata-isolated -- they see only the installed ``pydapper`` distribution's
+metadata -- so unrelated entry points installed on a developer machine can
+never decide an outcome here.
 """
 
+import importlib.metadata
 import inspect
 import json
+import pathlib
 import subprocess
 import sys
+import tempfile
 import textwrap
 import typing
 
@@ -29,8 +36,8 @@ import pytest
 
 import pydapper
 import pydapper.main as main
+from pydapper import _adapter_discovery
 from pydapper import _adapter_providers
-from pydapper import _builtin_adapters
 from pydapper.bigquery import GoogleBigqueryClientCommands
 from pydapper.mssql import PymssqlCommands
 from pydapper.mysql import MySqlConnectorPythonCommands
@@ -43,8 +50,10 @@ from pydapper.sqlite import Sqlite3Commands
 
 pytestmark = pytest.mark.core
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-# the registration table this slice must preserve exactly, in the original bootstrap order:
+
+# the registration table this ticket must preserve exactly, in the historical registration order:
 # (callback attribute name, adapter name, sync commands, async commands, connection module prefix)
 PROVIDER_TABLE = (
     ("_register_sqlite3_provider", "sqlite3", Sqlite3Commands, None, "sqlite3"),
@@ -58,6 +67,7 @@ PROVIDER_TABLE = (
 )
 
 EXPECTED_NAMES = tuple(row[1] for row in PROVIDER_TABLE)
+CALLBACK_ATTRS = tuple(row[0] for row in PROVIDER_TABLE)
 
 # every optional driver a provider callback or a connection predicate must never pull in. The
 # standard-library ``sqlite3`` module is deliberately absent: importing it through the SQLite
@@ -95,12 +105,29 @@ def isolated_registry(monkeypatch):
     Every piece of process state these tests touch is swapped through
     monkeypatch, so this is a real snapshot/restore rather than a reset: state
     the process had already built is put back verbatim at teardown and nothing
-    here can decide whether a name resolves in another module. First-party
-    adapters are still eagerly registered at import time in this slice, so the
-    registry is copied rather than emptied.
+    here can decide whether a name resolves in another module. Plain import no
+    longer registers anything, but another test in this process may already
+    have lazily loaded providers into the real registry, so the registry is
+    copied rather than assumed empty.
+
+    Discovery is restricted to the pydapper distribution's own real entry
+    points, so an unrelated adapter installed on a developer or CI machine can
+    neither add automatic-selection candidates nor break the load-all pass
+    with a broken provider.
     """
     registry = main._adapter_registry.copy()
     monkeypatch.setattr(main, "_adapter_registry", registry)
+    first_party_entry_points = [
+        entry_point
+        for entry_point in importlib.metadata.entry_points(group="pydapper.adapters")
+        if entry_point.dist is not None and main._canonicalize_distribution_name(entry_point.dist.name) == "pydapper"
+    ]
+    monkeypatch.setattr(
+        importlib.metadata,
+        "entry_points",
+        lambda *, group: [entry_point for entry_point in first_party_entry_points if entry_point.group == group],
+    )
+    monkeypatch.setattr(_adapter_discovery, "_catalog", None)
     monkeypatch.setattr(main, "_loaded_provider_registrations", {})
     yield registry
 
@@ -129,16 +156,34 @@ def connection_from_module(module, *, bases=()):
 
 
 def run_in_subprocess(body):
-    """Run a script in a clean interpreter and return its stdout.
+    """Run a script in a clean, metadata-isolated interpreter and return its stdout.
+
+    The interpreter starts with ``-I -S``, so the ambient ``site-packages``
+    never joins ``sys.path``. The script sees exactly two extra path entries:
+    the repository root, so ``import pydapper`` resolves, and a temporary
+    directory holding only the installed ``pydapper`` distribution's
+    ``METADATA`` and ``entry_points.txt`` copied verbatim. Unrelated
+    distributions installed on a developer or CI machine therefore cannot add
+    ``pydapper.adapters`` providers to these subprocesses or break their
+    load-all passes.
 
     Every script ends by printing a sentinel, and the caller asserts on it, so a
     script that silently fails to reach its assertions cannot pass as a success.
     """
-    completed = subprocess.run(
-        [sys.executable, "-c", textwrap.dedent(body)],
-        capture_output=True,
-        text=True,
-    )
+    distribution = importlib.metadata.distribution("pydapper")
+    with tempfile.TemporaryDirectory() as metadata_dir:
+        dist_info = pathlib.Path(metadata_dir) / f"pydapper-{distribution.version}.dist-info"
+        dist_info.mkdir()
+        for member in ("METADATA", "entry_points.txt"):
+            content = distribution.read_text(member)
+            assert content is not None, f"installed pydapper distribution has no {member}"
+            dist_info.joinpath(member).write_text(content)
+        preamble = f"import sys\nsys.path[:0] = [{str(REPO_ROOT)!r}, {metadata_dir!r}]\n"
+        completed = subprocess.run(
+            [sys.executable, "-I", "-S", "-c", preamble + textwrap.dedent(body)],
+            capture_output=True,
+            text=True,
+        )
     assert completed.returncode == 0, f"subprocess failed:\n{completed.stdout}\n{completed.stderr}"
     return completed.stdout
 
@@ -180,24 +225,9 @@ def assert_guard_is_armed():
     raise AssertionError("driver import guard did not fire")
 """
 
-# a bootstrap stub lets a subprocess import the provider module *without* the eager
-# `_builtin_adapters` bootstrap having populated the registry first, which is how the next slice
-# will import it. Seeding sys.modules is the only way to observe that today, since importing any
-# pydapper submodule runs the package __init__.
-BOOTSTRAP_STUB = """
-import sys
-import types
-
-sys.modules["pydapper._builtin_adapters"] = types.ModuleType("pydapper._builtin_adapters")
-"""
-
 
 def driver_guard_script(body):
     return DRIVER_IMPORT_GUARD.format(forbidden=list(OPTIONAL_DRIVERS)) + textwrap.dedent(body)
-
-
-def bootstrap_stub_script(body):
-    return BOOTSTRAP_STUB + textwrap.dedent(body)
 
 
 # ---------------------------------------------------------------------------- callback surface
@@ -213,8 +243,12 @@ def test_module_exposes_exactly_the_eight_intended_callbacks():
     assert discovered == sorted(row[0] for row in PROVIDER_TABLE)
 
 
-def test_provider_tuple_holds_the_eight_callbacks_in_registration_order():
-    assert _adapter_providers._FIRST_PARTY_ADAPTER_PROVIDERS == tuple(callback(row[0]) for row in PROVIDER_TABLE)
+def test_no_eager_bootstrap_artifact_survives():
+    # the eager bootstrap is gone: no delegation tuple in the provider module, and the old private
+    # bootstrap module no longer exists at all
+    assert not hasattr(_adapter_providers, "_FIRST_PARTY_ADAPTER_PROVIDERS")
+    with pytest.raises(ModuleNotFoundError):
+        import pydapper._builtin_adapters  # noqa: F401
 
 
 @pytest.mark.parametrize("row", PROVIDER_TABLE, ids=ids(PROVIDER_TABLE))
@@ -290,18 +324,18 @@ def test_non_psycopg_adapters_remain_sync_only(row, register_fresh):
 
 
 @pytest.mark.parametrize("row", PROVIDER_TABLE, ids=ids(PROVIDER_TABLE))
-def test_callback_on_an_already_registered_name_raises_and_preserves_the_registration(row, isolated_registry):
+def test_callback_on_an_already_registered_name_raises_and_preserves_the_registration(row, register_fresh):
     name = row[1]
-    existing = isolated_registry[name]
-    before = dict(isolated_registry)
+    _, existing, _ = register_fresh(row[0])
+    before = dict(main._adapter_registry)
 
     with pytest.raises(ValueError, match=f"Adapter {name!r} is already registered"):
         callback(row[0])()
 
-    assert list(isolated_registry) == list(before)
-    assert isolated_registry[name] is existing
+    assert list(main._adapter_registry) == list(before)
+    assert main._adapter_registry[name] is existing
     for other, registration in before.items():
-        assert isolated_registry[other] is registration
+        assert main._adapter_registry[other] is registration
 
 
 # ---------------------------------------------------------------------------- connection predicates
@@ -378,16 +412,15 @@ def test_callback_invocation_imports_no_optional_driver():
             import pydapper.main as main
             from pydapper import _adapter_providers
 
-            # the eager bootstrap already invoked all eight callbacks during ``import pydapper``
-            # above; invoke them again against an empty registry so the guard covers explicit
-            # invocation the way the next slice's entry-point loader will do it
-            main._adapter_registry = {}
-            for provider in _adapter_providers._FIRST_PARTY_ADAPTER_PROVIDERS:
-                assert provider() is None
+            # plain import registers nothing; invoking every callback explicitly is exactly what
+            # the entry-point loader does, so the guard covers the loading path
+            assert list(main._adapter_registry) == [], list(main._adapter_registry)
+            for callback_attr in {attrs!r}:
+                assert getattr(_adapter_providers, callback_attr)() is None
 
             assert list(main._adapter_registry) == {names!r}
             print("INVOKED_WITHOUT_DRIVERS")
-            """.replace("{names!r}", repr(list(EXPECTED_NAMES)))))
+            """.replace("{attrs!r}", repr(list(CALLBACK_ATTRS))).replace("{names!r}", repr(list(EXPECTED_NAMES)))))
 
     assert "INVOKED_WITHOUT_DRIVERS" in output
 
@@ -398,6 +431,10 @@ def test_predicate_evaluation_imports_no_optional_driver():
             assert_guard_is_armed()
 
             import pydapper.main as main
+            from pydapper import _adapter_providers
+
+            for callback_attr in {attrs!r}:
+                getattr(_adapter_providers, callback_attr)()
 
             evaluated = 0
             for registration in main._adapter_registry.values():
@@ -409,45 +446,71 @@ def test_predicate_evaluation_imports_no_optional_driver():
 
             assert evaluated == 72, evaluated
             print("PREDICATES_WITHOUT_DRIVERS")
-            """))
+            """.replace("{attrs!r}", repr(list(CALLBACK_ATTRS)))))
 
     assert "PREDICATES_WITHOUT_DRIVERS" in output
 
 
 def test_importing_the_provider_module_alone_imports_no_command_module():
-    output = run_in_subprocess(bootstrap_stub_script("""
+    output = run_in_subprocess("""
+        import sys
+
         import pydapper._adapter_providers  # noqa: F401
 
-        # importing the callbacks must not drag in every backend command module; the next slice
-        # loads only the requested adapter's provider
+        # importing the callbacks must not drag in every backend command module; the entry-point
+        # loader imports only the requested adapter's provider
         for command_module in ("pydapper.sqlite", "pydapper.postgresql", "pydapper.mysql",
                                "pydapper.mssql", "pydapper.oracle", "pydapper.bigquery"):
             assert command_module not in sys.modules, command_module
         print("PROVIDER_MODULE_IS_LAZY")
-        """))
+        """)
 
     assert "PROVIDER_MODULE_IS_LAZY" in output
 
 
-def test_each_callback_imports_only_its_own_command_module():
-    output = run_in_subprocess(bootstrap_stub_script("""
+# the backend package each callback is allowed to import from: the three postgres adapters share
+# the pydapper.postgresql package, whose __init__ imports its psycopg2/psycopg/aiopg command
+# modules together, so per-command-module isolation is deliberately not claimed for them
+CALLBACK_BACKEND_PACKAGES = {
+    "_register_sqlite3_provider": "pydapper.sqlite",
+    "_register_psycopg2_provider": "pydapper.postgresql",
+    "_register_psycopg_provider": "pydapper.postgresql",
+    "_register_aiopg_provider": "pydapper.postgresql",
+    "_register_mysql_provider": "pydapper.mysql",
+    "_register_pymssql_provider": "pydapper.mssql",
+    "_register_oracledb_provider": "pydapper.oracle",
+    "_register_google_provider": "pydapper.bigquery",
+}
+
+
+def test_each_callback_imports_only_its_own_backend_package():
+    output = run_in_subprocess("""
         import json
+        import sys
 
         from pydapper import _adapter_providers
 
         imported = {}
-        for provider in _adapter_providers._FIRST_PARTY_ADAPTER_PROVIDERS:
+        for callback_attr in {attrs!r}:
             before = set(sys.modules)
-            provider()
-            imported[provider.__name__] = sorted(
+            getattr(_adapter_providers, callback_attr)()
+            imported[callback_attr] = sorted(
                 name for name in set(sys.modules) - before if name.startswith("pydapper.")
             )
         print(json.dumps(imported))
-        """))
+        """.replace("{attrs!r}", repr(list(CALLBACK_ATTRS))))
     imported = json.loads(output.strip().splitlines()[-1])
 
-    # each callback pulls in its own backend package the first time that package is needed;
-    # psycopg/aiopg share the already-imported pydapper.postgresql package
+    # every pydapper module a callback imports lives inside that callback's own backend package;
+    # no callback reaches into another backend's package or any other pydapper module
+    assert set(imported) == set(CALLBACK_BACKEND_PACKAGES)
+    for callback_attr, imported_modules in imported.items():
+        package = CALLBACK_BACKEND_PACKAGES[callback_attr]
+        for module in imported_modules:
+            assert module == package or module.startswith(f"{package}."), (callback_attr, module)
+
+    # each backend package arrives with the first callback that needs it; psycopg/aiopg find
+    # pydapper.postgresql already imported by the psycopg2 callback
     assert imported["_register_sqlite3_provider"] == ["pydapper.sqlite", "pydapper.sqlite.sqlite3"]
     assert "pydapper.postgresql" in imported["_register_psycopg2_provider"]
     assert imported["_register_psycopg_provider"] == []
@@ -456,32 +519,41 @@ def test_each_callback_imports_only_its_own_command_module():
     assert "pydapper.mssql" in imported["_register_pymssql_provider"]
     assert "pydapper.oracle" in imported["_register_oracledb_provider"]
     assert "pydapper.bigquery" in imported["_register_google_provider"]
-    # no callback reaches into another adapter's backend package
-    assert not any(name.startswith("pydapper.bigquery") for name in imported["_register_sqlite3_provider"])
 
 
-# ---------------------------------------------------------------------------- eager bootstrap
+# ---------------------------------------------------------------------------- lazy bootstrap
 
 
-def test_fresh_import_still_registers_the_eight_names_in_order():
+def test_fresh_import_registers_nothing():
     output = run_in_subprocess("""
         import json
+        import sys
 
         import pydapper
         import pydapper.main as main
+        from pydapper import _adapter_discovery
 
-        print(json.dumps(list(main._adapter_registry)))
+        assert list(main._adapter_registry) == [], list(main._adapter_registry)
+        assert _adapter_discovery._catalog is None
+        assert main._loaded_provider_registrations == {}
+        assert "pydapper._adapter_providers" not in sys.modules
+        for command_module in ("pydapper.sqlite", "pydapper.postgresql", "pydapper.mysql",
+                               "pydapper.mssql", "pydapper.oracle", "pydapper.bigquery"):
+            assert command_module not in sys.modules, command_module
+        print("PLAIN_IMPORT_IS_LAZY")
         """)
 
-    assert json.loads(output.strip().splitlines()[-1]) == list(EXPECTED_NAMES)
+    assert "PLAIN_IMPORT_IS_LAZY" in output
 
 
-def test_fresh_import_registers_the_expected_shapes():
+def test_loading_all_providers_in_a_fresh_process_registers_the_expected_shapes():
     output = run_in_subprocess("""
         import json
 
-        import pydapper
         import pydapper.main as main
+
+        assert list(main._adapter_registry) == [], list(main._adapter_registry)
+        main._load_all_adapter_providers()
 
         shapes = {
             name: [
@@ -494,45 +566,14 @@ def test_fresh_import_registers_the_expected_shapes():
         """)
     shapes = json.loads(output.strip().splitlines()[-1])
 
-    assert shapes == {
-        row[1]: [row[2].__name__ if row[2] is not None else None, row[3].__name__ if row[3] is not None else None]
-        for row in PROVIDER_TABLE
-    }
-
-
-def test_eager_bootstrap_delegates_to_the_provider_callbacks(monkeypatch, isolated_registry):
-    """The bootstrap is only ordering + invocation; the callbacks are the registration source."""
-    calls = []
-
-    def recorder(name):
-        def record() -> None:
-            calls.append(name)
-
-        return record
-
-    monkeypatch.setattr(
-        _builtin_adapters,
-        "_FIRST_PARTY_ADAPTER_PROVIDERS",
-        tuple(recorder(row[1]) for row in PROVIDER_TABLE),
-    )
-    before = dict(isolated_registry)
-
-    assert _builtin_adapters._register_builtin_adapters() is None
-
-    assert calls == list(EXPECTED_NAMES)
-    # with every callback stubbed out, the bootstrap registered nothing on its own
-    assert list(isolated_registry) == list(before)
-
-
-def test_bootstrap_uses_the_provider_tuple_as_its_single_registration_source():
-    assert _builtin_adapters._FIRST_PARTY_ADAPTER_PROVIDERS is _adapter_providers._FIRST_PARTY_ADAPTER_PROVIDERS
-    # no direct registration path or command-class import survives in the bootstrap module
-    assert not hasattr(_builtin_adapters, "register_adapter")
-    assert not hasattr(_builtin_adapters, "_connection_module_matches")
-    for _, _, commands, async_commands, _ in PROVIDER_TABLE:
-        for command_class in (commands, async_commands):
-            if command_class is not None:
-                assert not hasattr(_builtin_adapters, command_class.__name__)
+    # the metadata-isolated interpreter sees only the pydapper distribution, so the load-all pass
+    # registers exactly the eight stable first-party names, each with its exact shape
+    assert set(shapes) == set(EXPECTED_NAMES)
+    for row in PROVIDER_TABLE:
+        assert shapes[row[1]] == [
+            row[2].__name__ if row[2] is not None else None,
+            row[3].__name__ if row[3] is not None else None,
+        ]
 
 
 # ---------------------------------------------------------------------------- public surface
@@ -544,9 +585,8 @@ def test_no_provider_callback_or_record_becomes_a_public_package_symbol():
     assert not hasattr(pydapper, "_FIRST_PARTY_ADAPTER_PROVIDERS")
     assert not hasattr(pydapper, "_connection_module_matches")
 
-    # nothing this slice added is reachable by identity through a public package-root symbol
+    # nothing here is reachable by identity through a public package-root symbol
     private_objects = [callback(row[0]) for row in PROVIDER_TABLE]
-    private_objects.append(_adapter_providers._FIRST_PARTY_ADAPTER_PROVIDERS)
     private_objects.append(_adapter_providers._connection_module_matches)
     for name in dir(pydapper):
         if not name.startswith("_"):
@@ -559,16 +599,16 @@ def test_no_provider_callback_or_record_becomes_a_public_package_symbol():
 
 
 def test_provider_module_registers_nothing_at_import_time():
-    output = run_in_subprocess(bootstrap_stub_script("""
-        # the provider module is imported here without the eager bootstrap having run, so any
-        # import-time registration side effect in it would show up in the registry
+    output = run_in_subprocess("""
+        # plain import no longer runs any bootstrap, so any import-time registration side effect
+        # in the provider module would show up in the registry here
         import pydapper.main as main
 
         assert list(main._adapter_registry) == [], list(main._adapter_registry)
         import pydapper._adapter_providers  # noqa: F401
         assert list(main._adapter_registry) == [], list(main._adapter_registry)
         print("NO_IMPORT_TIME_REGISTRATION")
-        """))
+        """)
 
     assert "NO_IMPORT_TIME_REGISTRATION" in output
 

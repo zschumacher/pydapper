@@ -54,6 +54,16 @@ for example, `acme+acmedb://...` selects an adapter registered as `acmedb`, even
 An unknown one-component scheme is invalid because *pydapper* cannot derive an adapter. See
 [Adapter registration](../adapter_registration.md) for the registration and selection contract.
 
+### Adapter loading
+
+The first-party adapters above are installed as standard `pydapper.adapters` entry points and load lazily. A plain
+`import pydapper` does not initialize any adapter, import any adapter command module, or import any optional database
+driver. A default or explicit DSN loads only the one adapter it selects, and explicit `adapter=` selection likewise
+loads only that adapter and bypasses connection predicates. Automatic `using()` / `using_async()` selection (no
+`adapter=`) may load every installed adapter provider, because it must evaluate all of their connection predicates to
+pick exactly one match. Third-party adapter packages participate through the same entry-point group; see
+[Adapter registration](../adapter_registration.md) for the packaging contract, precedence rules, and failure behavior.
+
 Place the port after the host, not in the user information:
 
 ```text
@@ -149,9 +159,10 @@ for this could be if you have a custom connection pool in your application and y
 to get in the way of using it.  Another example is reuse of connection objects from a framework like Django ORM
 or SQLAlchemy.
 
-Without an explicit adapter name, `using` runs the registered sync adapter predicates and requires exactly one match.
-Native DB-API connection objects and ordinary subclasses of the supported connection classes are recognized. Pass a
-registered adapter name with `adapter=` to override automatic selection when needed.
+Without an explicit adapter name, `using` first loads every installed adapter provider (so all connection predicates
+are available), then runs the sync adapter predicates and requires exactly one match. Native DB-API connection objects
+and ordinary subclasses of the supported connection classes are recognized. Pass a registered adapter name with
+`adapter=` to override automatic selection when needed; explicit selection loads only that adapter.
 
 Below is a generic example using *pydapper* with a connection managed by `django`.
 

@@ -1,4 +1,3 @@
-from . import _builtin_adapters as _builtin_adapters
 from .capabilities import AdapterCapability
 from .command_options import CommandKind
 from .command_options import CommandOptions

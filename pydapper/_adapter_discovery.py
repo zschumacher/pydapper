@@ -2,7 +2,8 @@
 
 This module only discovers and caches entry-point *metadata*. It never calls
 ``EntryPoint.load()``, never invokes provider callbacks, and never mutates the
-adapter registry. Later #468 slices consume the catalog to load providers.
+adapter registry. The private resolver and loader in ``main`` consume the
+catalog to load providers.
 
 Everything here is private; nothing is exported from the package root.
 """
@@ -22,9 +23,9 @@ _ENTRY_POINT_GROUP = "pydapper.adapters"
 class _AdapterProviderDescriptor:
     """Metadata for one installed provider of an adapter entry point.
 
-    Retains the original entry point so a later slice can load it, plus the
-    exact adapter name and the provider distribution's display name for
-    precedence decisions and error reporting.
+    Retains the original entry point so the loader can load it, plus the exact
+    adapter name and the provider distribution's display name for precedence
+    decisions and error reporting.
     """
 
     name: str
@@ -89,7 +90,7 @@ def _build_catalog() -> Mapping[str, tuple[_AdapterProviderDescriptor, ...]]:
         grouped.setdefault(name, []).append(descriptor)
 
     # sort by stable metadata so enumeration order can never influence later selection; duplicates
-    # are retained for the later collision-resolution slice
+    # are retained so the resolver can apply the collision rules itself
     return MappingProxyType(
         {
             name: tuple(sorted(providers, key=lambda d: (d.distribution, d.entry_point.value)))

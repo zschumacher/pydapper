@@ -133,9 +133,10 @@ def isolated_registry(monkeypatch):
     monkeypatch, so this is a real snapshot/restore rather than a reset: a
     catalog or loader cache the process had already built is put back verbatim
     at teardown instead of being emptied, and nothing here can decide whether a
-    name resolves in another module. First-party adapters are still eagerly
-    registered at import time in this slice, so the registry is copied rather
-    than emptied.
+    name resolves in another module. Plain import no longer registers anything,
+    but another test in this process may already have lazily loaded providers
+    into the real registry, so the registry is copied rather than assumed
+    empty.
     """
     registry = main._adapter_registry.copy()
     monkeypatch.setattr(main, "_adapter_registry", registry)
@@ -359,9 +360,10 @@ def test_registered_name_suppresses_a_same_name_broken_provider(install_entry_po
 def test_registrations_absent_from_the_catalog_are_untouched(install_entry_points, isolated_registry):
     entry, _ = provider("acmedb")
     install_entry_points([entry])
+    # a directly registered name with no entry point at all -- the pass must leave it untouched
+    pydapper.register_adapter("not-in-catalog", commands=MockCommands, using_connection_predicate=never_matches)
     before = dict(isolated_registry)
-    # the eagerly bootstrapped built-ins are not in this catalog at all
-    assert "sqlite3" in before
+    assert "not-in-catalog" in before
 
     main._load_all_adapter_providers()
 

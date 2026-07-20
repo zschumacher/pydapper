@@ -917,20 +917,3 @@ def test_resolution_adds_no_public_api():
         "using",
         "using_async",
     }
-
-
-def test_public_connection_paths_are_untouched_by_this_slice(install_entry_points):
-    # integration is a later slice: an installed-but-unloaded provider must still be invisible to
-    # the public name-based lookups
-    entry_point, calls = provider("acmedb")
-    install_entry_points([entry_point])
-
-    with pytest.raises(ValueError) as excinfo:
-        main._get_sync_commands_class("acmedb")
-    assert "is registered" in str(excinfo.value)
-
-    with pytest.raises(ValueError):
-        main._get_async_commands_class("acmedb")
-
-    assert calls == []
-    assert_nothing_loaded([entry_point])

@@ -4,6 +4,7 @@ import pytest
 
 import pydapper
 import pydapper.main as main
+from pydapper import _adapter_discovery
 from pydapper.bigquery import GoogleBigqueryClientCommands
 from pydapper.mssql import PymssqlCommands
 from pydapper.mysql import MySqlConnectorPythonCommands
@@ -27,6 +28,12 @@ pytestmark = pytest.mark.core
 def adapter_registry(monkeypatch):
     registry = main._adapter_registry.copy()
     monkeypatch.setattr(main, "_adapter_registry", registry)
+    # name-based public paths resolve through the provider catalog and loader now, so this fixture
+    # also isolates that state: a fake catalog or cached load leaked by another module must never
+    # decide whether a name resolves here, in either direction. monkeypatch restores the real
+    # catalog and loader cache at teardown rather than leaving them emptied.
+    monkeypatch.setattr(_adapter_discovery, "_catalog", None)
+    monkeypatch.setattr(main, "_loaded_provider_registrations", {})
     return registry
 
 
@@ -262,17 +269,19 @@ def test_explicit_selection_bypasses_predicates_for_sync_and_async(adapter_regis
 
 
 @pytest.mark.parametrize(
-    ("factory", "connection", "mode"),
+    ("factory", "connection"),
     [
-        (pydapper.using, MockConnection, "sync"),
-        (pydapper.using_async, MockAsyncConnection, "async"),
+        (pydapper.using, MockConnection),
+        (pydapper.using_async, MockAsyncConnection),
     ],
 )
-def test_explicit_selection_rejects_unknown_adapter(adapter_registry, factory, connection, mode):
+def test_explicit_selection_rejects_unknown_adapter(adapter_registry, factory, connection):
+    # name resolution owns unknown names now, so both modes fail identically: a name that is
+    # neither registered nor installed is rejected before any mode is considered
     with pytest.raises(ValueError, match="unknown") as exc_info:
         factory(connection(), adapter="unknown")
 
-    assert mode in str(exc_info.value)
+    assert "No registered or installed adapter" in str(exc_info.value)
 
 
 def test_explicit_selection_rejects_adapter_without_requested_mode(adapter_registry):
@@ -626,14 +635,14 @@ def test_connect_rejects_an_unknown_dsn_adapter(adapter_registry):
     with pytest.raises(ValueError, match="unknown") as exc_info:
         pydapper.connect("somedb+unknown://localhost")
 
-    assert "sync" in str(exc_info.value)
+    assert "No registered or installed adapter" in str(exc_info.value)
 
 
 def test_connect_async_rejects_an_unknown_dsn_adapter(adapter_registry):
     with pytest.raises(ValueError, match="unknown") as exc_info:
         pydapper.connect_async("somedb+unknown://localhost")
 
-    assert "async" in str(exc_info.value)
+    assert "No registered or installed adapter" in str(exc_info.value)
 
 
 def test_connect_async_rejects_an_adapter_without_async_support(adapter_registry):

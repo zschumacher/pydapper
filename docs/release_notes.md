@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: extract first-party adapter provider callbacks. PR [#563](https://github.com/zschumacher/pydapper/pull/563) by [@zschumacher](https://github.com/zschumacher).
 * feat: load installed adapter providers before automatic selection. PR [#562](https://github.com/zschumacher/pydapper/pull/562) by [@zschumacher](https://github.com/zschumacher).
 * feat: add private deterministic load-all-providers pass. PR [#561](https://github.com/zschumacher/pydapper/pull/561) by [@zschumacher](https://github.com/zschumacher).
 * feat: resolve installed adapter providers from name-based public paths. PR [#560](https://github.com/zschumacher/pydapper/pull/560) by [@zschumacher](https://github.com/zschumacher).

@@ -29,6 +29,7 @@ from pydapper.rows import RawRow
 from ._checks import SyncCaseContext
 from ._instrumentation import CursorScript
 from ._profiles import SyncCase
+from ._profiles import capability_profiles
 
 _CASES: List[SyncCase] = []
 
@@ -42,8 +43,8 @@ def _case(case_id: str, description: str, kind: str) -> Callable[[Callable[[Sync
 
 
 def sync_core_cases() -> Tuple[SyncCase, ...]:
-    """Return the full, ordered ``core-sync`` case inventory."""
-    return tuple(_CASES)
+    """Return the full, ordered, immutable ``core-sync`` case inventory."""
+    return _FROZEN_CASES
 
 
 class _InjectedExecuteFault(Exception):
@@ -72,6 +73,7 @@ _UNSUPPORTED_OPTION_PROBES: Tuple[Tuple[AdapterCapability, CommandOptions], ...]
     (AdapterCapability.COMMAND_TIMEOUT, CommandOptions(timeout=1.5)),
     (AdapterCapability.STORED_PROCEDURES, CommandOptions(command_kind=CommandKind.STORED_PROCEDURE)),
     (AdapterCapability.READONLY, CommandOptions(readonly=True)),
+    (AdapterCapability.READONLY, CommandOptions(readonly=False)),
     (AdapterCapability.MAX_ROWS, CommandOptions(max_rows=5)),
 )
 
@@ -834,16 +836,29 @@ def _options_default_equivalence(ctx: SyncCaseContext) -> None:
     )
 
 
+def _probe_is_implemented(ctx: SyncCaseContext, capability: AdapterCapability) -> bool:
+    """An option probe is waived only for a capability the adapter declares AND whose
+    reusable profile exists in the *production* catalog for this mode.
+
+    Until the owning feature ships a real production profile, a declaration alone
+    never waives the probe, so a falsely declared capability cannot silently accept
+    the option it pretends to implement.
+    """
+    if capability not in _declared_capabilities(ctx):
+        return False
+    profile = capability_profiles().get(capability)
+    return profile is not None and bool(profile.sync_cases)
+
+
 @_case(
     "options.unsupported-raises",
-    "Valid non-default options for undeclared capabilities raise UnsupportedFeatureError",
+    "Valid non-default options for unimplemented capabilities raise UnsupportedFeatureError",
     "live",
 )
 def _options_unsupported(ctx: SyncCaseContext) -> None:
     commands = ctx.create_commands()
-    declared = _declared_capabilities(ctx)
     for capability, options in _UNSUPPORTED_OPTION_PROBES:
-        if capability in declared:
+        if _probe_is_implemented(ctx, capability):
             continue
         with ctx.expect_raises(UnsupportedFeatureError):
             commands.query(ctx.sql("select_all"), options=options)
@@ -855,9 +870,8 @@ def _options_unsupported(ctx: SyncCaseContext) -> None:
     "instrumented",
 )
 def _options_unsupported_no_driver_work(ctx: SyncCaseContext) -> None:
-    declared = _declared_capabilities(ctx)
     for capability, options in _UNSUPPORTED_OPTION_PROBES:
-        if capability in declared:
+        if _probe_is_implemented(ctx, capability):
             continue
         connection = ctx.recording_connection()
         commands = ctx.instrumented_commands(connection)
@@ -926,10 +940,12 @@ def _capabilities_profiles_populated(ctx: SyncCaseContext) -> None:
     for member in declared:
         if not isinstance(member, AdapterCapability):
             ctx.fail(f"cannot evaluate capability profiles: non-enum member {member!r}")
-        profile = ctx.capability_catalog.get(member)
+        # authoritative check against the production catalog: an injected catalog can
+        # add profiles to run, but it can never make a declaration look covered
+        profile = capability_profiles().get(member)
         if profile is None:
             ctx.fail(
-                f"declared capability {member.value!r} has no conformance profile; "
+                f"declared capability {member.value!r} has no production conformance profile; "
                 "a capability may only be declared once its reusable profile exists"
             )
         if not profile.sync_cases:
@@ -937,3 +953,8 @@ def _capabilities_profiles_populated(ctx: SyncCaseContext) -> None:
                 f"declared capability {member.value!r} has no sync conformance cases; "
                 "a declared capability must be covered in every declared mode"
             )
+
+
+#: The production inventory is frozen once at import; later mutation of the private
+#: registration list cannot alter what the runner executes.
+_FROZEN_CASES: Tuple[SyncCase, ...] = tuple(_CASES)

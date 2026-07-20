@@ -30,6 +30,7 @@ from pydapper.rows import RawRow
 from ._checks import AsyncCaseContext
 from ._instrumentation import CursorScript
 from ._profiles import AsyncCase
+from ._profiles import capability_profiles
 
 _CASES: List[AsyncCase] = []
 
@@ -45,8 +46,8 @@ def _case(
 
 
 def async_core_cases() -> Tuple[AsyncCase, ...]:
-    """Return the full, ordered ``core-async`` case inventory."""
-    return tuple(_CASES)
+    """Return the full, ordered, immutable ``core-async`` case inventory."""
+    return _FROZEN_CASES
 
 
 class _InjectedExecuteFault(Exception):
@@ -74,8 +75,23 @@ _UNSUPPORTED_OPTION_PROBES: Tuple[Tuple[AdapterCapability, CommandOptions], ...]
     (AdapterCapability.COMMAND_TIMEOUT, CommandOptions(timeout=1.5)),
     (AdapterCapability.STORED_PROCEDURES, CommandOptions(command_kind=CommandKind.STORED_PROCEDURE)),
     (AdapterCapability.READONLY, CommandOptions(readonly=True)),
+    (AdapterCapability.READONLY, CommandOptions(readonly=False)),
     (AdapterCapability.MAX_ROWS, CommandOptions(max_rows=5)),
 )
+
+
+def _probe_is_implemented(ctx: "AsyncCaseContext", capability: AdapterCapability) -> bool:
+    """An option probe is waived only for a capability the adapter declares AND whose
+    reusable profile exists in the *production* catalog for this mode.
+
+    Until the owning feature ships a real production profile, a declaration alone
+    never waives the probe, so a falsely declared capability cannot silently accept
+    the option it pretends to implement.
+    """
+    if capability not in _declared_capabilities(ctx):
+        return False
+    profile = capability_profiles().get(capability)
+    return profile is not None and bool(profile.async_cases)
 
 
 def _declared_capabilities(ctx: AsyncCaseContext) -> frozenset:
@@ -878,14 +894,13 @@ async def _options_default_equivalence(ctx: AsyncCaseContext) -> None:
 
 @_case(
     "options.unsupported-raises",
-    "Valid non-default options for undeclared capabilities raise UnsupportedFeatureError",
+    "Valid non-default options for unimplemented capabilities raise UnsupportedFeatureError",
     "live",
 )
 async def _options_unsupported(ctx: AsyncCaseContext) -> None:
     commands = await ctx.create_commands()
-    declared = _declared_capabilities(ctx)
     for capability, options in _UNSUPPORTED_OPTION_PROBES:
-        if capability in declared:
+        if _probe_is_implemented(ctx, capability):
             continue
         with ctx.expect_raises(UnsupportedFeatureError):
             await commands.query_async(ctx.sql("select_all"), options=options)
@@ -897,9 +912,8 @@ async def _options_unsupported(ctx: AsyncCaseContext) -> None:
     "instrumented",
 )
 async def _options_unsupported_no_driver_work(ctx: AsyncCaseContext) -> None:
-    declared = _declared_capabilities(ctx)
     for capability, options in _UNSUPPORTED_OPTION_PROBES:
-        if capability in declared:
+        if _probe_is_implemented(ctx, capability):
             continue
         connection = ctx.recording_connection()
         commands = ctx.instrumented_commands(connection)
@@ -968,10 +982,12 @@ async def _capabilities_profiles_populated(ctx: AsyncCaseContext) -> None:
     for member in declared:
         if not isinstance(member, AdapterCapability):
             ctx.fail(f"cannot evaluate capability profiles: non-enum member {member!r}")
-        profile = ctx.capability_catalog.get(member)
+        # authoritative check against the production catalog: an injected catalog can
+        # add profiles to run, but it can never make a declaration look covered
+        profile = capability_profiles().get(member)
         if profile is None:
             ctx.fail(
-                f"declared capability {member.value!r} has no conformance profile; "
+                f"declared capability {member.value!r} has no production conformance profile; "
                 "a capability may only be declared once its reusable profile exists"
             )
         if not profile.async_cases:
@@ -979,3 +995,8 @@ async def _capabilities_profiles_populated(ctx: AsyncCaseContext) -> None:
                 f"declared capability {member.value!r} has no async conformance cases; "
                 "a declared capability must be covered in every declared mode"
             )
+
+
+#: The production inventory is frozen once at import; later mutation of the private
+#: registration list cannot alter what the runner executes.
+_FROZEN_CASES: Tuple[AsyncCase, ...] = tuple(_CASES)

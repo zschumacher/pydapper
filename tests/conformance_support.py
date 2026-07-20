@@ -344,13 +344,22 @@ class FirstPartyConformanceEntry:
     test_module: str
 
 
+def _build_entries(*entries: FirstPartyConformanceEntry) -> Dict[Tuple[str, str], FirstPartyConformanceEntry]:
+    built: Dict[Tuple[str, str], FirstPartyConformanceEntry] = {}
+    for entry in entries:
+        key = (entry.adapter_name, entry.mode)
+        if key in built:
+            raise ValueError(f"duplicate first-party conformance entry {key!r}")
+        built[key] = entry
+    return built
+
+
 #: Single source of truth for first-party conformance adoption, keyed by
 #: (adapter entry-point name, mode). The drift test derives the expected contents
 #: from the installed ``pydapper.adapters`` entry points, so additions or removals
 #: of first-party adapters fail loudly here instead of going silently untested.
-FIRST_PARTY_CONFORMANCE_ENTRIES: Dict[Tuple[str, str], FirstPartyConformanceEntry] = {
-    (entry.adapter_name, entry.mode): entry
-    for entry in (
+FIRST_PARTY_CONFORMANCE_ENTRIES: Dict[Tuple[str, str], FirstPartyConformanceEntry] = _build_entries(
+    *(
         FirstPartyConformanceEntry("sqlite3", "sync", Sqlite3Commands, "tests/test_sqlite/test_conformance.py"),
         FirstPartyConformanceEntry("psycopg2", "sync", Psycopg2Commands, "tests/test_postgresql/test_conformance.py"),
         FirstPartyConformanceEntry("psycopg", "sync", Psycopg3Commands, "tests/test_postgresql/test_conformance.py"),
@@ -367,4 +376,4 @@ FIRST_PARTY_CONFORMANCE_ENTRIES: Dict[Tuple[str, str], FirstPartyConformanceEntr
             "google", "sync", GoogleBigqueryClientCommands, "tests/test_bigquery/test_conformance.py"
         ),
     )
-}
+)

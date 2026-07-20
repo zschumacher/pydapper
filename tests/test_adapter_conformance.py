@@ -158,6 +158,7 @@ def test_helper_import_is_dependency_clean():
             "oracledb",
             "google",
             "sqlalchemy",
+            "typing_extensions",
         }
 
         class Guard:
@@ -374,8 +375,9 @@ def test_declared_capability_without_profile_fails_clearly(isolated_registry):
     assert named.profile_id == CORE_SYNC
 
 
-def test_synthetic_capability_profile_runs_and_satisfies_declaration(isolated_registry):
-    """A test-local synthetic profile proves extension without touching production state."""
+def test_synthetic_capability_profile_runs_but_cannot_cover_a_declaration(isolated_registry):
+    """A test-local synthetic profile runs its cases, but only the production catalog
+    can satisfy the declared-capability honesty check — injection is not a bypass."""
     name = "conformance-mock-synth-txn"
     _register_mock_sync(name=name, commands=_DeclaredTransactionsCommands)
 
@@ -400,11 +402,60 @@ def test_synthetic_capability_profile_runs_and_satisfies_declaration(isolated_re
         sync_cases=(SyncCase("transactions.smoke", "synthetic transactions case", "instrumented", _txn_case),),
     )
     report = run_core_sync(_Harness(), capability_catalog={AdapterCapability.TRANSACTIONS: synthetic})
-    assert report.passed, [(f.case_id, f.message) for f in report.failures]
-    assert ran == ["transactions.smoke"]
+    assert ran == ["transactions.smoke"], "the injected profile's cases must actually run"
     synthetic_results = [result for result in report.results if result.profile_id == "transactions"]
     assert [result.case_id for result in synthetic_results] == ["transactions.smoke"]
+    assert synthetic_results[0].passed
+    # the declaration honesty case still fails: the production catalog has no
+    # transactions profile, and an injected catalog can never make one appear covered
+    failed_ids = [failure.case_id for failure in report.failures]
+    assert failed_ids == ["capabilities.declared-profile-populated"], failed_ids
     assert capability_profiles() == {}, "the production catalog must stay empty until a capability ships"
+
+
+def test_option_probes_cannot_be_waived_by_declaration_alone(isolated_registry):
+    """A falsely declared capability must still fail the option-honesty probes, even
+    with an injected catalog claiming coverage (the adversarial-audit bypass)."""
+    name = "conformance-mock-false-caps"
+
+    class _FalselyDeclaringCommands(MockSyncConformanceCommands):
+        capabilities = frozenset(AdapterCapability)
+
+        @staticmethod
+        def _resolve_options(options=None):
+            # deliberately dishonest: accepts every option and applies none of them,
+            # returning the caller's instance so hook-identity checks stay quiet
+            from pydapper.command_options import CommandOptions
+
+            return options if options is not None else CommandOptions()
+
+    _register_mock_sync(name=name, commands=_FalselyDeclaringCommands)
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = _FalselyDeclaringCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return _FalselyDeclaringCommands(FakeSyncConnection(seeded_mini_db()))
+
+    def _noop(ctx):
+        return None
+
+    injected = {
+        member: ConformanceProfile(
+            profile_id=member.value,
+            capability=member,
+            sync_cases=(SyncCase(f"{member.value}.noop", "attacker no-op", "instrumented", _noop),),
+        )
+        for member in AdapterCapability
+    }
+    report = run_core_sync(_Harness(), capability_catalog=injected)
+    failed_ids = {failure.case_id for failure in report.failures}
+    assert "options.unsupported-raises" in failed_ids, "option probes must not be waived by declaration alone"
+    assert "options.unsupported-before-driver-work" in failed_ids
+    assert "capabilities.declared-profile-populated" in failed_ids
+    assert not report.passed
 
 
 def test_production_capability_catalog_is_empty_and_immutable():
@@ -505,6 +556,16 @@ def test_missing_adapter_name_fails_before_any_case():
     assert exc_info.value.profile_id == CORE_SYNC
 
 
+def test_missing_command_class_fails_before_any_case():
+    class _ClasslessHarness(SyncAdapterHarness):
+        adapter_name = MOCK_SYNC_ADAPTER_NAME
+
+    with pytest.raises(HarnessDefinitionError) as exc_info:
+        run_core_sync(_ClasslessHarness())
+    assert exc_info.value.missing_field == "command_class"
+    assert exc_info.value.profile_id == CORE_SYNC
+
+
 def test_sync_and_async_harnesses_do_not_require_the_opposite_mode():
     assert not hasattr(SyncAdapterHarness, "cursor_factory_style")
     sync_members = set(vars(SyncAdapterHarness))
@@ -519,6 +580,33 @@ def test_sync_and_async_harnesses_do_not_require_the_opposite_mode():
 async def test_async_runner_rejects_sync_harness():
     with pytest.raises(TypeError):
         await run_core_async(MockSyncConformanceHarness())  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_cancellation_propagates_and_still_tears_down(isolated_registry):
+    """Task cancellation must abort the run promptly, not be recorded as a failed case,
+    and the active case's live resources must still be released first."""
+    import asyncio
+
+    _register_mock_async()
+    torn_down = []
+
+    class _HangingHarness(MockAsyncConformanceHarness):
+        async def create_commands(self):
+            commands = await super().create_commands()
+            await asyncio.sleep(3600)
+            return commands
+
+        async def teardown_commands(self, commands):
+            torn_down.append(commands)
+            await super().teardown_commands(commands)
+
+    task = asyncio.get_running_loop().create_task(run_core_async(_HangingHarness()))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelled(), "run_core_async must not swallow cancellation into a report"
 
 
 # ------------------------------------------------------------------ isolation, cleanup, precedence
@@ -610,14 +698,9 @@ def test_adapter_code_cannot_declare_its_own_case_passed(isolated_registry):
 # ------------------------------------------------------------------ concrete first-party classes (service-free)
 
 
+# derived from the single conformance source of truth so this list cannot go stale
 _SYNC_CONCRETE_CLASSES = [
-    Sqlite3Commands,
-    Psycopg2Commands,
-    Psycopg3Commands,
-    MySqlConnectorPythonCommands,
-    PymssqlCommands,
-    OracledbCommands,
-    GoogleBigqueryClientCommands,
+    entry.command_class for entry in FIRST_PARTY_CONFORMANCE_ENTRIES.values() if entry.mode == "sync"
 ]
 
 
@@ -807,6 +890,8 @@ def test_every_conformance_entry_module_exists_and_targets_its_adapter():
         expected_runner = "run_core_sync" if mode == "sync" else "run_core_async"
         assert expected_runner in text, (name, mode)
         assert "FIRST_PARTY_CONFORMANCE_ENTRIES" in text, (name, mode)
+        assert re.search(r"^def test_|^async def test_", text, re.MULTILINE), (name, mode)
+        assert "raise_for_failures" in text, (name, mode)
 
 
 def test_every_declared_first_party_capability_has_a_populated_profile(isolated_registry):
@@ -825,6 +910,14 @@ def test_every_declared_first_party_capability_has_a_populated_profile(isolated_
 # ------------------------------------------------------------------ built artifacts carry the helper
 
 
+def _expected_helper_members():
+    """Derive the shipped helper file list from the source tree, so a renamed or new
+    module is covered automatically instead of silently dropping out of the check."""
+    members = {str(path.relative_to(REPO_ROOT)) for path in (REPO_ROOT / "pydapper" / "testing").rglob("*.py")}
+    assert len(members) >= 11, members
+    return members
+
+
 def test_built_wheel_and_sdist_ship_the_conformance_helper(tmp_path):
     import shutil
 
@@ -838,27 +931,46 @@ def test_built_wheel_and_sdist_ship_the_conformance_helper(tmp_path):
     )
     assert completed.returncode == 0, f"poetry build failed:\n{completed.stdout}\n{completed.stderr}"
 
+    expected = _expected_helper_members()
+
     [wheel_path] = tmp_path.glob("pydapper-*.whl")
+    wheel_extract = tmp_path / "wheel-extract"
     with zipfile.ZipFile(wheel_path) as wheel:
         names = set(wheel.namelist())
-    for member in (
-        "pydapper/testing/__init__.py",
-        "pydapper/testing/adapter_conformance/__init__.py",
-        "pydapper/testing/adapter_conformance/_runner.py",
-        "pydapper/testing/adapter_conformance/_cases_sync.py",
-        "pydapper/testing/adapter_conformance/_cases_async.py",
-    ):
-        assert member in names, f"wheel is missing {member}"
+        wheel.extractall(wheel_extract)
+    missing = expected - names
+    assert not missing, f"wheel is missing helper files: {sorted(missing)}"
 
     [sdist_path] = tmp_path.glob("pydapper-*.tar.gz")
+    sdist_extract = tmp_path / "sdist-extract"
     with tarfile.open(sdist_path) as sdist:
         sdist_names = {"/".join(name.split("/")[1:]) for name in sdist.getnames()}
-    for member in (
-        "pydapper/testing/__init__.py",
-        "pydapper/testing/adapter_conformance/__init__.py",
-        "pydapper/testing/adapter_conformance/_runner.py",
-    ):
-        assert member in sdist_names, f"sdist is missing {member}"
+        sdist.extractall(sdist_extract)
+    missing = expected - sdist_names
+    assert not missing, f"sdist is missing helper files: {sorted(missing)}"
+
+    # the packaged helper must IMPORT from each built artifact, not just be listed in
+    # it: run a hermetic interpreter whose sys.path is only the extracted artifact
+    [sdist_root] = sdist_extract.glob("pydapper-*")
+    for artifact_root in (wheel_extract, sdist_root):
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                "-c",
+                "import sys; sys.path.insert(0, sys.argv[1]); "
+                "import pydapper.testing.adapter_conformance as helper; "
+                "assert helper.CORE_SYNC == 'core-sync' and helper.CORE_ASYNC == 'core-async'; "
+                "assert callable(helper.run_core_sync) and callable(helper.run_core_async); "
+                "print('ARTIFACT-IMPORT-OK')",
+                str(artifact_root),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert completed.returncode == 0, f"import from {artifact_root} failed:\n{completed.stderr}"
+        assert "ARTIFACT-IMPORT-OK" in completed.stdout
 
 
 # ------------------------------------------------------------------ documented examples actually run

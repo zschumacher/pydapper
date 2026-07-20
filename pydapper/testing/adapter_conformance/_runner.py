@@ -7,9 +7,11 @@ failure. When both a case and its teardown fail, the case failure is preserved a
 the teardown failure is retained as structured secondary information.
 
 ``run_core_async`` is a plain awaitable and never starts an event loop, so it can be
-awaited inside an existing loop.
+awaited inside an existing loop, and task cancellation propagates promptly after the
+active case's resources are released.
 """
 
+import asyncio
 from typing import Callable
 from typing import List
 from typing import Mapping
@@ -85,9 +87,11 @@ def run_core_sync(
 
     Returns a :class:`ConformanceReport` whose results follow the declared case
     order; call :meth:`ConformanceReport.raise_for_failures` for exception-style
-    reporting. ``capability_catalog`` defaults to the production catalog and exists
-    so future capability features (and the framework's own tests) can extend the
-    run; it never weakens core cases.
+    reporting. ``capability_catalog`` defaults to the production catalog and only
+    selects which capability profiles *additionally run*; the capability-honesty
+    core cases always consult the production :func:`capability_profiles` catalog,
+    so an injected catalog cannot make an unimplemented capability appear covered
+    or weaken any core case.
     """
     if not isinstance(harness, SyncAdapterHarness):
         raise TypeError(
@@ -105,7 +109,13 @@ def run_core_sync(
     results: List[CaseResult] = []
     for case_profile_id, case in planned:
         ctx = SyncCaseContext(harness, case_profile_id, case.case_id, catalog)
-        result = _run_sync_case(ctx, case)
+        try:
+            result = _run_sync_case(ctx, case)
+        except BaseException:
+            # cancellation/shutdown propagates, but the case's live resources are
+            # still released first
+            _teardown_sync(harness, ctx)
+            raise
         cleanup_error = _teardown_sync(harness, ctx)
         results.append(_merge_cleanup(result, cleanup_error))
 
@@ -143,7 +153,13 @@ async def run_core_async(
     results: List[CaseResult] = []
     for case_profile_id, case in planned:
         ctx = AsyncCaseContext(harness, case_profile_id, case.case_id, catalog)
-        result = await _run_async_case(ctx, case)
+        try:
+            result = await _run_async_case(ctx, case)
+        except BaseException:
+            # cancellation/shutdown propagates, but the case's live resources are
+            # still released first
+            await _teardown_async(harness, ctx)
+            raise
         cleanup_error = await _teardown_async(harness, ctx)
         results.append(_merge_cleanup(result, cleanup_error))
 
@@ -153,6 +169,11 @@ async def run_core_async(
         command_class_name=command_class_name,
         results=tuple(results),
     )
+
+
+#: Exceptions the runner must never convert into case failures: cancellation and
+#: interpreter shutdown propagate after per-case teardown has run.
+_PROPAGATED = (KeyboardInterrupt, SystemExit, asyncio.CancelledError)
 
 
 def _run_sync_case(ctx: SyncCaseContext, case: SyncCase) -> CaseResult:
@@ -178,6 +199,8 @@ def _execute_case(ctx: SyncCaseContext, run: Callable[[], None]) -> CaseResult:
 def _failure_from_error(ctx: object, error: BaseException) -> CaseResult:
     profile_id = getattr(ctx, "profile_id", "<unknown>")
     case_id = getattr(ctx, "case_id", "<unknown>")
+    if isinstance(error, _PROPAGATED):
+        raise error
     if isinstance(error, HarnessDefinitionError):
         return CaseResult(
             profile_id=profile_id,
@@ -195,8 +218,6 @@ def _failure_from_error(ctx: object, error: BaseException) -> CaseResult:
             message=str(error),
             cause=error.cause if error.cause is not None else error,
         )
-    if isinstance(error, (KeyboardInterrupt, SystemExit)):
-        raise error
     return CaseResult(
         profile_id=profile_id,
         case_id=case_id,
@@ -238,6 +259,7 @@ def _merge_cleanup(result: CaseResult, cleanup_error: Optional[BaseException]) -
             passed=False,
             message=f"harness teardown failed after a passing case: {cleanup_error}",
             cause=cleanup_error,
+            cleanup_error=cleanup_error,
         )
     return CaseResult(
         profile_id=result.profile_id,

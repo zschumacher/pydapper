@@ -831,7 +831,8 @@ def test_callback_registering_expected_name_plus_extra_fails_and_removes_both():
 
 
 def test_callback_removing_an_existing_registration_fails_and_restores_it():
-    removed_name = "sqlite3"
+    removed_name = "existing-adapter"
+    pydapper.register_adapter(removed_name, commands=MockCommands, using_connection_predicate=never_matches)
     original_record = main._adapter_registry[removed_name]
 
     def register():
@@ -849,7 +850,8 @@ def test_callback_removing_an_existing_registration_fails_and_restores_it():
 
 
 def test_callback_replacing_an_existing_registration_fails_and_restores_it():
-    target = "sqlite3"
+    target = "existing-adapter"
+    pydapper.register_adapter(target, commands=MockCommands, using_connection_predicate=never_matches)
     original_record = main._adapter_registry[target]
 
     def register():
@@ -872,6 +874,8 @@ def test_callback_replacing_an_existing_registration_fails_and_restores_it():
 
 
 def test_callback_reordering_existing_registrations_fails_and_restores_order():
+    for name in ("existing-one", "existing-two"):
+        pydapper.register_adapter(name, commands=MockCommands, using_connection_predicate=never_matches)
     assert len(main._adapter_registry) >= 2
     first_name = next(iter(main._adapter_registry))
     original_record = main._adapter_registry[first_name]
@@ -906,6 +910,9 @@ def test_rollback_never_clears_the_live_registry_unless_existing_entries_were_ta
     # registry readers (_select_registration) run without the load lock, so a
     # clear()+update() restore would let a concurrent reader observe long-registered adapters as
     # transiently missing; untouched and append-only rollbacks must never empty the live dict
+    # seed pre-existing entries so the tampering branch below has something to tamper with
+    for name in ("existing-one", "existing-two"):
+        pydapper.register_adapter(name, commands=MockCommands, using_connection_predicate=never_matches)
     registry = ClearRecordingDict(main._adapter_registry)
     monkeypatch.setattr(main, "_adapter_registry", registry)
     before = dict(registry)
@@ -1074,8 +1081,10 @@ def test_invalid_capabilities_via_register_adapter_fail_and_preserve_cause():
 
 
 def test_duplicate_registration_failure_leaves_registry_unchanged():
+    pydapper.register_adapter("existing-adapter", commands=MockCommands, using_connection_predicate=never_matches)
+
     def register():
-        pydapper.register_adapter("sqlite3", commands=MockCommands, using_connection_predicate=never_matches)
+        pydapper.register_adapter("existing-adapter", commands=MockCommands, using_connection_predicate=never_matches)
 
     descriptor = make_descriptor("acmedb", loaded=register)
     before = dict(main._adapter_registry)
@@ -1291,8 +1300,9 @@ def test_no_new_public_package_root_api():
 def test_shared_validation_order_is_preserved_with_multiple_invalid_fields():
     # pins the check order of the validation shared by register_adapter() and provider
     # postconditions so the extraction cannot silently reorder public behavior
+    pydapper.register_adapter("existing-adapter", commands=MockCommands, using_connection_predicate=never_matches)
     with pytest.raises(ValueError) as excinfo:
-        pydapper.register_adapter("sqlite3", commands=object, using_connection_predicate=None)
+        pydapper.register_adapter("existing-adapter", commands=object, using_connection_predicate=None)
     assert "already registered" in str(excinfo.value)
 
     with pytest.raises(ValueError) as excinfo:

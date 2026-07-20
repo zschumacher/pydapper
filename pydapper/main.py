@@ -245,7 +245,7 @@ def _load_adapter_provider(
 ) -> _AdapterRegistration:
     """Load one already-selected provider entry point and return its registration.
 
-    The caller (a later resolution slice) is responsible for choosing the
+    The caller (the exact-name resolver) is responsible for choosing the
     descriptor; this helper never consults the discovery catalog. The whole
     attempt — registry snapshot, EntryPoint.load(), callback invocation,
     postcondition validation, rollback, and success caching — is one serialized

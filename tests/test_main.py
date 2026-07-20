@@ -576,15 +576,14 @@ def test_invalid_environment_dsn_is_rejected(adapter_registry, monkeypatch, fact
     ],
 )
 def test_connect_routes_default_and_explicit_dsn_adapter_names(adapter_registry, dsn, adapter_name):
-    registration = adapter_registry[adapter_name]
-    adapter_registry[adapter_name] = main._AdapterRegistration(
-        name=registration.name,
-        commands=MockCommands,
-        async_commands=registration.async_commands,
-        using_connection_predicate=registration.using_connection_predicate,
-    )
+    # a direct registration of the stable name wins over the installed first-party entry point,
+    # so registering a mock under it both proves the DSN routes to that exact name and proves the
+    # provider is never loaded over it
+    adapter_registry.pop(adapter_name, None)
+    pydapper.register_adapter(adapter_name, commands=MockCommands, using_connection_predicate=never_matches)
 
     assert isinstance(pydapper.connect(dsn), MockCommands)
+    assert main._loaded_provider_registrations == {}
 
 
 @pytest.mark.parametrize(
@@ -596,15 +595,11 @@ def test_connect_routes_default_and_explicit_dsn_adapter_names(adapter_registry,
 )
 @pytest.mark.asyncio
 async def test_connect_async_routes_explicit_dsn_adapter_names(adapter_registry, dsn, adapter_name):
-    registration = adapter_registry[adapter_name]
-    adapter_registry[adapter_name] = main._AdapterRegistration(
-        name=registration.name,
-        commands=registration.commands,
-        async_commands=MockAsyncCommands,
-        using_connection_predicate=registration.using_connection_predicate,
-    )
+    adapter_registry.pop(adapter_name, None)
+    pydapper.register_adapter(adapter_name, async_commands=MockAsyncCommands, using_connection_predicate=never_matches)
 
     assert isinstance(await pydapper.connect_async(dsn), MockAsyncCommands)
+    assert main._loaded_provider_registrations == {}
 
 
 @pytest.mark.asyncio
@@ -691,10 +686,25 @@ def test_first_party_command_classes_declare_explicit_empty_capability_sets(comm
     assert declared == frozenset()
 
 
-def test_first_party_capability_audit_covers_every_registered_command_class():
+FIRST_PARTY_ADAPTER_TABLE = {
+    "sqlite3": (Sqlite3Commands, None),
+    "psycopg2": (Psycopg2Commands, None),
+    "psycopg": (Psycopg3Commands, Psycopg3CommandsAsync),
+    "aiopg": (None, AiopgCommands),
+    "mysql": (MySqlConnectorPythonCommands, None),
+    "pymssql": (PymssqlCommands, None),
+    "oracledb": (OracledbCommands, None),
+    "google": (GoogleBigqueryClientCommands, None),
+}
+
+
+def test_first_party_capability_audit_covers_every_registered_command_class(adapter_registry):
+    # first-party adapters register lazily now, so load them through the real installed metadata
+    # and audit the command classes those registrations actually carry
     registered = {
         command_class
-        for registration in main._adapter_registry.values()
+        for name in FIRST_PARTY_ADAPTER_TABLE
+        for registration in [main._resolve_adapter_registration(name)]
         for command_class in (registration.commands, registration.async_commands)
         if command_class is not None
     }
@@ -702,23 +712,15 @@ def test_first_party_capability_audit_covers_every_registered_command_class():
     assert registered == set(FIRST_PARTY_COMMAND_CLASSES)
 
 
-def test_builtin_adapter_name_and_command_class_mappings():
-    expected = {
-        "sqlite3": (Sqlite3Commands, None),
-        "psycopg2": (Psycopg2Commands, None),
-        "psycopg": (Psycopg3Commands, Psycopg3CommandsAsync),
-        "aiopg": (None, AiopgCommands),
-        "mysql": (MySqlConnectorPythonCommands, None),
-        "pymssql": (PymssqlCommands, None),
-        "oracledb": (OracledbCommands, None),
-        "google": (GoogleBigqueryClientCommands, None),
-    }
-
-    assert set(main._adapter_registry) == set(expected)
-    for name, (commands, async_commands) in expected.items():
-        registration = main._adapter_registry[name]
+def test_first_party_adapter_name_and_command_class_mappings(adapter_registry):
+    # resolves each stable name through the real installed entry points rather than reading an
+    # eagerly populated registry, which no longer exists
+    for name, (commands, async_commands) in FIRST_PARTY_ADAPTER_TABLE.items():
+        adapter_registry.pop(name, None)
+        registration = main._resolve_adapter_registration(name)
         assert registration.commands is commands
         assert registration.async_commands is async_commands
+        assert adapter_registry[name] is registration
 
 
 @pytest.mark.parametrize(
@@ -732,7 +734,7 @@ def test_builtin_adapter_name_and_command_class_mappings():
         ("google.cloud.bigquery.dbapi.connection", GoogleBigqueryClientCommands),
     ],
 )
-def test_builtin_sync_detection_uses_documented_connection_modules(module, commands_class):
+def test_first_party_sync_detection_uses_documented_connection_modules(adapter_registry, module, commands_class):
     connection_class = type("NativeConnection", (), {"__module__": module})
 
     assert isinstance(pydapper.using(connection_class()), commands_class)
@@ -745,13 +747,13 @@ def test_builtin_sync_detection_uses_documented_connection_modules(module, comma
         ("aiopg.connection", AiopgCommands),
     ],
 )
-def test_builtin_async_detection_uses_documented_connection_modules(module, commands_class):
+def test_first_party_async_detection_uses_documented_connection_modules(adapter_registry, module, commands_class):
     connection_class = type("NativeConnection", (), {"__module__": module})
 
     assert isinstance(pydapper.using_async(connection_class()), commands_class)
 
 
-def test_builtin_detection_supports_sqlite_native_connections_and_subclasses():
+def test_first_party_detection_supports_sqlite_native_connections_and_subclasses(adapter_registry):
     class SubclassedConnection(sqlite3.Connection):
         pass
 
@@ -765,21 +767,21 @@ def test_builtin_detection_supports_sqlite_native_connections_and_subclasses():
         subclassed_connection.close()
 
 
-def test_builtin_detection_inspects_the_full_mro():
+def test_first_party_detection_inspects_the_full_mro(adapter_registry):
     native_connection_class = type("NativeConnection", (), {"__module__": "mysql.connector.connection"})
     wrapper_subclass = type("ConnectionSubclass", (native_connection_class,), {"__module__": "application.db"})
 
     assert isinstance(pydapper.using(wrapper_subclass()), MySqlConnectorPythonCommands)
 
 
-def test_builtin_detection_uses_anchored_module_prefixes():
+def test_first_party_detection_uses_anchored_module_prefixes(adapter_registry):
     unrelated_connection_class = type("UnrelatedConnection", (), {"__module__": "application.sqlite3_proxy"})
 
     with pytest.raises(ValueError, match="adapter="):
         pydapper.using(unrelated_connection_class())
 
 
-def test_builtin_detection_ignores_non_string_class_modules():
+def test_first_party_detection_ignores_non_string_class_modules(adapter_registry):
     connection_class = type("ConnectionWithNonStringModule", (), {})
     connection_class.__module__ = None
 

@@ -1,5 +1,23 @@
 ## Latest Changes
 
+* v1: adapters are now discovered through the standard `pydapper.adapters` entry-point group and load lazily.
+  First-party and third-party adapters use one provider contract: an installed distribution declares an entry point
+  per adapter name whose synchronous zero-argument callback registers exactly that name through the public
+  `register_adapter()`. The eight stable first-party names (`sqlite3`, `psycopg2`, `psycopg`, `aiopg`, `mysql`,
+  `pymssql`, `oracledb`, `google`) are unchanged and are now declared by the `pydapper` distribution itself; the
+  private eager first-party bootstrap was removed, so a plain `import pydapper` no longer registers adapters,
+  imports adapter command modules, or imports optional database drivers. DSN-based `connect()` / `connect_async()`
+  and explicit `using(..., adapter=name)` / `using_async(..., adapter=name)` selection load only the requested
+  provider (explicit selection still bypasses connection predicates), while automatic `using()` / `using_async()`
+  selection loads every installed provider before evaluating predicates, so an unrelated broken provider can fail
+  automatic selection but never exact-name selection. Precedence is deterministic: a direct runtime
+  `register_adapter()` call wins for the process, the first-party provider wins over an external provider using the
+  same name, and duplicate external providers fail before either loads with every conflicting distribution named —
+  metadata enumeration order never chooses a winner. Provider failures identify the adapter and provider
+  distribution, preserve the original exception as the cause, and roll back their registry mutations; successful
+  callbacks run at most once per process and the installed catalog is cached per process. Runtime registration via
+  `register_adapter()` remains fully supported, no public API is added or deprecated, and no new runtime dependency
+  is introduced. See [Adapter registration](adapter_registration.md) for the packaging contract for adapter authors.
 * feat: extract first-party adapter provider callbacks. PR [#563](https://github.com/zschumacher/pydapper/pull/563) by [@zschumacher](https://github.com/zschumacher).
 * feat: load installed adapter providers before automatic selection. PR [#562](https://github.com/zschumacher/pydapper/pull/562) by [@zschumacher](https://github.com/zschumacher).
 * feat: add private deterministic load-all-providers pass. PR [#561](https://github.com/zschumacher/pydapper/pull/561) by [@zschumacher](https://github.com/zschumacher).

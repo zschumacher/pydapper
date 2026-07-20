@@ -145,10 +145,11 @@ def isolated_state(monkeypatch):
     monkeypatch, so this is a real snapshot/restore rather than a reset: a
     catalog or loader cache the process had already built is put back verbatim
     at teardown instead of being emptied, and nothing here can decide whether a
-    name resolves in another module. First-party adapters are still eagerly
-    registered at import time in this slice, so the registry is copied rather
-    than emptied; their predicates run during automatic selection here and match
-    none of the mock connections below.
+    name resolves in another module. Plain import no longer registers anything,
+    but another test in this process may already have lazily loaded providers
+    into the real registry, so the registry is copied rather than assumed
+    empty; any such first-party predicates run during automatic selection here
+    and match none of the mock connections below.
     """
     registry = main._adapter_registry.copy()
     monkeypatch.setattr(main, "_adapter_registry", registry)
@@ -226,9 +227,9 @@ def test_using_async_loads_an_unregistered_async_provider_and_uses_its_predicate
 
 
 def test_every_provider_loads_before_the_first_predicate_runs(install_entry_points):
-    # the directly registered name sorts ahead of every provider name *and* ahead of every eagerly
-    # bootstrapped built-in, so a registry-only fast path or any interleaving of loading with
-    # predicate evaluation would put its predicate before at least one load: entry
+    # the directly registered name sorts ahead of every provider name, so a registry-only fast
+    # path or any interleaving of loading with predicate evaluation would put its predicate
+    # before at least one load: entry
     connection = MockConnection()
     events = []
 

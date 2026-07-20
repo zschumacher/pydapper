@@ -2,26 +2,24 @@
 
 Each stable first-party adapter name owns exactly one zero-argument callback
 that registers exactly that name through the public ``register_adapter()`` and
-returns ``None``. These are the shape a later #468 slice will target from
-``[project.entry-points."pydapper.adapters"]`` metadata, so they satisfy the
-third-party provider-callback contract already: synchronous, zero-argument,
-``-> None``, one registration each, and no connection, network, credential, or
-discovery work.
+returns ``None``. The ``pydapper`` distribution declares one installed
+``pydapper.adapters`` entry point per callback, so these satisfy the same
+provider-callback contract as a third-party adapter: synchronous,
+zero-argument, ``-> None``, one registration each, and no connection, network,
+credential, or discovery work. The private loader in ``main`` resolves and
+invokes them lazily; nothing imports this module at package import.
 
 Command-class imports live *inside* the callbacks on purpose. Importing this
-module must not drag in every backend command module, because the next slice
-replaces the eager bootstrap with entry-point loading and only the requested
-adapter's provider should import anything. Registering an adapter still imports
-no optional database driver: the command classes defer that to connection
-creation via ``import_dbapi_module()``.
+module must not drag in every backend command module, because only the
+requested adapter's provider should import anything. Registering an adapter
+still imports no optional database driver: the command classes defer that to
+connection creation via ``import_dbapi_module()``.
 
-Nothing here registers at import time -- ``_builtin_adapters`` invokes these
-callbacks -- and nothing here is exported from the package root.
+Nothing here registers at import time -- the entry-point loader invokes these
+callbacks explicitly -- and nothing here is exported from the package root.
 """
 
 from __future__ import annotations
-
-from collections.abc import Callable
 
 from .main import register_adapter
 
@@ -132,18 +130,3 @@ def _register_google_provider() -> None:
             connection, "google.cloud.bigquery.dbapi"
         ),
     )
-
-
-# the eager bootstrap's single delegation mechanism, in the original registration order. Entry-point
-# metadata in a later slice targets the callbacks individually, so this tuple stays an ordering
-# detail of the current bootstrap rather than a registry of its own.
-_FIRST_PARTY_ADAPTER_PROVIDERS: tuple[Callable[[], None], ...] = (
-    _register_sqlite3_provider,
-    _register_psycopg2_provider,
-    _register_psycopg_provider,
-    _register_aiopg_provider,
-    _register_mysql_provider,
-    _register_pymssql_provider,
-    _register_oracledb_provider,
-    _register_google_provider,
-)

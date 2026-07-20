@@ -142,9 +142,14 @@ def test_directly_registered_adapter_is_returned_by_identity_without_discovery(f
     assert _adapter_discovery._catalog is None
 
 
-def test_eagerly_bootstrapped_adapter_resolves_without_discovery(forbid_discovery):
-    # the built-in bootstrap still populates the registry in this slice, so a stable name must
-    # resolve straight from it
+def test_directly_registered_stable_name_resolves_without_discovery(forbid_discovery):
+    # first-party names are no longer eagerly registered, so a stable name behaves like any other
+    # runtime registration: once registered directly, it must resolve straight from the registry
+    # without ever consulting the catalog or the same-name installed first-party entry point.
+    # (another test in this process may already have lazily loaded the real adapter, so drop it)
+    main._adapter_registry.pop("sqlite3", None)
+    pydapper.register_adapter("sqlite3", commands=MockCommands, using_connection_predicate=never_matches)
+
     assert main._resolve_adapter_registration("sqlite3") is main._adapter_registry["sqlite3"]
     assert _adapter_discovery._catalog is None
 
@@ -655,7 +660,8 @@ def test_resolution_never_calls_predicates_or_connection_factories(install_entry
 
 
 def test_resolution_does_not_consult_requested_mode(install_entry_points):
-    # mode checks belong to a later slice: an async-only provider still resolves by name
+    # mode checks belong to the public command-class accessors, after resolution: an async-only
+    # provider still resolves by name
     callback, calls = registering_callback("acmedb", commands=None, async_commands=MockAsyncCommands)
     entry_point = FakeEntryPoint("acmedb", loaded=callback)
     install_entry_points([entry_point])

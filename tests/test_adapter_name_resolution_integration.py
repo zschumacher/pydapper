@@ -164,9 +164,10 @@ def isolated_state(monkeypatch):
     monkeypatch, so this is a real snapshot/restore rather than a reset: a
     catalog or loader cache the process had already built is put back verbatim
     at teardown instead of being emptied, and nothing here can decide whether a
-    name resolves in another module. First-party adapters are still eagerly
-    registered at import time in this slice, so the registry is copied rather
-    than emptied.
+    name resolves in another module. Plain import no longer registers anything,
+    but another test in this process may already have lazily loaded providers
+    into the real registry, so the registry is copied rather than assumed
+    empty.
     """
     registry = main._adapter_registry.copy()
     monkeypatch.setattr(main, "_adapter_registry", registry)

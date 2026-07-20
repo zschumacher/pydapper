@@ -37,7 +37,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.pythonLocation }}
-          key: ${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock') }}-postgresql
+          key: ${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('poetry.lock', 'pyproject.toml') }}-postgresql
 
       - name: install dependencies
         if: steps.cache-poetry-deps.outputs.cache-hit != 'true'

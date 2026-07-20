@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: declare first-party adapters as installed entry points and remove eager bootstrap. PR [#564](https://github.com/zschumacher/pydapper/pull/564) by [@zschumacher](https://github.com/zschumacher).
 * v1: adapters are now discovered through the standard `pydapper.adapters` entry-point group and load lazily.
   First-party and third-party adapters use one provider contract: an installed distribution declares an entry point
   per adapter name whose synchronous zero-argument callback registers exactly that name through the public

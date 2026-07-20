@@ -4,6 +4,7 @@ nav:
   - Compatibility Policy: compatibility.md
   - Command options: command_options.md
   - Adapter registration: adapter_registration.md
+  - Adapter conformance: adapter_conformance.md
   - Database Support:
       - Intro - Database Support: database_support/intro.md
       - Google BigQuery: database_support/bigquery.md

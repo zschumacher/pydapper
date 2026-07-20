@@ -294,6 +294,9 @@ registrations.
 Empty sets are honest: they mean no optional capability is implemented yet, not that the underlying database lacks
 the feature.
 
+Adapters prove these contracts — the mandatory per-mode core behavior and, once implemented, each declared
+capability — with the reusable conformance suite; see [Adapter conformance](adapter_conformance.md).
+
 ## Preparation hooks
 
 Command classes may override four protected, documented adapter-author hooks. They are extension points for

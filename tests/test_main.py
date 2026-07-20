@@ -1,3 +1,4 @@
+import importlib.metadata
 import sqlite3
 
 import pytest
@@ -30,8 +31,21 @@ def adapter_registry(monkeypatch):
     monkeypatch.setattr(main, "_adapter_registry", registry)
     # name-based public paths resolve through the provider catalog and loader now, so this fixture
     # also isolates that state: a fake catalog or cached load leaked by another module must never
-    # decide whether a name resolves here, in either direction. monkeypatch restores the real
-    # catalog and loader cache at teardown rather than leaving them emptied.
+    # decide whether a name resolves here, in either direction. Discovery is restricted to the
+    # pydapper distribution's own real entry points, so an unrelated adapter installed on a
+    # developer or CI machine can neither add automatic-selection candidates nor break the
+    # load-all pass with a broken provider. monkeypatch restores the real enumeration, catalog,
+    # and loader cache at teardown rather than leaving them emptied.
+    first_party_entry_points = [
+        entry_point
+        for entry_point in importlib.metadata.entry_points(group="pydapper.adapters")
+        if entry_point.dist is not None and main._canonicalize_distribution_name(entry_point.dist.name) == "pydapper"
+    ]
+    monkeypatch.setattr(
+        importlib.metadata,
+        "entry_points",
+        lambda *, group: [entry_point for entry_point in first_party_entry_points if entry_point.group == group],
+    )
     monkeypatch.setattr(_adapter_discovery, "_catalog", None)
     monkeypatch.setattr(main, "_loaded_provider_registrations", {})
     return registry

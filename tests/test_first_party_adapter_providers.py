@@ -16,13 +16,19 @@ here.
 
 Process-level facts -- driver import laziness and fresh-interpreter lazy
 bootstrap behavior -- are asserted in clean subprocesses rather than by
-deleting entries from this process's ``sys.modules``.
+deleting entries from this process's ``sys.modules``. Subprocesses run
+metadata-isolated -- they see only the installed ``pydapper`` distribution's
+metadata -- so unrelated entry points installed on a developer machine can
+never decide an outcome here.
 """
 
+import importlib.metadata
 import inspect
 import json
+import pathlib
 import subprocess
 import sys
+import tempfile
 import textwrap
 import typing
 
@@ -43,6 +49,8 @@ from pydapper.postgresql import Psycopg3CommandsAsync
 from pydapper.sqlite import Sqlite3Commands
 
 pytestmark = pytest.mark.core
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 # the registration table this ticket must preserve exactly, in the historical registration order:
@@ -101,9 +109,24 @@ def isolated_registry(monkeypatch):
     longer registers anything, but another test in this process may already
     have lazily loaded providers into the real registry, so the registry is
     copied rather than assumed empty.
+
+    Discovery is restricted to the pydapper distribution's own real entry
+    points, so an unrelated adapter installed on a developer or CI machine can
+    neither add automatic-selection candidates nor break the load-all pass
+    with a broken provider.
     """
     registry = main._adapter_registry.copy()
     monkeypatch.setattr(main, "_adapter_registry", registry)
+    first_party_entry_points = [
+        entry_point
+        for entry_point in importlib.metadata.entry_points(group="pydapper.adapters")
+        if entry_point.dist is not None and main._canonicalize_distribution_name(entry_point.dist.name) == "pydapper"
+    ]
+    monkeypatch.setattr(
+        importlib.metadata,
+        "entry_points",
+        lambda *, group: [entry_point for entry_point in first_party_entry_points if entry_point.group == group],
+    )
     monkeypatch.setattr(_adapter_discovery, "_catalog", None)
     monkeypatch.setattr(main, "_loaded_provider_registrations", {})
     yield registry
@@ -133,16 +156,34 @@ def connection_from_module(module, *, bases=()):
 
 
 def run_in_subprocess(body):
-    """Run a script in a clean interpreter and return its stdout.
+    """Run a script in a clean, metadata-isolated interpreter and return its stdout.
+
+    The interpreter starts with ``-I -S``, so the ambient ``site-packages``
+    never joins ``sys.path``. The script sees exactly two extra path entries:
+    the repository root, so ``import pydapper`` resolves, and a temporary
+    directory holding only the installed ``pydapper`` distribution's
+    ``METADATA`` and ``entry_points.txt`` copied verbatim. Unrelated
+    distributions installed on a developer or CI machine therefore cannot add
+    ``pydapper.adapters`` providers to these subprocesses or break their
+    load-all passes.
 
     Every script ends by printing a sentinel, and the caller asserts on it, so a
     script that silently fails to reach its assertions cannot pass as a success.
     """
-    completed = subprocess.run(
-        [sys.executable, "-c", textwrap.dedent(body)],
-        capture_output=True,
-        text=True,
-    )
+    distribution = importlib.metadata.distribution("pydapper")
+    with tempfile.TemporaryDirectory() as metadata_dir:
+        dist_info = pathlib.Path(metadata_dir) / f"pydapper-{distribution.version}.dist-info"
+        dist_info.mkdir()
+        for member in ("METADATA", "entry_points.txt"):
+            content = distribution.read_text(member)
+            assert content is not None, f"installed pydapper distribution has no {member}"
+            dist_info.joinpath(member).write_text(content)
+        preamble = f"import sys\nsys.path[:0] = [{str(REPO_ROOT)!r}, {metadata_dir!r}]\n"
+        completed = subprocess.run(
+            [sys.executable, "-I", "-S", "-c", preamble + textwrap.dedent(body)],
+            capture_output=True,
+            text=True,
+        )
     assert completed.returncode == 0, f"subprocess failed:\n{completed.stdout}\n{completed.stderr}"
     return completed.stdout
 
@@ -427,7 +468,22 @@ def test_importing_the_provider_module_alone_imports_no_command_module():
     assert "PROVIDER_MODULE_IS_LAZY" in output
 
 
-def test_each_callback_imports_only_its_own_command_module():
+# the backend package each callback is allowed to import from: the three postgres adapters share
+# the pydapper.postgresql package, whose __init__ imports its psycopg2/psycopg/aiopg command
+# modules together, so per-command-module isolation is deliberately not claimed for them
+CALLBACK_BACKEND_PACKAGES = {
+    "_register_sqlite3_provider": "pydapper.sqlite",
+    "_register_psycopg2_provider": "pydapper.postgresql",
+    "_register_psycopg_provider": "pydapper.postgresql",
+    "_register_aiopg_provider": "pydapper.postgresql",
+    "_register_mysql_provider": "pydapper.mysql",
+    "_register_pymssql_provider": "pydapper.mssql",
+    "_register_oracledb_provider": "pydapper.oracle",
+    "_register_google_provider": "pydapper.bigquery",
+}
+
+
+def test_each_callback_imports_only_its_own_backend_package():
     output = run_in_subprocess("""
         import json
         import sys
@@ -445,8 +501,16 @@ def test_each_callback_imports_only_its_own_command_module():
         """.replace("{attrs!r}", repr(list(CALLBACK_ATTRS))))
     imported = json.loads(output.strip().splitlines()[-1])
 
-    # each callback pulls in its own backend package the first time that package is needed;
-    # psycopg/aiopg share the already-imported pydapper.postgresql package
+    # every pydapper module a callback imports lives inside that callback's own backend package;
+    # no callback reaches into another backend's package or any other pydapper module
+    assert set(imported) == set(CALLBACK_BACKEND_PACKAGES)
+    for callback_attr, imported_modules in imported.items():
+        package = CALLBACK_BACKEND_PACKAGES[callback_attr]
+        for module in imported_modules:
+            assert module == package or module.startswith(f"{package}."), (callback_attr, module)
+
+    # each backend package arrives with the first callback that needs it; psycopg/aiopg find
+    # pydapper.postgresql already imported by the psycopg2 callback
     assert imported["_register_sqlite3_provider"] == ["pydapper.sqlite", "pydapper.sqlite.sqlite3"]
     assert "pydapper.postgresql" in imported["_register_psycopg2_provider"]
     assert imported["_register_psycopg_provider"] == []
@@ -455,8 +519,6 @@ def test_each_callback_imports_only_its_own_command_module():
     assert "pydapper.mssql" in imported["_register_pymssql_provider"]
     assert "pydapper.oracle" in imported["_register_oracledb_provider"]
     assert "pydapper.bigquery" in imported["_register_google_provider"]
-    # no callback reaches into another adapter's backend package
-    assert not any(name.startswith("pydapper.bigquery") for name in imported["_register_sqlite3_provider"])
 
 
 # ---------------------------------------------------------------------------- lazy bootstrap
@@ -504,9 +566,9 @@ def test_loading_all_providers_in_a_fresh_process_registers_the_expected_shapes(
         """)
     shapes = json.loads(output.strip().splitlines()[-1])
 
-    # the real installed metadata registers every stable first-party name with its exact shape;
-    # asserting item-wise (rather than dict equality) keeps this independent of any unrelated
-    # provider a developer machine might have installed
+    # the metadata-isolated interpreter sees only the pydapper distribution, so the load-all pass
+    # registers exactly the eight stable first-party names, each with its exact shape
+    assert set(shapes) == set(EXPECTED_NAMES)
     for row in PROVIDER_TABLE:
         assert shapes[row[1]] == [
             row[2].__name__ if row[2] is not None else None,

@@ -15,18 +15,25 @@ composition against fake metadata is covered in tests/test_adapter_*.py;
 neither is duplicated here.
 
 Process-level facts are asserted in clean subprocesses rather than by deleting
-entries from this process's ``sys.modules``. First-party assertions filter real
-metadata by the ``pydapper`` distribution, so unrelated entry points installed
-on a developer machine can never decide an outcome here.
+entries from this process's ``sys.modules``. Subprocesses run metadata-isolated
+-- they see only the installed ``pydapper`` distribution's metadata -- and
+in-process assertions filter real metadata by the ``pydapper`` distribution, so
+unrelated entry points installed on a developer machine can never decide an
+outcome here.
 """
 
+import configparser
 import importlib.metadata
 import json
+import pathlib
+import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import textwrap
 import types
+import zipfile
 
 import pytest
 
@@ -39,6 +46,7 @@ pytestmark = pytest.mark.core
 
 GROUP = "pydapper.adapters"
 DISTRIBUTION = "pydapper"
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # the exact installed entry-point table #468 requires: eight names, eight callback targets,
 # no aliases, no duplicates
@@ -95,16 +103,34 @@ def isolated_state(monkeypatch):
 
 
 def run_in_subprocess(body):
-    """Run a script in a clean interpreter and return its stdout.
+    """Run a script in a clean, metadata-isolated interpreter and return its stdout.
+
+    The interpreter starts with ``-I -S``, so the ambient ``site-packages``
+    never joins ``sys.path``. The script sees exactly two extra path entries:
+    the repository root, so ``import pydapper`` resolves, and a temporary
+    directory holding only the installed ``pydapper`` distribution's
+    ``METADATA`` and ``entry_points.txt`` copied verbatim. Unrelated
+    distributions installed on a developer or CI machine therefore cannot add
+    ``pydapper.adapters`` providers to these subprocesses or break their
+    load-all passes.
 
     Every script ends by printing a sentinel, and the caller asserts on it, so a
     script that silently fails to reach its assertions cannot pass as a success.
     """
-    completed = subprocess.run(
-        [sys.executable, "-c", textwrap.dedent(body)],
-        capture_output=True,
-        text=True,
-    )
+    distribution = importlib.metadata.distribution(DISTRIBUTION)
+    with tempfile.TemporaryDirectory() as metadata_dir:
+        dist_info = pathlib.Path(metadata_dir) / f"{DISTRIBUTION}-{distribution.version}.dist-info"
+        dist_info.mkdir()
+        for member in ("METADATA", "entry_points.txt"):
+            content = distribution.read_text(member)
+            assert content is not None, f"installed {DISTRIBUTION} distribution has no {member}"
+            dist_info.joinpath(member).write_text(content)
+        preamble = f"import sys\nsys.path[:0] = [{str(REPO_ROOT)!r}, {metadata_dir!r}]\n"
+        completed = subprocess.run(
+            [sys.executable, "-I", "-S", "-c", preamble + textwrap.dedent(body)],
+            capture_output=True,
+            text=True,
+        )
     assert completed.returncode == 0, f"subprocess failed:\n{completed.stdout}\n{completed.stderr}"
     return completed.stdout
 
@@ -189,6 +215,41 @@ def test_discovery_catalog_carries_first_party_descriptors_with_pydapper_identit
         assert first_party[0].entry_point.value == value
     # building the catalog registered nothing and loaded nothing
     assert main._loaded_provider_registrations == {}
+
+
+# ---------------------------------------------------------------------------- built wheel metadata
+
+
+def test_built_wheel_declares_exactly_the_eight_entry_points(tmp_path):
+    """The built artifact itself carries the entry points, not just this installed environment.
+
+    Builds the real wheel with the project's own build tooling and reads
+    ``entry_points.txt`` straight out of the archive, so a packaging regression
+    that only shows up in the published artifact -- and not in an editable
+    development install -- fails here.
+    """
+    poetry = shutil.which("poetry")
+    assert poetry is not None, "the poetry executable is required to build the wheel under test"
+
+    completed = subprocess.run(
+        [poetry, "build", "--format", "wheel", "--output", str(tmp_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, f"poetry build failed:\n{completed.stdout}\n{completed.stderr}"
+
+    [wheel_path] = tmp_path.glob(f"{DISTRIBUTION}-*.whl")
+    with zipfile.ZipFile(wheel_path) as wheel:
+        [entry_points_member] = [name for name in wheel.namelist() if name.endswith(".dist-info/entry_points.txt")]
+        entry_points_text = wheel.read(entry_points_member).decode("utf-8")
+
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str  # entry-point names are exact and case-sensitive
+    parser.read_string(entry_points_text)
+
+    assert parser.sections() == [GROUP]
+    assert dict(parser[GROUP]) == EXPECTED_ENTRY_POINTS
 
 
 # ---------------------------------------------------------------------------- fresh-process laziness
@@ -314,8 +375,10 @@ def test_automatic_sync_selection_loads_every_first_party_provider_and_selects_s
         finally:
             connection.close()
 
-        # loading every provider imports the command modules but, per the guard, no optional driver
-        assert set(main._adapter_registry) >= {expected_names!r}, set(main._adapter_registry)
+        # the metadata-isolated interpreter sees only the pydapper distribution, so loading every
+        # provider registers exactly the eight first-party names and imports their command modules
+        # but, per the guard, no optional driver
+        assert set(main._adapter_registry) == {expected_names!r}, set(main._adapter_registry)
         print("AUTOMATIC_SYNC_LOADS_ALL")
         """.replace("{expected_names!r}", repr(set(EXPECTED_ENTRY_POINTS)))))
 
@@ -337,7 +400,7 @@ def test_automatic_async_selection_selects_from_real_metadata_without_importing_
 
         assert type(commands).__name__ == "AiopgCommands"
         assert commands.connection is connection
-        assert set(main._adapter_registry) >= {expected_names!r}, set(main._adapter_registry)
+        assert set(main._adapter_registry) == {expected_names!r}, set(main._adapter_registry)
         print("AUTOMATIC_ASYNC_LAZY")
         """.replace("{expected_names!r}", repr(set(EXPECTED_ENTRY_POINTS)))))
 

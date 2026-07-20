@@ -534,29 +534,34 @@ def test_dsn_resolution_errors_never_leak_credentials(install_entry_points, capl
     assert "localhost/database" not in leaked
 
 
-# ---------------------------------------------------------------------------- automatic selection is unchanged
+# ---------------------------------------------------------------------------- automatic selection deliberately differs
 
 
-def test_automatic_selection_still_uses_the_registry_only(install_entry_points):
-    # this provider's predicate would match if automatic selection loaded installed providers;
-    # loading every provider for predicate evaluation is the next #468 slice, not this one
+def test_only_automatic_selection_loads_unrelated_installed_providers(install_entry_points):
+    # the intentional #468 contrast, shown on one catalog: a name-based path loads only the
+    # provider it was asked for, while automatic selection loads every installed provider so their
+    # predicates exist to be evaluated at all
     entry_point, calls = provider(
         "acmedb", commands=MockCommands, async_commands=MockAsyncCommands, predicate=always_matches
     )
-    install_entry_points([entry_point])
+    unrelated, unrelated_calls = provider("otherdb", distribution="other-adapter")
+    install_entry_points([entry_point, unrelated])
 
-    with pytest.raises(ValueError):
-        pydapper.using(MockConnection())
-    with pytest.raises(ValueError):
-        pydapper.using_async(MockAsyncConnection())
+    assert isinstance(pydapper.using(MockConnection(), adapter="acmedb"), MockCommands)
+    assert calls == ["called"]
+    assert unrelated_calls == []
+    assert_nothing_loaded([unrelated])
 
-    assert calls == []
-    assert_nothing_loaded([entry_point])
-    # nothing on the automatic path even built the catalog
-    assert _adapter_discovery._catalog is None
+    # the same unrelated provider is loaded once automatic selection needs the whole picture
+    assert isinstance(pydapper.using(MockConnection()), MockCommands)
+    assert isinstance(pydapper.using_async(MockAsyncConnection()), MockAsyncCommands)
+    assert unrelated_calls == ["called"]
+    assert unrelated.load_calls == 1
 
 
-def test_automatic_selection_still_resolves_a_directly_registered_match(forbid_discovery):
+def test_automatic_selection_still_resolves_a_directly_registered_match(install_entry_points):
+    install_entry_points([])
+
     class AutomaticCommands(MockCommands): ...
 
     class AutomaticCommandsAsync(MockAsyncCommands): ...
@@ -570,7 +575,9 @@ def test_automatic_selection_still_resolves_a_directly_registered_match(forbid_d
 
     assert isinstance(pydapper.using(MockConnection()), AutomaticCommands)
     assert isinstance(pydapper.using_async(MockAsyncConnection()), AutomaticCommandsAsync)
-    assert _adapter_discovery._catalog is None
+    # automatic selection discovers the catalog now, but an empty one is a successful no-op that
+    # loads nothing
+    assert main._loaded_provider_registrations == {}
 
 
 # ---------------------------------------------------------------------------- public surface

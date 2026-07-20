@@ -125,15 +125,21 @@ def broken_provider(name, *, distribution="broken-adapter", error=None):
 
 @pytest.fixture(autouse=True)
 def isolated_registry(monkeypatch):
+    """Give each test a private registry, provider catalog, and loader cache.
+
+    Every piece of process state these tests touch is swapped through
+    monkeypatch, so this is a real snapshot/restore rather than a reset: a
+    catalog or loader cache the process had already built is put back verbatim
+    at teardown instead of being emptied, and nothing here can decide whether a
+    name resolves in another module. First-party adapters are still eagerly
+    registered at import time in this slice, so the registry is copied rather
+    than emptied.
+    """
     registry = main._adapter_registry.copy()
     monkeypatch.setattr(main, "_adapter_registry", registry)
-    original_lock = main._provider_load_lock
-    main._reset_provider_load_state_for_tests()
-    _adapter_discovery._reset_provider_catalog_for_tests()
+    monkeypatch.setattr(_adapter_discovery, "_catalog", None)
+    monkeypatch.setattr(main, "_loaded_provider_registrations", {})
     yield registry
-    main._provider_load_lock = original_lock
-    main._reset_provider_load_state_for_tests()
-    _adapter_discovery._reset_provider_catalog_for_tests()
 
 
 @pytest.fixture

@@ -459,11 +459,12 @@ def _resolve_adapter_registration(
 def _load_all_adapter_providers(*, _lock: threading.RLock = _provider_load_lock) -> None:
     """Load every installed provider that does not already own a registered name.
 
-    Private infrastructure for a later automatic-selection slice, which cannot
-    know which unloaded provider's ``using_connection_predicate`` would match a
-    connection until every provider has been loaded. Nothing calls this yet: the
-    name-based public paths deliberately keep loading only the one provider they
-    were asked for, so an unrelated broken provider still cannot break them.
+    Private infrastructure for automatic connection selection, which cannot know
+    which unloaded provider's ``using_connection_predicate`` would match a
+    connection until every provider has been loaded. _select_registration() is
+    its only caller: the name-based public paths deliberately keep loading only
+    the one provider they were asked for, so an unrelated broken provider still
+    cannot break them.
 
     The pass is deterministic and mode-independent. Catalog names are walked in
     explicitly sorted exact-name order rather than trusting metadata enumeration
@@ -537,6 +538,36 @@ def _get_async_commands_class(name: str) -> type[CommandsAsync]:
 
 
 def _select_registration(connection: object, mode: str) -> _AdapterRegistration:
+    """Choose the one adapter whose connection predicate claims a connection.
+
+    Automatic selection is the only path that cannot name the adapter it wants,
+    so it is also the only one that must load every installed provider first: an
+    unloaded provider's ``using_connection_predicate`` is unreachable, and
+    treating it as absent would silently return a registry-only match where the
+    complete picture is an ambiguity. The pass therefore runs to completion
+    before a single registry entry is read — there is deliberately no
+    registry-only fast path, however unambiguous the already-registered adapters
+    look — and both the sync and async wrappers reach it through this one shared
+    call site.
+
+    Loading stays mode-independent: sync-only, async-only, and dual-mode
+    providers all load for either mode, because the pass cannot know which
+    registration a predicate will claim before the predicate exists. A provider
+    that cannot load therefore fails automatic selection even when the requested
+    mode would never have used it. This is the intentional counterpart to the
+    name-based paths — connect(), connect_async(), and explicit ``adapter=``
+    load only the provider they were asked for, so an unrelated broken provider
+    cannot break them.
+
+    A load failure is fail-fast: the resolver's ValueError propagates with its
+    original cause intact, no predicate runs, and it is never re-wrapped with
+    ``connection`` so a credential-bearing connection repr cannot reach a
+    provider error. Only once the pass succeeds does the existing behavior
+    resume unchanged: filter by requested mode, evaluate the eligible predicates
+    in deterministic adapter-name order, and apply the zero/one/multiple rule.
+    """
+    _load_all_adapter_providers()
+
     matches: list[_AdapterRegistration] = []
 
     for registration in sorted(_adapter_registry.values(), key=lambda item: item.name):

@@ -6,8 +6,10 @@ catalog, the real ``_resolve_adapter_registration()``, and the real
 entry-point metadata is faked, so these tests fail if the pass stops delegating
 selection, precedence, or the transactional load.
 
-The helper is private infrastructure for a later automatic-selection slice and
-is deliberately not wired into any public path yet.
+The helper is private infrastructure for automatic connection selection, which
+is its only caller. This module covers the pass itself and the scope of that
+wiring; the public automatic-selection behavior built on it lives in
+tests/test_adapter_automatic_selection_integration.py.
 
 Callback validation, hostile mutation, rollback internals, exact-name public
 integration, and resolver mutation coverage already live in
@@ -674,34 +676,38 @@ def test_direct_registration_winning_the_lock_suppresses_its_same_name_provider(
 # ---------------------------------------------------------------------------- scope
 
 
-def test_automatic_using_paths_do_not_call_the_load_all_helper(install_entry_points, monkeypatch):
-    def must_not_run(*args, **kwargs):  # pragma: no cover - must never run
-        raise AssertionError("automatic selection must not load all providers in this slice")
+def test_only_automatic_selection_calls_the_pass(install_entry_points, monkeypatch):
+    # a spy, not a stub: the real pass still runs underneath, so this pins *where* it is wired in
+    # rather than replacing the behavior the rest of the suite exercises
+    pass_calls = []
+    real_pass = main._load_all_adapter_providers
 
-    monkeypatch.setattr(main, "_load_all_adapter_providers", must_not_run)
-    entry, calls = provider("acmedb", predicate=lambda connection: True)
+    def counting_pass(*args, **kwargs):
+        pass_calls.append("called")
+        return real_pass(*args, **kwargs)
+
+    monkeypatch.setattr(main, "_load_all_adapter_providers", counting_pass)
+    entry, calls = provider("acmedb", commands=MockCommands, async_commands=MockAsyncCommands)
     install_entry_points([entry])
     connection = object()
 
-    # automatic selection stays registry-only: the installed provider is never loaded, so its
-    # would-be matching predicate is never consulted
-    with pytest.raises(ValueError) as sync_excinfo:
+    # every name-based path resolves one exact name and never runs the pass
+    assert isinstance(pydapper.connect("somedb+acmedb://localhost/database"), MockCommands)
+    assert isinstance(pydapper.using(connection, adapter="acmedb"), MockCommands)
+    assert isinstance(pydapper.using_async(connection, adapter="acmedb"), MockAsyncCommands)
+    assert pass_calls == []
+    assert calls == ["called"]
+
+    # automatic selection runs it exactly once per call, through one shared call site for both modes
+    with pytest.raises(ValueError, match="No registered sync adapter"):
         pydapper.using(connection)
-    with pytest.raises(ValueError) as async_excinfo:
+    assert pass_calls == ["called"]
+    with pytest.raises(ValueError, match="No registered async adapter"):
         pydapper.using_async(connection)
-
-    assert "No registered sync adapter" in str(sync_excinfo.value)
-    assert "No registered async adapter" in str(async_excinfo.value)
-    assert calls == []
-    assert_nothing_loaded([entry])
-    assert "acmedb" not in main._adapter_registry
+    assert pass_calls == ["called", "called"]
 
 
-def test_automatic_selection_still_uses_a_directly_registered_adapter(install_entry_points, monkeypatch):
-    def must_not_run(*args, **kwargs):  # pragma: no cover - must never run
-        raise AssertionError("automatic selection must not load all providers in this slice")
-
-    monkeypatch.setattr(main, "_load_all_adapter_providers", must_not_run)
+def test_automatic_selection_runs_the_pass_even_when_a_registered_adapter_matches(install_entry_points):
     entry, calls = provider("acmedb")
     install_entry_points([entry])
     connection = object()
@@ -714,8 +720,11 @@ def test_automatic_selection_still_uses_a_directly_registered_adapter(install_en
 
     assert isinstance(pydapper.using(connection), MockCommands)
     assert isinstance(pydapper.using_async(connection), MockAsyncCommands)
-    assert calls == []
-    assert_nothing_loaded([entry])
+
+    # no registry-only shortcut: the unrelated provider is loaded anyway, because an unloaded
+    # provider could have matched too and made this an ambiguity rather than a selection
+    assert calls == ["called"]
+    assert entry.load_calls == 1
 
 
 def test_load_all_adds_no_public_api():

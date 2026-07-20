@@ -456,6 +456,56 @@ def _resolve_adapter_registration(
         return _load_adapter_provider(_select_provider_descriptor(name, providers), _lock=_lock)
 
 
+def _load_all_adapter_providers(*, _lock: threading.RLock = _provider_load_lock) -> None:
+    """Load every installed provider that does not already own a registered name.
+
+    Private infrastructure for a later automatic-selection slice, which cannot
+    know which unloaded provider's ``using_connection_predicate`` would match a
+    connection until every provider has been loaded. Nothing calls this yet: the
+    name-based public paths deliberately keep loading only the one provider they
+    were asked for, so an unrelated broken provider still cannot break them.
+
+    The pass is deterministic and mode-independent. Catalog names are walked in
+    explicitly sorted exact-name order rather than trusting metadata enumeration
+    or mapping order, names stay exact and case-sensitive, and sync-only,
+    async-only, and dual-mode providers all load alike: nothing here filters by
+    capability, evaluates a connection predicate, instantiates a command class,
+    or opens a connection. An empty catalog is a successful no-op.
+
+    A name already in the registry is skipped outright, so ``register_adapter()``
+    stays the highest-precedence, one-way runtime override: its candidates are
+    never selected, and a duplicate-provider conflict or a broken provider for a
+    directly registered name therefore cannot fail the pass. Every other name
+    goes through _resolve_adapter_registration(), so first-party precedence,
+    duplicate detection, transactional rollback, and success caching keep exactly
+    one implementation.
+
+    Failure is fail-fast in sorted name order and is never globally rolled back:
+    the resolver's ValueError propagates with its original cause intact, names
+    that already loaded keep their registrations and loader-cache entries, and
+    names sorted after the failure stay unloaded until a later attempt. The
+    failing provider stays retryable under the existing loader rules, so
+    repairing it and calling again resumes without invoking any already
+    successful callback a second time.
+
+    The whole pass — catalog acquisition included — runs under the same reentrant
+    lock registration, loading, and exact-name resolution use, and that lock is
+    threaded into the resolver so nested acquisition stays reentrant and a
+    concurrent direct registration cannot interleave midway through the pass.
+    ``_lock`` defaults to the module lock captured at definition time — never
+    read from the module global at call time — and is a parameter only so tests
+    can inject an instrumented lock deterministically.
+    """
+    with _lock:
+        # materialized and sorted before the pass, so neither metadata enumeration order, mapping
+        # insertion order, nor a registration made during the pass can change which names are
+        # visited or in what order
+        for name in sorted(_get_provider_catalog()):
+            if name in _adapter_registry:
+                continue
+            _resolve_adapter_registration(name, _lock=_lock)
+
+
 def parse_dsn(dsn: str | None) -> PydapperParseResult:
     if dsn is None:
         dsn = os.getenv("PYDAPPER_DSN")

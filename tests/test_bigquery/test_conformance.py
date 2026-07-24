@@ -7,9 +7,14 @@ from pydapper.commands import Commands
 from pydapper.testing.adapter_conformance import SyncAdapterHarness
 from pydapper.testing.adapter_conformance import run_core_sync
 from tests.conformance_support import FIRST_PARTY_CONFORMANCE_ENTRIES
-from tests.conformance_support import seed_through_adapter
+from tests.conformance_support import SEED_INSERT
+from tests.conformance_support import seed_records
 
 pytestmark = pytest.mark.bigquery
+
+#: Stand-in bound for the canonical dataset's SQL NULL note while seeding; see
+#: :meth:`_BigQueryConformanceHarness._seed`.
+_NULL_SENTINEL = "__pydapper_null__"
 
 
 class _BigQueryConformanceHarness(SyncAdapterHarness):
@@ -31,8 +36,25 @@ class _BigQueryConformanceHarness(SyncAdapterHarness):
         self.table_name = f"pydapper.pydapper.conformance_{uuid4().hex}"  # type: ignore[misc]
         commands = GoogleBigqueryClientCommands(connect(client=self._client))
         commands.execute(f"CREATE TABLE `{self.table_name}` (id INT64, label STRING, score INT64, note STRING)")
-        seed_through_adapter(commands, self.table_name)
+        self._seed(commands)
         return commands
+
+    def _seed(self, commands: Commands) -> None:
+        """Seed the canonical dataset, working around untyped NULL parameters.
+
+        The BigQuery DBAPI derives each parameter's type from its Python value and
+        rejects an untyped ``None``, so the canonical NULL note is bound as a sentinel
+        and then replaced with a real SQL NULL. The stored dataset is identical to the
+        one every other backend seeds.
+        """
+        records = seed_records()
+        null_ids = [record["id"] for record in records if record["note"] is None]
+        for record in records:
+            if record["note"] is None:
+                record["note"] = _NULL_SENTINEL
+        commands.execute(SEED_INSERT.format(table=self.table_name), params=records)
+        for row_id in null_ids:
+            commands.execute(f"UPDATE {self.table_name} SET note = NULL WHERE id = ?id?", params={"id": row_id})
 
     def teardown_commands(self, commands: Commands) -> None:
         commands.connection.close()

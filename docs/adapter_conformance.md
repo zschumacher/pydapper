@@ -82,6 +82,13 @@ including a SQL `NULL` note, a falsey `0` score, and an empty-string label — t
 seed. All query and DML statements are written in pydapper's portable `?name?` placeholder syntax, so they run
 unchanged on every adapter; the harness owns only DDL, seeding, and connection construction.
 
+Every value the framework itself binds as a parameter is non-`NULL`. Some drivers — BigQuery's DBAPI, for
+example — derive a parameter's type from its Python value and reject an untyped `None`, so binding `NULL` is
+not part of the mandatory core profiles. The canonical dataset still contains a real SQL `NULL` note and
+`scalar.null-returns-none` still asserts that a stored `NULL` reads back as `None`; producing that `NULL` is
+the harness's job, and a harness whose driver cannot bind `None` may seed it any way its dialect allows (the
+BigQuery harness binds a sentinel and then clears it with a literal `UPDATE ... SET note = NULL`).
+
 A harness that does not supply a field a case needs fails that case with a structured
 `HarnessDefinitionError` carrying the profile id, the case id, and the missing field name — a missing harness
 field never silently skips or weakens a core case. There is deliberately no "skip this core case" option;
@@ -163,7 +170,7 @@ service or emulator is available.
 | `mysql` | `MySqlConnectorPythonCommands` | sync | *(none)* | `tests/test_mysql/test_conformance.py` | service-free instrumented + mock coverage (including its `query_first` unread-result drain); live suite under the `mysql` marker when Docker is available | [MySQL](database_support/mysql.md); unread results must be drained before a cursor closes |
 | `pymssql` | `PymssqlCommands` | sync | *(none)* | `tests/test_mssql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `mssql` marker when Docker is available | [Microsoft SQL Server](database_support/mssql.md) |
 | `oracledb` | `OracledbCommands` | sync | *(none)* | `tests/test_oracle/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `oracle` marker when Docker is available | [Oracle](database_support/oracle.md); unquoted identifiers fold to uppercase (`column_case="upper"`), and `''` is stored as NULL (`supports_empty_strings=False`) |
-| `google` | `GoogleBigqueryClientCommands` | sync | *(none)* | `tests/test_bigquery/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `bigquery` marker when the emulator is available | [Google BigQuery](database_support/bigquery.md); the emulator's DML rowcounts are unreliable (`strict_rowcounts=False`) |
+| `google` | `GoogleBigqueryClientCommands` | sync | *(none)* | `tests/test_bigquery/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `bigquery` marker when the emulator is available | [Google BigQuery](database_support/bigquery.md); the emulator's DML rowcounts are unreliable (`strict_rowcounts=False`), and the DBAPI cannot bind an untyped `None`, so the harness seeds the canonical SQL `NULL` note through a sentinel and a literal `UPDATE` |
 
 ## Extending the suite in future capability work
 

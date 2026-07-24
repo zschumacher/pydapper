@@ -315,7 +315,7 @@ class Sqlite3ConformanceHarness(SyncAdapterHarness):
         commands.connection.close()
 
 
-_SEED_INSERT = "INSERT INTO {table} (id, label, score, note) VALUES (?id?, ?label?, ?score?, ?note?)"
+SEED_INSERT = "INSERT INTO {table} (id, label, score, note) VALUES (?id?, ?label?, ?score?, ?note?)"
 
 
 def seed_records(supports_empty_strings: bool = True) -> List[Dict[str, Any]]:
@@ -324,14 +324,14 @@ def seed_records(supports_empty_strings: bool = True) -> List[Dict[str, Any]]:
 
 def seed_through_adapter(commands: Commands, table_name: str, supports_empty_strings: bool = True) -> None:
     """Seed the canonical dataset through the adapter's own execute path."""
-    commands.execute(_SEED_INSERT.format(table=table_name), params=seed_records(supports_empty_strings))
+    commands.execute(SEED_INSERT.format(table=table_name), params=seed_records(supports_empty_strings))
 
 
 async def seed_through_adapter_async(
     commands: CommandsAsync, table_name: str, supports_empty_strings: bool = True
 ) -> None:
     """Async twin of :func:`seed_through_adapter`."""
-    await commands.execute_async(_SEED_INSERT.format(table=table_name), params=seed_records(supports_empty_strings))
+    await commands.execute_async(SEED_INSERT.format(table=table_name), params=seed_records(supports_empty_strings))
 
 
 @dataclass(frozen=True)

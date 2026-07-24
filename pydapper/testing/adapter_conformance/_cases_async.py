@@ -561,11 +561,13 @@ async def _execute_rowcount(ctx: AsyncCaseContext) -> None:
 )
 async def _execute_executemany(ctx: AsyncCaseContext) -> None:
     commands = await ctx.create_commands()
+    # every bound value is non-NULL: some drivers derive a parameter's type from its
+    # Python value and cannot bind an untyped None (see the docs' NULL parameter note).
     count = await commands.execute_async(
         ctx.sql("insert_row"),
         params=[
-            {"id": 10, "label": "ten", "score": 1, "note": None},
-            {"id": 11, "label": "eleven", "score": 2, "note": None},
+            {"id": 10, "label": "ten", "score": 1, "note": "tenth"},
+            {"id": 11, "label": "eleven", "score": 2, "note": "eleventh"},
         ],
     )
     ctx.check(isinstance(count, int), f"executemany must return an int row count, got {type(count).__name__}")
@@ -604,8 +606,8 @@ async def _execute_mixed_records(ctx: AsyncCaseContext) -> None:
     count = await commands.execute_async(
         ctx.sql("insert_row"),
         params=[
-            {"id": 20, "label": "twenty", "score": 1, "note": None},
-            Row(id=21, label="twentyone", score=2, note=None),
+            {"id": 20, "label": "twenty", "score": 1, "note": "twentieth"},
+            Row(id=21, label="twentyone", score=2, note="twentyfirst"),
         ],
     )
     ctx.check(isinstance(count, int), f"mixed executemany must return an int, got {type(count).__name__}")

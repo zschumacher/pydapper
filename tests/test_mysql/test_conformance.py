@@ -29,7 +29,7 @@ class _MySqlConformanceHarness(SyncAdapterHarness):
             "password": "pydapper",
             "database": database_name,
         }
-        self.connect_dsn = f"mysql://pydapper:pydapper@{server}:{db_port}/{database_name}"  # type: ignore[misc]
+        self.connect_dsn = f"mysql://pydapper:pydapper@{server}:{db_port}/{database_name}"
 
     def create_commands(self) -> Commands:
         import mysql.connector

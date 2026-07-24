@@ -13,6 +13,13 @@ mandatory per-mode core profiles::
 adapter must pass both. Optional capabilities are covered by independent capability
 profiles keyed to :class:`pydapper.AdapterCapability`; see :func:`capability_profiles`.
 
+The capability surface — :class:`ConformanceProfile`, :class:`SyncCase`,
+:class:`AsyncCase`, and :func:`capability_profiles` — is **provisional**: no capability
+profile ships yet, so there is nothing for an adapter author to write against, and this
+part of the API may change when the first one lands. The mandatory core surface is not
+provisional. See the "Extending the suite in future capability work" section of the
+adapter conformance documentation.
+
 This package uses only the standard library and pydapper core: it never imports
 pytest, optional database drivers, or any test-service tooling, and importing it
 starts nothing.
@@ -29,6 +36,7 @@ from ._profiles import capability_profiles
 from ._profiles import core_async_profile
 from ._profiles import core_sync_profile
 from ._results import CaseResult
+from ._results import CaseSelectionError
 from ._results import ConformanceError
 from ._results import ConformanceFailureError
 from ._results import ConformanceReport
@@ -48,6 +56,7 @@ __all__ = [
     "AsyncAdapterHarness",
     "AsyncCase",
     "CaseResult",
+    "CaseSelectionError",
     "ConformanceError",
     "ConformanceFailureError",
     "ConformanceProfile",

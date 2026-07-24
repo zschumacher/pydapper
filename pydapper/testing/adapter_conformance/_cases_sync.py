@@ -362,11 +362,7 @@ def _lifecycle_hook_order(ctx: SyncCaseContext) -> None:
     commands = ctx.instrumented_commands(connection)
     ctx.install_hook_recorder(commands, connection.log)
     commands.execute("UPDATE t SET label = ?label? WHERE id = ?id?", params={"label": "x", "id": 1})
-    kinds = connection.log.kinds()
-    ctx.check(
-        kinds == ("cursor", "enter", "prepare_cursor", "prepare_command", "execute", "exit"),
-        f"hook order must be cursor/enter/prepare_cursor/prepare_command/execute/exit, observed {kinds!r}",
-    )
+    ctx.check_event_order(connection.log, ("cursor", "enter", "prepare_cursor", "prepare_command", "execute", "exit"))
     prepare_cursor_event = connection.log.first("prepare_cursor")
     if prepare_cursor_event is None or prepare_cursor_event.detail is None:  # pragma: no cover
         # unreachable: the event-order assertion above already proves the hook fired, and the

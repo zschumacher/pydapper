@@ -5,6 +5,12 @@ Every behavioral assertion lives in the framework: case implementations call
 :class:`~pydapper.testing.adapter_conformance._results.CaseCheckError` converted by
 the runner into failed results. Harness- or adapter-provided code has no channel to
 declare a case passed.
+
+``create_commands`` additionally wraps the harness's *own* factory call — and only
+that call, never the framework's own validation or bookkeeping around it — in
+:class:`~pydapper.testing.adapter_conformance._results.HarnessSetupError`, so a
+harness that cannot build a connection or seed the canonical dataset is reported as a
+broken harness instead of as many identical-looking adapter failures.
 """
 
 from typing import TYPE_CHECKING
@@ -33,6 +39,7 @@ from ._instrumentation import RecordingLog
 from ._instrumentation import SynchronousCursorRecordingAsyncConnection
 from ._results import CaseCheckError
 from ._results import HarnessDefinitionError
+from ._results import HarnessSetupError
 from ._sqlspec import expected_column
 from ._sqlspec import expected_row_dict
 from ._sqlspec import render_statement
@@ -152,7 +159,10 @@ class SyncCaseContext(_BaseCaseContext):
     def create_commands(self) -> Commands:
         self._require_override(self.harness, SyncAdapterHarness, "create_commands")
         self._require_override(self.harness, SyncAdapterHarness, "teardown_commands")
-        commands = self.harness.create_commands()
+        try:
+            commands = self.harness.create_commands()
+        except Exception as error:  # noqa: BLE001 - re-raised as a structured harness setup failure
+            raise HarnessSetupError(self.profile_id, self.case_id, error) from error
         self.created_commands.append(commands)
         return commands
 
@@ -234,7 +244,10 @@ class AsyncCaseContext(_BaseCaseContext):
     async def create_commands(self) -> CommandsAsync:
         self._require_override(self.harness, AsyncAdapterHarness, "create_commands")
         self._require_override(self.harness, AsyncAdapterHarness, "teardown_commands")
-        commands = await self.harness.create_commands()
+        try:
+            commands = await self.harness.create_commands()
+        except Exception as error:  # noqa: BLE001 - re-raised as a structured harness setup failure
+            raise HarnessSetupError(self.profile_id, self.case_id, error) from error
         self.created_commands.append(commands)
         return commands
 

@@ -38,6 +38,7 @@ from pydapper.testing import adapter_conformance
 from pydapper.testing.adapter_conformance import AsyncAdapterHarness
 from pydapper.testing.adapter_conformance import AsyncCase
 from pydapper.testing.adapter_conformance import CaseResult
+from pydapper.testing.adapter_conformance import CaseSelectionError
 from pydapper.testing.adapter_conformance import ConformanceError
 from pydapper.testing.adapter_conformance import ConformanceFailureError
 from pydapper.testing.adapter_conformance import ConformanceProfile
@@ -804,6 +805,43 @@ class CommandsAsync:
             )
 
 
+class _RuntimeSyncHarness(SyncAdapterHarness):
+    """Regression guard: sync harness knobs are instance-assignable, not ``ClassVar``.
+
+    A real harness only learns its DSN once a test container is up, so assigning any
+    configuration field on ``self`` must type check without a ``type: ignore``.
+    """
+
+    adapter_name = "sqlite3"
+    command_class = Sqlite3Commands
+
+    def __init__(self, dsn: str) -> None:
+        self.connect_dsn = dsn
+        self.connect_kwargs = {"timeout": 5}
+        self.table_name = "runtime_conformance"
+        self.column_case = "upper"
+        self.supports_empty_strings = False
+        self.strict_rowcounts = False
+        self.sql_overrides = {"select_literal": "SELECT 1"}
+
+
+class _RuntimeAsyncHarness(AsyncAdapterHarness):
+    """Regression guard: async harness knobs are instance-assignable, not ``ClassVar``."""
+
+    adapter_name = "psycopg"
+    command_class = Psycopg3CommandsAsync
+
+    def __init__(self, dsn: str) -> None:
+        self.connect_dsn = dsn
+        self.connect_kwargs = {"autocommit": True}
+        self.table_name = "runtime_conformance"
+        self.column_case = "lower"
+        self.supports_empty_strings = True
+        self.strict_rowcounts = True
+        self.sql_overrides = {"select_literal": "SELECT 1"}
+        self.cursor_factory_style = "synchronous"
+
+
 def adapter_conformance_types() -> None:
     assert_type(adapter_conformance.CORE_SYNC, str)
     assert_type(adapter_conformance.CORE_ASYNC, str)
@@ -828,6 +866,23 @@ def adapter_conformance_types() -> None:
     assert_type(async_harness.adapter_name, Optional[str])
     assert_type(async_harness.command_class, Optional[Type[PydapperCommandsAsync]])
     assert_type(async_harness.table_name, str)
+    assert_type(async_harness.cursor_factory_style, Literal["awaitable", "synchronous"])
+
+    # harnesses that compute configuration at runtime keep the base annotations, and
+    # the fields they do not override still resolve to the base defaults
+    runtime_sync = _RuntimeSyncHarness("sqlite:///conformance.db")
+    assert_type(runtime_sync.connect_dsn, Optional[str])
+    assert_type(runtime_sync.connect_kwargs, Mapping[str, Any])
+    assert_type(runtime_sync.table_name, str)
+    assert_type(runtime_sync.column_case, Literal["lower", "upper"])
+    assert_type(runtime_sync.supports_empty_strings, bool)
+    assert_type(runtime_sync.strict_rowcounts, bool)
+    assert_type(runtime_sync.sql_overrides, Mapping[str, str])
+
+    runtime_async = _RuntimeAsyncHarness("postgresql+psycopg://localhost/conformance")
+    assert_type(runtime_async.connect_dsn, Optional[str])
+    assert_type(runtime_async.cursor_factory_style, Literal["awaitable", "synchronous"])
+    assert_type(runtime_async.sql_overrides, Mapping[str, str])
 
     report = run_core_sync(sync_harness)
     assert_type(report, ConformanceReport)
@@ -837,7 +892,12 @@ def adapter_conformance_types() -> None:
     assert_type(report.results, Tuple[CaseResult, ...])
     assert_type(report.failures, Tuple[CaseResult, ...])
     assert_type(report.passed, bool)
+    assert_type(report.covers_full_inventory, bool)
+    assert_type(report.harness_setup_failed, bool)
     assert_type(report.raise_for_failures(), None)
+
+    # the debugging-only case_ids filter keeps the report type
+    assert_type(run_core_sync(sync_harness, case_ids=["rows.query-buffered"]), ConformanceReport)
 
     result = cast(CaseResult, object())
     assert_type(result.profile_id, str)
@@ -847,11 +907,32 @@ def adapter_conformance_types() -> None:
     assert_type(result.cause, Optional[BaseException])
     assert_type(result.missing_field, Optional[str])
     assert_type(result.cleanup_error, Optional[BaseException])
+    assert_type(result.harness_setup_failed, bool)
+
+    # harness setup attribution is optional at construction, so results built without it
+    # keep their existing shape
+    assert_type(CaseResult(adapter_conformance.CORE_SYNC, "scalar.null-returns-none", False).harness_setup_failed, bool)
+    assert_type(
+        CaseResult(
+            adapter_conformance.CORE_SYNC, "scalar.null-returns-none", False, harness_setup_failed=True
+        ).harness_setup_failed,
+        bool,
+    )
+    assert_type(
+        ConformanceReport(adapter_conformance.CORE_SYNC, "sqlite3", "Sqlite3Commands", (result,)).harness_setup_failed,
+        bool,
+    )
 
     harness_error = cast(HarnessDefinitionError, object())
     assert_type(harness_error.profile_id, str)
     assert_type(harness_error.case_id, str)
     assert_type(harness_error.missing_field, str)
+
+    selection_error = cast(CaseSelectionError, object())
+    assert_type(selection_error.profile_id, str)
+    assert_type(selection_error.requested_case_ids, Tuple[str, ...])
+    assert_type(selection_error.unknown_case_ids, Tuple[str, ...])
+    selection_conformance_error: ConformanceError = selection_error
 
     failure_error = cast(ConformanceFailureError, object())
     assert_type(failure_error.report, ConformanceReport)
@@ -881,6 +962,7 @@ def adapter_conformance_types() -> None:
 async def adapter_conformance_async_types() -> None:
     async_harness = cast(AsyncAdapterHarness, object())
     assert_type(await run_core_async(async_harness), ConformanceReport)
+    assert_type(await run_core_async(async_harness, case_ids=["rows.query-buffered"]), ConformanceReport)
     assert_type(await async_harness.create_commands(), PydapperCommandsAsync)
     assert_type(await async_harness.teardown_commands(cast(PydapperCommandsAsync, object())), None)
 

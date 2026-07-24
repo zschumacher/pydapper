@@ -29,7 +29,7 @@ class _OracledbConformanceHarness(SyncAdapterHarness):
 
     def __init__(self, server, db_port, database_name):
         self._oracle_dsn = f"{server}:{db_port}/{database_name}"
-        self.connect_dsn = f"oracle://pydapper:pydapper@{server}:{db_port}/{database_name}"  # type: ignore[misc]
+        self.connect_dsn = f"oracle://pydapper:pydapper@{server}:{db_port}/{database_name}"
 
     def create_commands(self) -> Commands:
         import oracledb

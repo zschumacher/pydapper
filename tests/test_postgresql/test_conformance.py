@@ -30,7 +30,7 @@ class _Psycopg2ConformanceHarness(SyncAdapterHarness):
 
     def __init__(self, server, db_port, database_name):
         self._url = f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}"
-        self.connect_dsn = self._url  # type: ignore[misc]
+        self.connect_dsn = self._url
 
     def create_commands(self) -> Commands:
         import psycopg2
@@ -54,7 +54,7 @@ class _Psycopg3SyncConformanceHarness(SyncAdapterHarness):
 
     def __init__(self, server, db_port, database_name):
         self._url = f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}"
-        self.connect_dsn = f"postgresql+psycopg://pydapper:pydapper@{server}:{db_port}/{database_name}"  # type: ignore[misc]
+        self.connect_dsn = f"postgresql+psycopg://pydapper:pydapper@{server}:{db_port}/{database_name}"
 
     def create_commands(self) -> Commands:
         import psycopg
@@ -81,7 +81,7 @@ class _Psycopg3AsyncConformanceHarness(AsyncAdapterHarness):
 
     def __init__(self, server, db_port, database_name):
         self._url = f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}"
-        self.connect_dsn = f"postgresql+psycopg://pydapper:pydapper@{server}:{db_port}/{database_name}"  # type: ignore[misc]
+        self.connect_dsn = f"postgresql+psycopg://pydapper:pydapper@{server}:{db_port}/{database_name}"
 
     async def create_commands(self) -> CommandsAsync:
         import psycopg
@@ -106,7 +106,7 @@ class _AiopgConformanceHarness(AsyncAdapterHarness):
 
     def __init__(self, server, db_port, database_name):
         self._url = f"postgresql://pydapper:pydapper@{server}:{db_port}/{database_name}"
-        self.connect_dsn = f"postgresql+aiopg://pydapper:pydapper@{server}:{db_port}/{database_name}"  # type: ignore[misc]
+        self.connect_dsn = f"postgresql+aiopg://pydapper:pydapper@{server}:{db_port}/{database_name}"
 
     async def create_commands(self) -> CommandsAsync:
         import aiopg

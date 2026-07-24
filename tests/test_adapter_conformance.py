@@ -40,6 +40,7 @@ from pydapper.testing.adapter_conformance import CORE_SYNC
 from pydapper.testing.adapter_conformance import AsyncAdapterHarness
 from pydapper.testing.adapter_conformance import AsyncCase
 from pydapper.testing.adapter_conformance import CaseResult
+from pydapper.testing.adapter_conformance import CaseSelectionError
 from pydapper.testing.adapter_conformance import ConformanceFailureError
 from pydapper.testing.adapter_conformance import ConformanceProfile
 from pydapper.testing.adapter_conformance import ConformanceReport
@@ -1183,7 +1184,7 @@ class _RaisingCloseConnectCommands(MockSyncConformanceCommands):
 )
 def test_dsn_connect_case_tolerates_unclosable_connections(isolated_registry, commands_class):
     """The connect() case verifies the adapter, never the connection's close behavior."""
-    name = f"conformance-mock-{commands_class.__name__.strip(chr(95)).lower()}"
+    name = f"conformance-mock-{commands_class.__name__.lstrip('_').lower()}"
     _register_mock_sync(name=name, commands=commands_class)
 
     class _Harness(MockSyncConformanceHarness):
@@ -1227,7 +1228,7 @@ class _RaisingCloseConnectAsyncCommands(MockAsyncConformanceCommands):
     ids=["no-close", "close-raises"],
 )
 async def test_async_dsn_connect_case_tolerates_unclosable_connections(isolated_registry, commands_class):
-    name = f"conformance-mock-{commands_class.__name__.strip(chr(95)).lower()}"
+    name = f"conformance-mock-{commands_class.__name__.lstrip('_').lower()}"
     _register_mock_async(name=name, async_commands=commands_class)
 
     class _Harness(MockAsyncConformanceHarness):
@@ -1666,3 +1667,411 @@ async def test_async_teardown_reports_the_first_error_across_several_commands(is
     assert len(created) == 2
     torn_down = [command for command in created if any(command is attempt for attempt in attempts)]
     assert len(torn_down) == 2, "every created command must be torn down even after the first failure"
+
+
+# ------------------------------------------------------------------ sync/async inventory parity
+
+#: The only intentional divergence between the two core inventories: the unbuffered
+#: cleanup case is named after the generator-teardown API each mode actually exposes.
+#: Every other case id must exist in both modes so a fix can never land in one mode
+#: only. Extend these sets in the same change that adds a genuinely mode-specific case.
+DOCUMENTED_SYNC_ONLY_CASE_IDS = frozenset({"lifecycle.unbuffered-explicit-close"})
+DOCUMENTED_ASYNC_ONLY_CASE_IDS = frozenset({"lifecycle.unbuffered-explicit-aclose"})
+
+
+def test_core_sync_and_async_case_inventories_stay_in_parity():
+    sync_ids = {case.case_id for case in core_sync_profile().sync_cases}
+    async_ids = {case.case_id for case in core_async_profile().async_cases}
+
+    sync_only = sync_ids - async_ids
+    async_only = async_ids - sync_ids
+
+    assert (sync_only, async_only) == (DOCUMENTED_SYNC_ONLY_CASE_IDS, DOCUMENTED_ASYNC_ONLY_CASE_IDS), (
+        "the core-sync and core-async case inventories drifted; every case id must exist in "
+        "both modes apart from the documented unbuffered-close pair.\n"
+        f"  sync-only, missing an async twin: {sorted(sync_only - DOCUMENTED_SYNC_ONLY_CASE_IDS)}\n"
+        f"  async-only, missing a sync twin: {sorted(async_only - DOCUMENTED_ASYNC_ONLY_CASE_IDS)}\n"
+        f"  documented sync-only ids no longer sync-only: {sorted(DOCUMENTED_SYNC_ONLY_CASE_IDS - sync_only)}\n"
+        f"  documented async-only ids no longer async-only: {sorted(DOCUMENTED_ASYNC_ONLY_CASE_IDS - async_only)}"
+    )
+
+
+# ------------------------------------------------------------------ case_ids filtering
+
+#: Two real ids present in both core inventories, used to prove a narrow debug run.
+FILTER_CASE_IDS = ("params.params-keyword", "scalar.null-returns-none")
+
+
+def test_case_ids_runs_only_the_requested_sync_cases(isolated_registry, tmp_path):
+    """A filtered run executes exactly the named cases, in declared order, and says so."""
+    declared = [case.case_id for case in core_sync_profile().sync_cases]
+    expected = [case_id for case_id in declared if case_id in FILTER_CASE_IDS]
+
+    # duplicates in the request are de-duplicated, never run twice
+    report = run_core_sync(Sqlite3ConformanceHarness(tmp_path), case_ids=[*FILTER_CASE_IDS, FILTER_CASE_IDS[0]])
+
+    assert [result.case_id for result in report.results] == expected
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+    assert report.covers_full_inventory is False, "a filtered run must never claim full coverage"
+    assert report.profile_id == CORE_SYNC
+
+
+@pytest.mark.asyncio
+async def test_case_ids_runs_only_the_requested_async_cases(isolated_registry):
+    _register_mock_async()
+    declared = [case.case_id for case in core_async_profile().async_cases]
+    expected = [case_id for case_id in declared if case_id in FILTER_CASE_IDS]
+
+    report = await run_core_async(MockAsyncConformanceHarness(), case_ids=list(FILTER_CASE_IDS))
+
+    assert [result.case_id for result in report.results] == expected
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+    assert report.covers_full_inventory is False
+    assert report.profile_id == CORE_ASYNC
+
+
+def test_unfiltered_and_fully_named_sync_runs_both_cover_the_inventory(isolated_registry):
+    """``case_ids=None`` and a selection naming every planned case are both complete."""
+    _register_mock_sync()
+    every_id = [case.case_id for case in core_sync_profile().sync_cases]
+
+    unfiltered = run_core_sync(MockSyncConformanceHarness())
+    fully_named = run_core_sync(MockSyncConformanceHarness(), case_ids=every_id)
+
+    assert unfiltered.covers_full_inventory is True
+    assert fully_named.covers_full_inventory is True, "naming every planned case is still full coverage"
+    assert [result.case_id for result in fully_named.results] == [result.case_id for result in unfiltered.results]
+
+
+@pytest.mark.asyncio
+async def test_unfiltered_and_fully_named_async_runs_both_cover_the_inventory(isolated_registry):
+    _register_mock_async()
+    every_id = [case.case_id for case in core_async_profile().async_cases]
+
+    unfiltered = await run_core_async(MockAsyncConformanceHarness())
+    fully_named = await run_core_async(MockAsyncConformanceHarness(), case_ids=every_id)
+
+    assert unfiltered.covers_full_inventory is True
+    assert fully_named.covers_full_inventory is True
+    assert [result.case_id for result in fully_named.results] == [result.case_id for result in unfiltered.results]
+
+
+def test_case_ids_can_select_a_declared_capability_profile_case(isolated_registry):
+    """Filtering is applied after planning, so a capability profile's case id selects."""
+    name = "conformance-mock-filter-txn"
+    _register_mock_sync(name=name, commands=_DeclaredTransactionsCommands)
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredTransactionsCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return _DeclaredTransactionsCommands(FakeSyncConnection(seeded_mini_db()))
+
+    ran = []
+
+    def _txn_case(ctx):
+        ran.append(ctx.case_id)
+
+    profile = ConformanceProfile(
+        profile_id="transactions",
+        capability=AdapterCapability.TRANSACTIONS,
+        sync_cases=(SyncCase("transactions.smoke", "synthetic", "instrumented", _txn_case),),
+    )
+    report = run_core_sync(
+        _Harness(),
+        capability_catalog={AdapterCapability.TRANSACTIONS: profile},
+        case_ids=["transactions.smoke"],
+    )
+
+    assert ran == ["transactions.smoke"]
+    assert [(result.profile_id, result.case_id) for result in report.results] == [
+        ("transactions", "transactions.smoke")
+    ]
+    assert report.covers_full_inventory is False
+
+
+def test_case_ids_rejects_unknown_ids_before_running_anything(isolated_registry):
+    """A typo raises immediately and names the unknown ids; nothing runs."""
+    _register_mock_sync()
+    created = []
+
+    class _Harness(MockSyncConformanceHarness):
+        def create_commands(self):
+            created.append(1)
+            return super().create_commands()
+
+    with pytest.raises(CaseSelectionError) as exc_info:
+        run_core_sync(_Harness(), case_ids=["params.params-keyword", "params.params-keyord", "nope"])
+
+    error = exc_info.value
+    assert error.unknown_case_ids == ("params.params-keyord", "nope")
+    assert error.requested_case_ids == ("params.params-keyword", "params.params-keyord", "nope")
+    assert error.profile_id == CORE_SYNC
+    assert "params.params-keyord" in str(error) and "nope" in str(error)
+    assert created == [], "an invalid selection must raise before any case runs"
+
+
+@pytest.mark.asyncio
+async def test_async_case_ids_rejects_unknown_ids(isolated_registry):
+    _register_mock_async()
+
+    with pytest.raises(CaseSelectionError) as exc_info:
+        await run_core_async(MockAsyncConformanceHarness(), case_ids=["lifecycle.unbuffered-explicit-close"])
+
+    error = exc_info.value
+    assert error.unknown_case_ids == ("lifecycle.unbuffered-explicit-close",), "sync-only ids are unknown here"
+    assert error.profile_id == CORE_ASYNC
+
+
+def test_case_ids_empty_selection_is_an_error(isolated_registry):
+    _register_mock_sync()
+
+    with pytest.raises(CaseSelectionError) as exc_info:
+        run_core_sync(MockSyncConformanceHarness(), case_ids=())
+
+    error = exc_info.value
+    assert error.requested_case_ids == ()
+    assert error.unknown_case_ids == ()
+    assert "empty selection is not a conformance run" in str(error)
+
+
+@pytest.mark.asyncio
+async def test_async_case_ids_empty_selection_is_an_error(isolated_registry):
+    _register_mock_async()
+
+    with pytest.raises(CaseSelectionError) as exc_info:
+        await run_core_async(MockAsyncConformanceHarness(), case_ids=set())
+
+    assert exc_info.value.profile_id == CORE_ASYNC
+    assert "empty selection is not a conformance run" in str(exc_info.value)
+
+
+def test_case_ids_rejects_a_bare_string(isolated_registry):
+    """A single string is a collection of characters; reject it instead of reporting 20 typos."""
+    _register_mock_sync()
+
+    with pytest.raises(TypeError) as exc_info:
+        run_core_sync(MockSyncConformanceHarness(), case_ids="params.params-keyword")
+
+    assert "not a single string" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_async_case_ids_rejects_a_bare_string(isolated_registry):
+    _register_mock_async()
+
+    with pytest.raises(TypeError) as exc_info:
+        await run_core_async(MockAsyncConformanceHarness(), case_ids="params.params-keyword")
+
+    assert "not a single string" in str(exc_info.value)
+
+
+def test_conformance_failure_error_marks_a_partial_run():
+    """A pasted traceback from a filtered run cannot be mistaken for a full run."""
+    failing = CaseResult(CORE_SYNC, "scalar.value", False, message="boom")
+    partial = ConformanceReport(
+        profile_id=CORE_SYNC,
+        adapter_name="mock",
+        command_class_name="Mock",
+        results=(failing,),
+        covers_full_inventory=False,
+    )
+    full = dataclasses.replace(partial, covers_full_inventory=True)
+
+    with pytest.raises(ConformanceFailureError) as exc_info:
+        partial.raise_for_failures()
+    assert "PARTIAL RUN" in str(exc_info.value)
+    assert "covered only 1 planned case(s)" in str(exc_info.value)
+    assert exc_info.value.report.covers_full_inventory is False
+
+    with pytest.raises(ConformanceFailureError) as full_info:
+        full.raise_for_failures()
+    assert "PARTIAL RUN" not in str(full_info.value)
+
+
+def test_raise_for_failures_ignores_completeness(isolated_registry, tmp_path):
+    """``raise_for_failures`` is about failures only; completeness is a separate axis."""
+    report = run_core_sync(Sqlite3ConformanceHarness(tmp_path), case_ids=[FILTER_CASE_IDS[0]])
+
+    assert report.passed
+    assert report.covers_full_inventory is False
+    assert report.raise_for_failures() is None, "a passing filtered run must not raise"
+
+
+# ------------------------------------------------------------------ harness setup failures
+
+
+class _SeedingFailure(RuntimeError):
+    """Stands in for a driver error raised while the harness seeds the canonical dataset."""
+
+
+def test_sync_harness_setup_failure_is_attributed_to_the_harness(isolated_registry):
+    """A harness that cannot seed reports a harness failure, not adapter misbehavior.
+
+    This is the BigQuery seeding regression in miniature: one broken ``create_commands()``
+    used to surface as dozens of identical "unexpected ProgrammingError" case failures
+    indistinguishable from a genuinely broken adapter.
+    """
+    _register_mock_sync()
+    boom = _SeedingFailure("Encountered parameter None with only None values")
+
+    class _BrokenSeedHarness(MockSyncConformanceHarness):
+        def create_commands(self):
+            raise boom
+
+    report = run_core_sync(_BrokenSeedHarness())
+    named = next(result for result in report.results if result.case_id == "params.params-keyword")
+
+    assert not named.passed
+    assert named.harness_setup_failed is True
+    assert named.cause is boom, "the original exception object must be preserved unchanged"
+    assert named.missing_field is None, "a raising factory is not a missing harness field"
+    assert "harness setup failed" in named.message
+    assert "create_commands()" in named.message
+    assert "not adapter behavior" in named.message
+    assert str(boom) in named.message, "the underlying driver error is still visible"
+    assert "harness_setup_failed=True" in repr(named), "the flag must be visible in a printed result"
+    assert report.harness_setup_failed is True
+    assert len([failure for failure in report.failures if failure.harness_setup_failed]) > 1
+
+
+@pytest.mark.asyncio
+async def test_async_harness_setup_failure_is_attributed_to_the_harness(isolated_registry):
+    _register_mock_async()
+    boom = _SeedingFailure("async seeding boom")
+
+    class _BrokenSeedHarness(MockAsyncConformanceHarness):
+        async def create_commands(self):
+            raise boom
+
+    report = await run_core_async(_BrokenSeedHarness())
+    named = next(result for result in report.results if result.case_id == "params.params-keyword")
+
+    assert not named.passed
+    assert named.harness_setup_failed is True
+    assert named.cause is boom
+    assert "harness setup failed" in named.message and "create_commands()" in named.message
+    assert f"{CORE_ASYNC!r}/'params.params-keyword'" in named.message
+    assert report.harness_setup_failed is True
+
+
+def test_missing_create_commands_is_not_reported_as_a_setup_failure(isolated_registry):
+    """A missing override keeps its own structured path and is never double-wrapped."""
+
+    class _NoFactoryHarness(SyncAdapterHarness):
+        adapter_name = MOCK_SYNC_ADAPTER_NAME
+        command_class = MockSyncConformanceCommands
+        connect_dsn = MockSyncConformanceHarness.connect_dsn
+
+    _register_mock_sync()
+    report = run_core_sync(_NoFactoryHarness())
+    named = next(failure for failure in report.failures if failure.missing_field == "create_commands")
+
+    assert named.harness_setup_failed is False
+    assert isinstance(named.cause, HarnessDefinitionError)
+    assert "harness setup failed" not in named.message
+    assert report.harness_setup_failed is False, "a missing field is a definition error, not a setup failure"
+
+
+def test_adapter_failures_are_not_relabelled_as_setup_failures(isolated_registry):
+    """A genuine behavioral failure keeps its exact shape and never claims setup broke."""
+    name = "conformance-mock-broken-rows-not-setup"
+    _register_mock_sync(name=name, commands=_BrokenRowMappingCommands)
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = _BrokenRowMappingCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return _BrokenRowMappingCommands(FakeSyncConnection(seeded_mini_db()))
+
+    report = run_core_sync(_Harness())
+    named = next(result for result in report.results if result.case_id == "rows.query-buffered")
+
+    assert not named.passed
+    assert named.harness_setup_failed is False
+    assert "harness setup failed" not in named.message
+    assert report.harness_setup_failed is False
+
+
+def test_setup_failure_survives_a_teardown_failure(isolated_registry):
+    """A later setup failure keeps its attribution when an earlier command's teardown fails."""
+    name = "conformance-mock-setup-then-teardown-boom"
+    _register_mock_sync(name=name, commands=_DeclaredTransactionsCommands)
+    calls = []
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredTransactionsCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            calls.append(1)
+            if len(calls) > 1:
+                raise _SeedingFailure("second seed boom")
+            return _DeclaredTransactionsCommands(FakeSyncConnection(seeded_mini_db()))
+
+        def teardown_commands(self, commands):
+            raise RuntimeError("teardown boom")
+
+    def _two_commands_case(ctx):
+        ctx.create_commands()
+        ctx.create_commands()
+
+    profile = ConformanceProfile(
+        profile_id="transactions",
+        capability=AdapterCapability.TRANSACTIONS,
+        sync_cases=(SyncCase("transactions.two-commands", "d", "instrumented", _two_commands_case),),
+    )
+    report = run_core_sync(
+        _Harness(),
+        capability_catalog={AdapterCapability.TRANSACTIONS: profile},
+        case_ids=["transactions.two-commands"],
+    )
+    named = next(result for result in report.results if result.case_id == "transactions.two-commands")
+
+    assert named.harness_setup_failed is True, "merging a teardown failure must not lose the attribution"
+    assert isinstance(named.cause, _SeedingFailure)
+    assert isinstance(named.cleanup_error, RuntimeError)
+    assert report.harness_setup_failed is True
+
+
+def test_conformance_failure_error_flags_a_harness_setup_run(isolated_registry):
+    """The raised summary — what CI actually prints — says the harness never got off the ground."""
+    _register_mock_sync()
+
+    class _BrokenSeedHarness(MockSyncConformanceHarness):
+        def create_commands(self):
+            raise _SeedingFailure("seed boom")
+
+    report = run_core_sync(_BrokenSeedHarness())
+    with pytest.raises(ConformanceFailureError) as exc_info:
+        report.raise_for_failures()
+
+    summary = str(exc_info.value)
+    assert "HARNESS SETUP FAILED" in summary
+    assert f"{len(report.failures)} of {len(report.failures)} failure(s)" in summary
+    assert "fix the harness first" in summary
+
+
+def test_conformance_failure_error_omits_the_setup_banner_for_ordinary_failures():
+    """Every other failure kind keeps the pre-existing summary byte for byte."""
+    failing = CaseResult(CORE_SYNC, "scalar.value", False, message="boom")
+    report = ConformanceReport(
+        profile_id=CORE_SYNC,
+        adapter_name="mock",
+        command_class_name="Mock",
+        results=(failing,),
+    )
+
+    with pytest.raises(ConformanceFailureError) as exc_info:
+        report.raise_for_failures()
+
+    assert "HARNESS SETUP" not in str(exc_info.value)
+    assert str(exc_info.value) == (
+        "1 conformance case(s) failed for profile 'core-sync' ('mock' / Mock); first failure: 'scalar.value': boom"
+    )
+    assert report.harness_setup_failed is False

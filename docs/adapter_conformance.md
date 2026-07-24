@@ -34,6 +34,15 @@ recording and fault-injection connections, so cursor counts, call order, excepti
 
 ## Optional capability profiles
 
+!!! warning "Provisional API — no capability profiles ship yet"
+    `capability_profiles()` returns an **empty** catalog, and `ConformanceProfile`, `SyncCase`, and `AsyncCase`
+    exist only so the first capability feature has somewhere to land. There is nothing for an adapter author to
+    write against yet: no `AdapterCapability` member has a profile, and no adapter can usefully declare one. This
+    part of the public API is **provisional and may change** when the first real capability profile is added; the
+    mandatory `core-sync` / `core-async` surface described above is not. See
+    [Extending the suite in future capability work](#extending-the-suite-in-future-capability-work) for what that
+    first change must carry.
+
 Optional behaviors are independent profiles keyed to `pydapper.AdapterCapability` members — there is no linear
 "better adapter" tier, and no adapter is required to support any optional capability. The production catalog is
 returned by `capability_profiles()` and is **currently empty**, because no optional capability is implemented
@@ -59,6 +68,23 @@ check belongs to the framework runner, and harness- or adapter-provided code has
 passed.
 
 Sync adapters subclass `SyncAdapterHarness`; async adapters subclass `AsyncAdapterHarness`.
+
+Every configuration field below may be **declared on the subclass or assigned per instance** — none of them is a
+`ClassVar`, so assigning to `self` in `__init__` type checks without a `type: ignore`. That matters for the
+common case of a value that does not exist until a fixture has run, such as a DSN that is only known once a test
+container has started:
+
+```python
+class MyHarness(SyncAdapterHarness):
+    adapter_name = "acmedb"
+    command_class = AcmeDbCommands
+
+    def __init__(self, container):
+        self.connect_dsn = f"acmedb://{container.host}:{container.port}/conformance"
+```
+
+A field that is genuinely static (`table_name`, `column_case`, `strict_rowcounts`, …) is still clearest as a
+class attribute; both forms are supported and mix freely on one harness.
 
 | Field | Required | Meaning |
 |---|---|---|
@@ -94,6 +120,52 @@ A harness that does not supply a field a case needs fails that case with a struc
 field never silently skips or weakens a core case. There is deliberately no "skip this core case" option;
 driver limitations are expressed only through the narrow, documented knobs above.
 
+### Where to seed: under the adapter or through it
+
+`create_commands()` must return a freshly seeded dataset, and there are two reasonable ways to produce it. Both
+are used in this repository, so it is worth choosing deliberately:
+
+* **Driver-level (recommended default).** Insert the rows with the raw driver, underneath the adapter — the
+  `connection.executemany(...)` in both examples below, and what pydapper's own sqlite3 harness does. Setup then
+  shares no code path with the thing under test, so a broken seed cannot be confused with broken adapter
+  behavior, and reading the harness tells you exactly what is in the table.
+* **Through the adapter.** Insert the rows with `commands.execute(...)` and pydapper's portable `?name?`
+  placeholders, as pydapper's service-backed harnesses do through the shared
+  `tests/conformance_support.py::seed_through_adapter` helper. One seeding statement then works unchanged across
+  every dialect, which is why harnesses for many backends share it; the cost is that setup runs through the
+  adapter it is about to judge.
+
+Prefer driver-level seeding unless you are maintaining harnesses for several dialects at once and want a single
+portable seeding path. This is a readability and blast-radius preference, not a correctness one: failures inside
+`create_commands()` are attributed to the harness either way (see below), so seeding through the adapter no
+longer risks a broken seed being reported as adapter misbehavior.
+
+## Harness setup failures are attributed to the harness
+
+If the harness's own `create_commands()` raises — a connection factory that cannot connect, a `CREATE TABLE`
+against the wrong dataset, a seeding statement the driver rejects — the resulting `CaseResult` is failed with
+`harness_setup_failed=True` and a message that names `create_commands()` as the culprit, while `cause` remains
+the original exception object. `ConformanceReport.harness_setup_failed` is `True` if any case in the run has it,
+and `ConformanceFailureError`'s summary gains a `[HARNESS SETUP FAILED: n of m failure(s) …]` segment, so the
+traceback CI prints already says the harness never got off the ground.
+
+This exists because one broken setup call fails every case that needs a fixture: without attribution, a single
+bad seeding statement reads as dozens of identical behavioral failures against a perfectly good adapter. A run
+with `harness_setup_failed` set is not a verdict on the adapter — fix the harness and run again.
+
+The boundaries are narrow and deliberate:
+
+* Only the harness's own `create_commands()` call is wrapped, never the framework's validation or bookkeeping
+  around it, and never the adapter behavior a case exercises afterwards. Genuine behavioral failures keep their
+  existing shape and report `harness_setup_failed=False`.
+* `KeyboardInterrupt`, `SystemExit`, and `asyncio.CancelledError` still propagate unconverted; cancellation and
+  shutdown are never turned into case results.
+* A harness that omits a required field or override is still a `HarnessDefinitionError` with its `missing_field`
+  — a missing override is a definition error, not a setup failure, and reporting for it is unchanged.
+* The internal exception type used to carry this across the runner boundary is private. Branch on the two
+  structured attributes (`CaseResult.harness_setup_failed`, `ConformanceReport.harness_setup_failed`), not on an
+  exception class and not on message text.
+
 ## Case isolation and cleanup
 
 Every case gets a fresh command instance, connection, and dataset through `create_commands()`; case ordering
@@ -107,9 +179,28 @@ after an otherwise passing case fails that case.
 `run_core_sync()` / `run_core_async()` return a `ConformanceReport` whose `results` follow the declared
 profile/case order exactly, run after run. Each `CaseResult` carries the profile id, case id, pass/fail, a
 human-readable message, the original `cause` exception when one exists, the `missing_field` for harness
-validation failures, and any `cleanup_error`. `report.raise_for_failures()` raises a
+validation failures, any `cleanup_error`, and `harness_setup_failed`. `report.raise_for_failures()` raises a
 `ConformanceFailureError` that exposes the same structured failures — nothing requires parsing exception
 prose.
+
+### Two flags that make a run mean less than it looks
+
+`report.passed` answers "did every case that ran pass?" and nothing more. Two separate booleans say whether the
+run was a conformance run at all, and both are structured attributes so no caller has to read messages:
+
+| Flag | `True` means | What it invalidates |
+|---|---|---|
+| `report.covers_full_inventory` | every planned case ran (the default; `False` only after a `case_ids` filter) | a passing run that covered a subset is not conformance |
+| `report.harness_setup_failed` | at least one case failed inside the harness's own `create_commands()` | the failures describe your harness, not the adapter |
+
+Anything that **claims conformance** — a CI gate, a published matrix row, a release note — must therefore assert
+`report.passed and report.covers_full_inventory`. `raise_for_failures()` deliberately ignores completeness: it
+is about failures only, so a filtered run that passes everything it ran raises nothing.
+
+```python
+report = run_core_sync(MyAdapterHarness())
+assert report.passed and report.covers_full_inventory
+```
 
 ## Running one adapter
 
@@ -129,7 +220,35 @@ report.raise_for_failures()
 report = await run_core_async(MyAsyncAdapterHarness())
 ```
 
+### Debugging one case with `case_ids`
+
+Both runners accept an optional `case_ids` collection that narrows the run to the named cases. It exists purely
+to shorten the debug loop: against a container-backed backend, a full profile costs minutes per iteration —
+mostly the client's connection retry backoff — which is a miserable way to chase one failing case.
+
+```python
+report = run_core_sync(MyAdapterHarness(), case_ids=["rows.query-buffered", "scalar.null-returns-none"])
+assert report.covers_full_inventory is False  # by construction: this is a debug run, not a conformance run
+```
+
+The rules are chosen so a filtered run can never be mistaken for a real one:
+
+* **A filtered run is never a conformance result.** `covers_full_inventory` is `False` whenever a filter narrowed
+  the run, and `ConformanceFailureError`'s summary gains a `[PARTIAL RUN: …]` segment. Naming every planned case
+  is still full coverage, and `case_ids=None` (the default) runs the full inventory exactly as before.
+* **Unknown ids fail loudly, before anything runs.** A typo raises `CaseSelectionError` — carrying `profile_id`,
+  `requested_case_ids`, and `unknown_case_ids` — rather than quietly running fewer cases. An empty selection
+  raises the same error with an empty `unknown_case_ids`, because "no cases ran and none failed" is not a pass.
+* **A bare string is a `TypeError`.** `case_ids="rows.query-buffered"` would otherwise be a collection of
+  characters; pass a list.
+* Ids come from `core_sync_profile().sync_cases` / `core_async_profile().async_cases` (plus any
+  declared-capability profile cases, which are planned before filtering and so can also be selected).
+  Duplicates are de-duplicated, and results still follow declared case order, not the order you requested.
+
 ### Complete third-party sync example
+
+This one computes `connect_dsn` per instance in `__init__` — the shape a harness needs when the DSN only exists
+after a fixture has run — and seeds at the driver level.
 
 ```python
 {!docs/../docs_src/adapter_conformance/sync_example.py!}
@@ -137,6 +256,9 @@ report = await run_core_async(MyAsyncAdapterHarness())
 (*This script is complete, it should run "as is"*)
 
 ### Complete third-party async example
+
+This one declares `connect_dsn` on the class instead, which is the simpler form when the value is known up
+front. Both forms are supported.
 
 ```python
 {!docs/../docs_src/adapter_conformance/async_example.py!}

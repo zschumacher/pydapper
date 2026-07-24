@@ -6,6 +6,11 @@ members; each future capability feature adds its own independent profile here in
 same change that implements the feature. The production catalog is immutable and is
 intentionally empty until the first capability feature lands — an unimplemented
 capability must never appear covered.
+
+Because no capability profile ships yet, the public capability surface here
+(:class:`ConformanceProfile`, :class:`SyncCase`, :class:`AsyncCase`, and
+:func:`capability_profiles`) is **provisional** and may change with the first real
+capability feature. The mandatory core profiles are not provisional.
 """
 
 from dataclasses import dataclass
@@ -40,7 +45,11 @@ CASE_KINDS = ("live", "instrumented")
 
 @dataclass(frozen=True)
 class SyncCase:
-    """One named synchronous conformance case. ``run`` is framework-owned."""
+    """One named synchronous conformance case. ``run`` is framework-owned.
+
+    Provisional alongside :class:`ConformanceProfile` until the first capability
+    profile ships; adapter authors do not write cases today.
+    """
 
     case_id: str
     description: str
@@ -50,7 +59,10 @@ class SyncCase:
 
 @dataclass(frozen=True)
 class AsyncCase:
-    """One named asynchronous conformance case. ``run`` is framework-owned."""
+    """One named asynchronous conformance case. ``run`` is framework-owned.
+
+    Provisional alongside :class:`ConformanceProfile`; see :class:`SyncCase`.
+    """
 
     case_id: str
     description: str
@@ -71,6 +83,10 @@ def _validate_cases(profile_id: str, cases: Tuple[Any, ...], mode: str) -> None:
 @dataclass(frozen=True)
 class ConformanceProfile:
     """A named, per-mode set of conformance cases.
+
+    Provisional: outside the two mandatory core profiles, nothing constructs this yet
+    (the production capability catalog is empty), so its shape may change with the first
+    capability feature.
 
     A profile must contain at least one case; zero-case profiles are rejected so an
     empty profile can never make a capability appear covered. Case identifiers are
@@ -115,9 +131,11 @@ def capability_profiles() -> Mapping[AdapterCapability, ConformanceProfile]:
     """Return the production catalog of optional capability profiles.
 
     The catalog is immutable and currently empty: no optional capability is
-    implemented yet, so no capability profile exists. Future capability features
-    register their profile here in the same change that implements the capability,
-    keyed by the owning :class:`AdapterCapability` member.
+    implemented yet, so no capability profile exists and there is nothing here for an
+    adapter author to act on. Future capability features register their profile here in
+    the same change that implements the capability, keyed by the owning
+    :class:`AdapterCapability` member; until the first one lands this function and the
+    profile/case types it returns are provisional and may change.
     """
     return MappingProxyType({})
 

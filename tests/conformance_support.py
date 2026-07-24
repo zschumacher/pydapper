@@ -304,7 +304,7 @@ class Sqlite3ConformanceHarness(SyncAdapterHarness):
 
     def __init__(self, workdir: Union[str, Path]) -> None:
         self.workdir = Path(workdir)
-        self.connect_dsn = f"sqlite:///{(self.workdir / 'conformance_connect.db').resolve()}"  # type: ignore[misc]
+        self.connect_dsn = f"sqlite:///{(self.workdir / 'conformance_connect.db').resolve()}"
 
     def create_commands(self) -> Commands:
         connection = sqlite3.connect(":memory:")

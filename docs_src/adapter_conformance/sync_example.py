@@ -14,8 +14,6 @@ from pydapper.testing.adapter_conformance import SyncAdapterHarness
 from pydapper.testing.adapter_conformance import run_core_sync
 from pydapper.testing.adapter_conformance import seed_rows
 
-WORKDIR = tempfile.mkdtemp()
-
 
 class AcmeDbCommands(Commands):
     class SqlParamHandler(BaseSqlParamHandler):
@@ -37,8 +35,13 @@ pydapper.register_adapter(
 class AcmeDbConformanceHarness(SyncAdapterHarness):
     adapter_name = "acmedb"
     command_class = AcmeDbCommands
-    # four slashes make the sqlite path absolute; the +acmedb suffix selects this adapter
-    connect_dsn = f"sqlite+acmedb:///{WORKDIR}/example.db"
+
+    def __init__(self) -> None:
+        # no harness field is a ClassVar, so configuration a real harness only learns at
+        # runtime -- a container's host and port, a temp directory -- is assigned on self
+        workdir = tempfile.mkdtemp()
+        # four slashes make the sqlite path absolute; the +acmedb suffix selects this adapter
+        self.connect_dsn = f"sqlite+acmedb:///{workdir}/example.db"
 
     def create_commands(self) -> Commands:
         # a fresh, isolated database and dataset for every conformance case
@@ -62,4 +65,6 @@ for failure in report.failures:
     print(f"{failure.profile_id}/{failure.case_id}: {failure.message}")
 print(f"{report.profile_id} for {report.adapter_name!r}: {len(report.results)} cases, passed={report.passed}")
 report.raise_for_failures()
+# claiming conformance takes both: every case passed *and* every planned case ran
+assert report.passed and report.covers_full_inventory
 # core-sync for 'acmedb': 54 cases, passed=True

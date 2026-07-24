@@ -11,7 +11,6 @@ profiles independently.
 """
 
 from typing import Any
-from typing import ClassVar
 from typing import Literal
 from typing import Mapping
 from typing import Optional
@@ -43,7 +42,9 @@ from pydapper.commands import CommandsAsync
 class SyncAdapterHarness:
     """Harness contract for running ``core-sync`` against one concrete sync adapter.
 
-    Required class attributes / overrides:
+    Required attributes / overrides. Configuration fields may be declared on the
+    subclass or assigned per instance (for example a ``connect_dsn`` that is only
+    known once a test container has started):
 
     * ``adapter_name`` — the registered adapter name (exact, case-sensitive).
     * ``command_class`` — the declared concrete :class:`~pydapper.commands.Commands`
@@ -57,15 +58,15 @@ class SyncAdapterHarness:
     * :meth:`teardown_commands` — release everything :meth:`create_commands` built.
     """
 
-    adapter_name: ClassVar[Optional[str]] = None
-    command_class: ClassVar[Optional[Type[Commands]]] = None
-    connect_dsn: ClassVar[Optional[str]] = None
-    connect_kwargs: ClassVar[Mapping[str, Any]] = {}
-    table_name: ClassVar[str] = "pydapper_conformance"
-    column_case: ClassVar[Literal["lower", "upper"]] = "lower"
-    supports_empty_strings: ClassVar[bool] = True
-    strict_rowcounts: ClassVar[bool] = True
-    sql_overrides: ClassVar[Mapping[str, str]] = {}
+    adapter_name: Optional[str] = None
+    command_class: Optional[Type[Commands]] = None
+    connect_dsn: Optional[str] = None
+    connect_kwargs: Mapping[str, Any] = {}
+    table_name: str = "pydapper_conformance"
+    column_case: Literal["lower", "upper"] = "lower"
+    supports_empty_strings: bool = True
+    strict_rowcounts: bool = True
+    sql_overrides: Mapping[str, str] = {}
 
     def create_commands(self) -> Commands:
         """Return a fresh, isolated command instance with the dataset freshly seeded."""
@@ -86,8 +87,9 @@ class SyncAdapterHarness:
 class AsyncAdapterHarness:
     """Harness contract for running ``core-async`` against one concrete async adapter.
 
-    Required class attributes / overrides mirror :class:`SyncAdapterHarness` with
-    awaitable factories. ``cursor_factory_style`` additionally tells the framework
+    Required attributes / overrides mirror :class:`SyncAdapterHarness` with awaitable
+    factories, and configuration fields may likewise be declared on the subclass or
+    assigned per instance. ``cursor_factory_style`` additionally tells the framework
     which instrumented connection shape the adapter's ``cursor()`` contract expects:
 
     * ``"awaitable"`` — ``connection.cursor()`` returns an awaitable (the
@@ -96,16 +98,16 @@ class AsyncAdapterHarness:
       command class normalizes it (e.g. psycopg3 async).
     """
 
-    adapter_name: ClassVar[Optional[str]] = None
-    command_class: ClassVar[Optional[Type[CommandsAsync]]] = None
-    connect_dsn: ClassVar[Optional[str]] = None
-    connect_kwargs: ClassVar[Mapping[str, Any]] = {}
-    table_name: ClassVar[str] = "pydapper_conformance"
-    column_case: ClassVar[Literal["lower", "upper"]] = "lower"
-    supports_empty_strings: ClassVar[bool] = True
-    strict_rowcounts: ClassVar[bool] = True
-    sql_overrides: ClassVar[Mapping[str, str]] = {}
-    cursor_factory_style: ClassVar[Literal["awaitable", "synchronous"]] = "awaitable"
+    adapter_name: Optional[str] = None
+    command_class: Optional[Type[CommandsAsync]] = None
+    connect_dsn: Optional[str] = None
+    connect_kwargs: Mapping[str, Any] = {}
+    table_name: str = "pydapper_conformance"
+    column_case: Literal["lower", "upper"] = "lower"
+    supports_empty_strings: bool = True
+    strict_rowcounts: bool = True
+    sql_overrides: Mapping[str, str] = {}
+    cursor_factory_style: Literal["awaitable", "synchronous"] = "awaitable"
 
     async def create_commands(self) -> CommandsAsync:
         """Return a fresh, isolated async command instance with the dataset freshly seeded."""

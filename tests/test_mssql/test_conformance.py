@@ -27,7 +27,7 @@ class _PymssqlConformanceHarness(SyncAdapterHarness):
             "password": "pydapper!PYDAPPER",
             "database": database_name,
         }
-        self.connect_dsn = f"mssql://sa:pydapper!PYDAPPER@{server}:{db_port}/{database_name}"  # type: ignore[misc]
+        self.connect_dsn = f"mssql://sa:pydapper!PYDAPPER@{server}:{db_port}/{database_name}"
 
     def create_commands(self) -> Commands:
         from pymssql import _pymssql

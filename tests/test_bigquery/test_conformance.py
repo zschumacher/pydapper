@@ -27,13 +27,13 @@ class _BigQueryConformanceHarness(SyncAdapterHarness):
 
     def __init__(self, client):
         self._client = client
-        self.connect_kwargs = {"client": client}  # type: ignore[misc]
+        self.connect_kwargs = {"client": client}
 
     def create_commands(self) -> Commands:
         from google.cloud.bigquery.dbapi import connect
 
         # a unique fully-qualified table per case keeps emulator state isolated
-        self.table_name = f"pydapper.pydapper.conformance_{uuid4().hex}"  # type: ignore[misc]
+        self.table_name = f"pydapper.pydapper.conformance_{uuid4().hex}"
         commands = GoogleBigqueryClientCommands(connect(client=self._client))
         commands.execute(f"CREATE TABLE `{self.table_name}` (id INT64, label STRING, score INT64, note STRING)")
         self._seed(commands)

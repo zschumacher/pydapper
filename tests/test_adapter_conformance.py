@@ -38,9 +38,11 @@ from pydapper.sqlite import Sqlite3Commands
 from pydapper.testing.adapter_conformance import CORE_ASYNC
 from pydapper.testing.adapter_conformance import CORE_SYNC
 from pydapper.testing.adapter_conformance import AsyncAdapterHarness
+from pydapper.testing.adapter_conformance import AsyncCase
 from pydapper.testing.adapter_conformance import CaseResult
 from pydapper.testing.adapter_conformance import ConformanceFailureError
 from pydapper.testing.adapter_conformance import ConformanceProfile
+from pydapper.testing.adapter_conformance import ConformanceReport
 from pydapper.testing.adapter_conformance import HarnessDefinitionError
 from pydapper.testing.adapter_conformance import ProfileDefinitionError
 from pydapper.testing.adapter_conformance import SyncAdapterHarness
@@ -50,11 +52,15 @@ from pydapper.testing.adapter_conformance import core_async_profile
 from pydapper.testing.adapter_conformance import core_sync_profile
 from pydapper.testing.adapter_conformance import run_core_async
 from pydapper.testing.adapter_conformance import run_core_sync
+from pydapper.testing.adapter_conformance._checks import SyncCaseContext
 from pydapper.testing.adapter_conformance._instrumentation import CursorScript
 from pydapper.testing.adapter_conformance._instrumentation import RecordingAsyncConnection
 from pydapper.testing.adapter_conformance._instrumentation import RecordingConnection
 from pydapper.testing.adapter_conformance._instrumentation import SynchronousCursorRecordingAsyncConnection
 from pydapper.testing.adapter_conformance._profiles import validate_capability_catalog
+from pydapper.testing.adapter_conformance._results import CaseCheckError
+from pydapper.testing.adapter_conformance._sqlspec import render_statement
+from pydapper.testing.adapter_conformance._sqlspec import statement_ids
 from tests.conformance_support import FIRST_PARTY_CONFORMANCE_ENTRIES
 from tests.conformance_support import MOCK_ASYNC_ADAPTER_NAME
 from tests.conformance_support import MOCK_SYNC_ADAPTER_NAME
@@ -986,3 +992,677 @@ def test_documented_third_party_examples_run_as_shown(example):
     completed = subprocess.run([sys.executable, str(path)], cwd=REPO_ROOT, capture_output=True, text=True)
     assert completed.returncode == 0, f"{example} failed:\n{completed.stdout}\n{completed.stderr}"
     assert "import pytest" not in path.read_text(), "documented examples must not require pytest"
+
+
+# ------------------------------------------------------------------ statement catalog
+
+
+def _noop_case(ctx):
+    return None
+
+
+def test_statement_catalog_exposes_ids_and_rejects_unknown_statements():
+    ids = statement_ids()
+    assert ids == tuple(sorted(ids)), "statement ids must be reported in a stable sorted order"
+    assert {"select_all", "insert_row", "update_label"} <= set(ids)
+    assert render_statement("select_all", "t") == "SELECT id, label, score, note FROM t ORDER BY id"
+    assert render_statement("select_all", "t", {"select_all": "SELECT 1 FROM {table}"}) == "SELECT 1 FROM t"
+    with pytest.raises(KeyError) as exc_info:
+        render_statement("no_such_statement", "t")
+    assert "no_such_statement" in str(exc_info.value)
+
+
+# ------------------------------------------------------------------ profile definition validation
+
+
+def test_invalid_case_kind_is_rejected():
+    with pytest.raises(ProfileDefinitionError) as exc_info:
+        ConformanceProfile(
+            profile_id=CORE_SYNC,
+            capability=None,
+            sync_cases=(SyncCase("bad.kind", "d", "made-up-kind", _noop_case),),
+        )
+    assert "invalid kind" in str(exc_info.value)
+
+
+def test_empty_profile_id_is_rejected():
+    with pytest.raises(ProfileDefinitionError):
+        ConformanceProfile(
+            profile_id="",
+            capability=None,
+            sync_cases=(SyncCase("x.y", "d", "instrumented", _noop_case),),
+        )
+
+
+def test_non_enum_profile_capability_is_rejected():
+    with pytest.raises(ProfileDefinitionError) as exc_info:
+        ConformanceProfile(
+            profile_id="transactions",
+            capability="transactions",  # type: ignore[arg-type]
+            sync_cases=(SyncCase("x.y", "d", "instrumented", _noop_case),),
+        )
+    assert "AdapterCapability" in str(exc_info.value)
+
+
+def test_non_enum_capability_catalog_key_is_rejected():
+    profile = ConformanceProfile(
+        profile_id="transactions",
+        capability=AdapterCapability.TRANSACTIONS,
+        sync_cases=(SyncCase("transactions.smoke", "d", "instrumented", _noop_case),),
+    )
+    with pytest.raises(ProfileDefinitionError) as exc_info:
+        validate_capability_catalog({"transactions": profile})  # type: ignore[dict-item]
+    assert "AdapterCapability member" in str(exc_info.value)
+
+
+# ------------------------------------------------------------------ framework assertion helpers
+
+
+def test_check_event_order_helper_reports_the_observed_order(isolated_registry):
+    _register_mock_sync()
+    ctx = SyncCaseContext(MockSyncConformanceHarness(), CORE_SYNC, "helper.check-order", {})
+    connection = RecordingConnection()
+    commands = ctx.instrumented_commands(connection)
+    commands.query("SELECT id, label FROM t")
+
+    observed = connection.log.kinds()
+    ctx.check_event_order(connection.log, observed)
+
+    with pytest.raises(CaseCheckError) as exc_info:
+        ctx.check_event_order(connection.log, ("execute",))
+    assert "expected driver interaction order" in str(exc_info.value)
+
+
+def test_conformance_failure_error_tolerates_a_report_without_failures():
+    report = ConformanceReport(
+        profile_id=CORE_SYNC,
+        adapter_name="mock",
+        command_class_name="Mock",
+        results=(CaseResult(CORE_SYNC, "some.case", True),),
+    )
+    error = ConformanceFailureError(report)
+    assert error.failures == ()
+    assert "0 conformance case(s) failed" in str(error)
+
+
+# ------------------------------------------------------------------ instrumentation internals
+
+
+def test_recording_cursor_records_executemany_through_the_command_class(isolated_registry):
+    connection = RecordingConnection(CursorScript())
+    commands = MockSyncConformanceCommands(connection)
+    affected = commands.execute(
+        "INSERT INTO t (id, label) VALUES (?id?, ?label?)",
+        params=[{"id": 1, "label": "a"}, {"id": 2, "label": "b"}],
+    )
+    event = connection.log.first("executemany")
+    assert event is not None
+    assert event.params == [(1, "a"), (2, "b")], "the driver must observe one bound tuple per record"
+    assert affected == 2, "the default script derives the rowcount from the executemany length"
+
+
+def test_recording_cursor_can_script_a_fixed_executemany_rowcount(isolated_registry):
+    connection = RecordingConnection(CursorScript(rowcount_from_executemany_length=False, rowcount=7))
+    commands = MockSyncConformanceCommands(connection)
+    affected = commands.execute("INSERT INTO t (id, label) VALUES (?id?, ?label?)", params=[{"id": 1, "label": "a"}])
+    assert affected == 7
+
+
+def test_recording_cursor_injects_scripted_interaction_failures():
+    boom = RuntimeError("scripted failure")
+    connection = RecordingConnection(
+        CursorScript(executemany_error=boom, fetchone_error=boom, fetchmany_error=boom),
+        cursor_style="plain",
+    )
+    cursor = connection.cursor()
+    with pytest.raises(RuntimeError):
+        cursor.executemany("INSERT INTO t (id) VALUES (%s)", [(1,)])
+    with pytest.raises(RuntimeError):
+        cursor.fetchone()
+    with pytest.raises(RuntimeError):
+        cursor.fetchmany(2)
+
+
+@pytest.mark.asyncio
+async def test_recording_async_cursor_records_executemany_through_the_command_class():
+    connection = RecordingAsyncConnection(CursorScript())
+    commands = MockAsyncConformanceCommands(connection)
+    affected = await commands.execute_async(
+        "INSERT INTO t (id, label) VALUES (?id?, ?label?)",
+        params=[{"id": 1, "label": "a"}, {"id": 2, "label": "b"}],
+    )
+    event = connection.log.first("executemany")
+    assert event is not None
+    assert event.params == [(1, "a"), (2, "b")]
+    assert affected == 2
+
+
+def test_recording_connections_accept_a_sequence_of_scripts():
+    """A per-cursor script sequence lets one case drive differently-behaving cursors."""
+    scripts = [CursorScript(rowcount=1), CursorScript(rowcount=2)]
+
+    connection = RecordingConnection(scripts)
+    connection.cursor()
+    connection.cursor()
+    assert [recorder.script.rowcount for recorder in connection.recorders] == [1, 2]
+
+    async_connection = RecordingAsyncConnection(scripts)
+    assert async_connection.cursor_calls == 0
+
+
+# ------------------------------------------------------------------ connect() cleanup tolerance
+
+
+class _CloselessFakeConnection(FakeSyncConnection):
+    """Exposes no callable ``close``, like a pooled/managed connection handle."""
+
+    close = None  # type: ignore[assignment]
+
+
+class _RaisingCloseFakeConnection(FakeSyncConnection):
+    def close(self):
+        raise RuntimeError("close boom")
+
+
+class _CloselessConnectCommands(MockSyncConformanceCommands):
+    @classmethod
+    def connect(cls, parsed_dsn, **connect_kwargs):
+        return cls(_CloselessFakeConnection(seeded_mini_db()))
+
+
+class _RaisingCloseConnectCommands(MockSyncConformanceCommands):
+    @classmethod
+    def connect(cls, parsed_dsn, **connect_kwargs):
+        return cls(_RaisingCloseFakeConnection(seeded_mini_db()))
+
+
+@pytest.mark.parametrize(
+    "commands_class",
+    [_CloselessConnectCommands, _RaisingCloseConnectCommands],
+    ids=["no-close", "close-raises"],
+)
+def test_dsn_connect_case_tolerates_unclosable_connections(isolated_registry, commands_class):
+    """The connect() case verifies the adapter, never the connection's close behavior."""
+    name = f"conformance-mock-{commands_class.__name__.strip(chr(95)).lower()}"
+    _register_mock_sync(name=name, commands=commands_class)
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = commands_class
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return commands_class(FakeSyncConnection(seeded_mini_db()))
+
+    report = run_core_sync(_Harness())
+    named = next(result for result in report.results if result.case_id == "registration.dsn-connect")
+    assert named.passed, named.message
+
+
+class _CloselessFakeAsyncConnection(FakeAsyncConnection):
+    close = None  # type: ignore[assignment]
+
+
+class _RaisingCloseFakeAsyncConnection(FakeAsyncConnection):
+    def close(self):
+        raise RuntimeError("close boom")
+
+
+class _CloselessConnectAsyncCommands(MockAsyncConformanceCommands):
+    @classmethod
+    async def connect_async(cls, parsed_dsn, **connect_kwargs):
+        return cls(_CloselessFakeAsyncConnection(seeded_mini_db()))
+
+
+class _RaisingCloseConnectAsyncCommands(MockAsyncConformanceCommands):
+    @classmethod
+    async def connect_async(cls, parsed_dsn, **connect_kwargs):
+        return cls(_RaisingCloseFakeAsyncConnection(seeded_mini_db()))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "commands_class",
+    [_CloselessConnectAsyncCommands, _RaisingCloseConnectAsyncCommands],
+    ids=["no-close", "close-raises"],
+)
+async def test_async_dsn_connect_case_tolerates_unclosable_connections(isolated_registry, commands_class):
+    name = f"conformance-mock-{commands_class.__name__.strip(chr(95)).lower()}"
+    _register_mock_async(name=name, async_commands=commands_class)
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = name
+        command_class = commands_class
+        connect_dsn = f"sqlite+{name}://mock"
+
+        async def create_commands(self):
+            return commands_class(FakeAsyncConnection(seeded_mini_db()))
+
+    report = await run_core_async(_Harness())
+    named = next(result for result in report.results if result.case_id == "registration.dsn-connect")
+    assert named.passed, named.message
+
+
+# ------------------------------------------------------------------ adapters that skip the driver
+
+
+class _NoDriverWorkCommands(MockSyncConformanceCommands):
+    """Returns plausible results without ever reaching the driver."""
+
+    def query(self, *args, **kwargs):
+        return []
+
+    def execute(self, *args, **kwargs):
+        return 0
+
+
+class _NoDriverWorkAsyncCommands(MockAsyncConformanceCommands):
+    async def query_async(self, *args, **kwargs):
+        return []
+
+    async def execute_async(self, *args, **kwargs):
+        return 0
+
+
+def test_adapter_that_never_reaches_the_driver_fails_the_binding_cases(isolated_registry):
+    """Binding cases assert on observed driver traffic, so a no-op adapter cannot pass them."""
+    name = "conformance-mock-no-driver-work"
+    _register_mock_sync(name=name, commands=_NoDriverWorkCommands)
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = _NoDriverWorkCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return _NoDriverWorkCommands(FakeSyncConnection(seeded_mini_db()))
+
+    report = run_core_sync(_Harness())
+    failures = {failure.case_id: failure.message for failure in report.failures}
+    for case_id in ("params.repeated-placeholders-binding", "execute.nested-list-single-value"):
+        assert case_id in failures, sorted(failures)
+        assert "execute must reach the driver" in failures[case_id]
+
+
+@pytest.mark.asyncio
+async def test_async_adapter_that_never_reaches_the_driver_fails_the_binding_cases(isolated_registry):
+    name = "conformance-mock-no-driver-work-async"
+    _register_mock_async(name=name, async_commands=_NoDriverWorkAsyncCommands)
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = name
+        command_class = _NoDriverWorkAsyncCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        async def create_commands(self):
+            return _NoDriverWorkAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+
+    report = await run_core_async(_Harness())
+    failures = {failure.case_id: failure.message for failure in report.failures}
+    for case_id in ("params.repeated-placeholders-binding", "execute.nested-list-single-value"):
+        assert case_id in failures, sorted(failures)
+        assert "execute must reach the driver" in failures[case_id]
+
+
+# ------------------------------------------------------------------ capability declaration honesty
+
+
+class _NonEnumMemberCommands(MockSyncConformanceCommands):
+    capabilities = frozenset({"transactions"})  # type: ignore[assignment]  # right container, wrong members
+
+
+class _NonEnumMemberAsyncCommands(MockAsyncConformanceCommands):
+    capabilities = frozenset({"transactions"})  # type: ignore[assignment]
+
+
+class _InvalidCapabilityAsyncCommands(MockAsyncConformanceCommands):
+    capabilities = {"transactions"}  # type: ignore[assignment]  # not even a frozenset
+
+
+def test_non_enum_capability_members_fail_both_declaration_cases(isolated_registry):
+    """register_adapter() rejects this declaration outright, so the conformance cases are
+    the backstop for a class that was never registered through the public path."""
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = "conformance-mock-non-enum-caps"
+        command_class = _NonEnumMemberCommands
+
+        def create_commands(self):
+            return _NonEnumMemberCommands(FakeSyncConnection(seeded_mini_db()))
+
+    report = run_core_sync(_Harness())
+    failures = {failure.case_id: failure.message for failure in report.failures}
+    assert "non-AdapterCapability member" in failures["capabilities.declaration-valid"]
+    assert "non-enum member" in failures["capabilities.declared-profile-populated"]
+
+
+@pytest.mark.asyncio
+async def test_async_non_enum_capability_members_fail_both_declaration_cases(isolated_registry):
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = "conformance-mock-non-enum-caps-async"
+        command_class = _NonEnumMemberAsyncCommands
+
+        async def create_commands(self):
+            return _NonEnumMemberAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+
+    report = await run_core_async(_Harness())
+    failures = {failure.case_id: failure.message for failure in report.failures}
+    assert "non-AdapterCapability member" in failures["capabilities.declaration-valid"]
+    assert "non-enum member" in failures["capabilities.declared-profile-populated"]
+
+
+@pytest.mark.asyncio
+async def test_async_invalid_capability_declaration_fails_clearly(isolated_registry):
+    """A non-frozenset declaration fails loudly and is ignored by the option probes."""
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = "conformance-mock-invalid-caps-async"
+        command_class = _InvalidCapabilityAsyncCommands
+
+        async def create_commands(self):
+            return _InvalidCapabilityAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+
+    report = await run_core_async(_Harness())
+    failures = {failure.case_id: failure.message for failure in report.failures}
+    assert "frozenset" in failures["capabilities.declaration-valid"]
+    assert "invalid declaration" in failures["capabilities.declared-profile-populated"]
+    # an unreadable declaration waives nothing: the option probes still ran and passed
+    assert "options.unsupported-raises" not in failures
+    assert "options.unsupported-before-driver-work" not in failures
+
+
+# ------------------------------------------------------------------ a shipped capability waives its probe
+
+
+class _DeclaredTimeoutCommands(MockSyncConformanceCommands):
+    capabilities = frozenset({AdapterCapability.COMMAND_TIMEOUT})
+
+
+class _DeclaredTimeoutAsyncCommands(MockAsyncConformanceCommands):
+    capabilities = frozenset({AdapterCapability.COMMAND_TIMEOUT})
+
+
+class _DeclaredTransactionsAsyncCommands(MockAsyncConformanceCommands):
+    capabilities = frozenset({AdapterCapability.TRANSACTIONS})
+
+
+def _profile_for(capability, *, sync=True, async_=True):
+    return ConformanceProfile(
+        profile_id=capability.value,
+        capability=capability,
+        sync_cases=(SyncCase(f"{capability.value}.smoke", "d", "instrumented", _noop_case),) if sync else (),
+        async_cases=(AsyncCase(f"{capability.value}.smoke", "d", "instrumented", _async_noop_case),) if async_ else (),
+    )
+
+
+async def _async_noop_case(ctx):
+    return None
+
+
+def test_a_shipped_capability_profile_waives_its_option_probe(isolated_registry, monkeypatch):
+    """Once a capability ships a real production profile, its option probe is waived —
+    the adapter is expected to implement the option rather than reject it."""
+    from pydapper.testing.adapter_conformance import _cases_sync
+
+    name = "conformance-mock-shipped-timeout"
+    _register_mock_sync(name=name, commands=_DeclaredTimeoutCommands)
+    shipped = {AdapterCapability.COMMAND_TIMEOUT: _profile_for(AdapterCapability.COMMAND_TIMEOUT)}
+    monkeypatch.setattr(_cases_sync, "capability_profiles", lambda: shipped)
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredTimeoutCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return _DeclaredTimeoutCommands(FakeSyncConnection(seeded_mini_db()))
+
+    report = run_core_sync(_Harness())
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+
+
+@pytest.mark.asyncio
+async def test_async_shipped_capability_profile_waives_its_option_probe(isolated_registry, monkeypatch):
+    from pydapper.testing.adapter_conformance import _cases_async
+
+    name = "conformance-mock-shipped-timeout-async"
+    _register_mock_async(name=name, async_commands=_DeclaredTimeoutAsyncCommands)
+    shipped = {AdapterCapability.COMMAND_TIMEOUT: _profile_for(AdapterCapability.COMMAND_TIMEOUT)}
+    monkeypatch.setattr(_cases_async, "capability_profiles", lambda: shipped)
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredTimeoutAsyncCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        async def create_commands(self):
+            return _DeclaredTimeoutAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+
+    report = await run_core_async(_Harness())
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+
+
+def test_capability_profile_without_sync_cases_fails_the_sync_declaration(isolated_registry, monkeypatch):
+    """A capability covered only in the other mode does not cover this one."""
+    from pydapper.testing.adapter_conformance import _cases_sync
+
+    name = "conformance-mock-async-only-profile"
+    _register_mock_sync(name=name, commands=_DeclaredTransactionsCommands)
+    catalog = {AdapterCapability.TRANSACTIONS: _profile_for(AdapterCapability.TRANSACTIONS, sync=False)}
+    monkeypatch.setattr(_cases_sync, "capability_profiles", lambda: catalog)
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredTransactionsCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return _DeclaredTransactionsCommands(FakeSyncConnection(seeded_mini_db()))
+
+    report = run_core_sync(_Harness())
+    failures = {failure.case_id: failure.message for failure in report.failures}
+    assert "no sync conformance cases" in failures["capabilities.declared-profile-populated"]
+
+
+@pytest.mark.asyncio
+async def test_capability_profile_without_async_cases_fails_the_async_declaration(isolated_registry, monkeypatch):
+    from pydapper.testing.adapter_conformance import _cases_async
+
+    name = "conformance-mock-sync-only-profile"
+    _register_mock_async(name=name, async_commands=_DeclaredTransactionsAsyncCommands)
+    catalog = {AdapterCapability.TRANSACTIONS: _profile_for(AdapterCapability.TRANSACTIONS, async_=False)}
+    monkeypatch.setattr(_cases_async, "capability_profiles", lambda: catalog)
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredTransactionsAsyncCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        async def create_commands(self):
+            return _DeclaredTransactionsAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+
+    report = await run_core_async(_Harness())
+    failures = {failure.case_id: failure.message for failure in report.failures}
+    assert "no async conformance cases" in failures["capabilities.declared-profile-populated"]
+
+
+@pytest.mark.asyncio
+async def test_async_empty_string_fallback_value_round_trips(isolated_registry):
+    """supports_empty_strings=False swaps in the documented fallback label in async mode too."""
+    _register_mock_async()
+
+    class _Harness(MockAsyncConformanceHarness):
+        supports_empty_strings = False
+
+        async def create_commands(self):
+            return MockAsyncConformanceCommands(FakeAsyncConnection(seeded_mini_db(supports_empty_strings=False)))
+
+    report = await run_core_async(_Harness())
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+
+
+# ------------------------------------------------------------------ runner shutdown and teardown paths
+
+
+def test_sync_runner_propagates_base_exceptions_after_releasing_resources(isolated_registry):
+    """A KeyboardInterrupt/shutdown is never recorded as a failed case, and the active
+    case's resources are still released before it propagates."""
+    name = "conformance-mock-sync-shutdown"
+    _register_mock_sync(name=name, commands=_DeclaredTransactionsCommands)
+    torn_down = []
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredTransactionsCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return _DeclaredTransactionsCommands(FakeSyncConnection(seeded_mini_db()))
+
+        def teardown_commands(self, commands):
+            torn_down.append(commands)
+            super().teardown_commands(commands)
+
+    def _shutdown_case(ctx):
+        ctx.create_commands()
+        raise KeyboardInterrupt("shutdown")
+
+    profile = ConformanceProfile(
+        profile_id="transactions",
+        capability=AdapterCapability.TRANSACTIONS,
+        sync_cases=(SyncCase("transactions.shutdown", "d", "instrumented", _shutdown_case),),
+    )
+    with pytest.raises(KeyboardInterrupt):
+        run_core_sync(_Harness(), capability_catalog={AdapterCapability.TRANSACTIONS: profile})
+    assert torn_down, "the interrupted case's live resources must still be released"
+
+
+def test_teardown_reports_the_first_error_across_several_commands(isolated_registry):
+    """When one case builds several commands and every teardown fails, the first failure
+    is the reported one and the remaining commands are still torn down."""
+    name = "conformance-mock-multi-teardown"
+    _register_mock_sync(name=name, commands=_DeclaredTransactionsCommands)
+    attempts = []
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredTransactionsCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return _DeclaredTransactionsCommands(FakeSyncConnection(seeded_mini_db()))
+
+        def teardown_commands(self, commands):
+            attempts.append(commands)
+            raise RuntimeError(f"teardown boom {len(attempts)}")
+
+    created = []
+
+    def _two_commands_case(ctx):
+        created.append(ctx.create_commands())
+        created.append(ctx.create_commands())
+
+    profile = ConformanceProfile(
+        profile_id="transactions",
+        capability=AdapterCapability.TRANSACTIONS,
+        sync_cases=(SyncCase("transactions.two-commands", "d", "instrumented", _two_commands_case),),
+    )
+    report = run_core_sync(_Harness(), capability_catalog={AdapterCapability.TRANSACTIONS: profile})
+    named = next(result for result in report.results if result.case_id == "transactions.two-commands")
+    assert not named.passed
+    assert len(created) == 2
+    torn_down = [command for command in created if any(command is attempt for attempt in attempts)]
+    assert len(torn_down) == 2, "every created command must be torn down even after the first failure"
+    assert str(named.cause) == f"teardown boom {attempts.index(created[0]) + 1}", "the first failure is reported"
+
+
+@pytest.mark.asyncio
+async def test_async_teardown_failure_fails_a_passing_case(isolated_registry):
+    _register_mock_async()
+
+    class _FailingTeardownHarness(MockAsyncConformanceHarness):
+        async def teardown_commands(self, commands):
+            raise RuntimeError("async teardown boom")
+
+    report = await run_core_async(_FailingTeardownHarness())
+    named = next(result for result in report.results if result.case_id == "params.params-keyword")
+    assert not named.passed
+    assert isinstance(named.cause, RuntimeError)
+    assert "teardown" in named.message
+
+
+def test_capability_catalog_value_must_be_a_profile():
+    with pytest.raises(ProfileDefinitionError) as exc_info:
+        validate_capability_catalog({AdapterCapability.TRANSACTIONS: object()})  # type: ignore[dict-item]
+    assert "must be a ConformanceProfile" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_async_declared_capability_without_profile_fails_clearly(isolated_registry):
+    """The async twin of the sync declaration-honesty check, against the real catalog."""
+    name = "conformance-mock-declared-txn-async"
+    _register_mock_async(name=name, async_commands=_DeclaredTransactionsAsyncCommands)
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredTransactionsAsyncCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        async def create_commands(self):
+            return _DeclaredTransactionsAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+
+    report = await run_core_async(_Harness())
+    failed_ids = [failure.case_id for failure in report.failures]
+    assert failed_ids == ["capabilities.declared-profile-populated"], failed_ids
+    assert "has no production conformance profile" in report.failures[0].message
+    assert report.failures[0].profile_id == CORE_ASYNC
+
+
+@pytest.mark.asyncio
+async def test_async_relaxed_rowcounts_still_require_integer_results(isolated_registry):
+    """strict_rowcounts=False relaxes only exact-count equality; the cases still run."""
+    _register_mock_async()
+
+    class _Harness(MockAsyncConformanceHarness):
+        strict_rowcounts = False
+
+    report = await run_core_async(_Harness())
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+
+
+@pytest.mark.asyncio
+async def test_async_teardown_reports_the_first_error_across_several_commands(isolated_registry):
+    name = "conformance-mock-multi-teardown-async"
+    _register_mock_async(name=name, async_commands=_DeclaredTransactionsAsyncCommands)
+    attempts = []
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredTransactionsAsyncCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        async def create_commands(self):
+            return _DeclaredTransactionsAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+
+        async def teardown_commands(self, commands):
+            attempts.append(commands)
+            raise RuntimeError(f"async teardown boom {len(attempts)}")
+
+    created = []
+
+    async def _two_commands_case(ctx):
+        created.append(await ctx.create_commands())
+        created.append(await ctx.create_commands())
+
+    profile = ConformanceProfile(
+        profile_id="transactions",
+        capability=AdapterCapability.TRANSACTIONS,
+        async_cases=(AsyncCase("transactions.two-commands", "d", "instrumented", _two_commands_case),),
+    )
+    report = await run_core_async(_Harness(), capability_catalog={AdapterCapability.TRANSACTIONS: profile})
+    named = next(result for result in report.results if result.case_id == "transactions.two-commands")
+    assert not named.passed
+    assert len(created) == 2
+    torn_down = [command for command in created if any(command is attempt for attempt in attempts)]
+    assert len(torn_down) == 2, "every created command must be torn down even after the first failure"

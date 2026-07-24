@@ -404,7 +404,9 @@ async def _lifecycle_hook_order(ctx: AsyncCaseContext) -> None:
         f"hook order must be cursor/enter/prepare_cursor/prepare_command/execute/exit, observed {kinds!r}",
     )
     prepare_cursor_event = connection.log.first("prepare_cursor")
-    if prepare_cursor_event is None or prepare_cursor_event.detail is None:
+    if prepare_cursor_event is None or prepare_cursor_event.detail is None:  # pragma: no cover
+        # unreachable: the event-order assertion above already proves the hook fired, and the
+        # framework always records its detail; the guard only narrows Optional for mypy
         ctx.fail("the prepare-cursor hook was never observed")
     hook_cursor, hook_options = prepare_cursor_event.detail
     context_cursor = connection.cursors[0]
@@ -423,12 +425,16 @@ async def _lifecycle_hook_order(ctx: AsyncCaseContext) -> None:
         "UPDATE t SET label = ?label? WHERE id = ?id?", params={"label": "x", "id": 1}, options=explicit
     )
     prepare_command_event = connection.log.first("prepare_command")
-    if prepare_command_event is None or prepare_command_event.detail is None:
+    if prepare_command_event is None or prepare_command_event.detail is None:  # pragma: no cover
+        # unreachable: the event-order assertion above already proves the hook fired, and the
+        # framework always records its detail; the guard only narrows Optional for mypy
         ctx.fail("the prepare-command hook was never observed")
     _, handler, hook_options = prepare_command_event.detail
     ctx.check(hook_options is explicit, "hooks must receive the caller's normalized CommandOptions instance")
     execute_event = connection.log.first("execute")
-    if execute_event is None:
+    if execute_event is None:  # pragma: no cover
+        # unreachable: the event-order assertion above already proves the hook fired, and the
+        # framework always records its detail; the guard only narrows Optional for mypy
         ctx.fail("no execute reached the driver after the preparation hooks")
     ctx.check(
         getattr(handler, "prepared_sql", None) == execute_event.sql,
@@ -694,7 +700,9 @@ async def _rows_duplicate_columns(ctx: AsyncCaseContext) -> None:
     with ctx.expect_raises(DuplicateColumnException) as caught:
         await commands.query_async(ctx.sql("select_duplicate_columns"), params={"id": 1})
     error = caught.exception
-    if not isinstance(error, DuplicateColumnException):
+    if not isinstance(error, DuplicateColumnException):  # pragma: no cover
+        # unreachable: expect_raises() captures only the expected type — any other exception
+        # propagates instead; the guard only narrows Optional for mypy
         ctx.fail(f"expected a DuplicateColumnException, captured {error!r}")
     duplicate = ctx.col("id")
     ctx.check(error.columns == (duplicate, duplicate), f"structured columns attribute wrong: {error.columns!r}")

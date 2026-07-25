@@ -21,8 +21,9 @@ _AwaitResultT = TypeVar("_AwaitResultT")
 _EnterResultT = TypeVar("_EnterResultT")
 _UNRESOLVED = object()
 _DISCARDED_RESOLUTION_MESSAGE = (
-    "the resource this wrapper acquired was closed when the only task awaiting it was cancelled after "
-    "acquisition had already completed; the wrapper is spent and cannot resolve again"
+    "the resource this wrapper acquired was closed once the caller could no longer reach it -- either the "
+    "only task awaiting it was cancelled after acquisition had already completed, or its __aenter__ "
+    "raised; the wrapper is spent and cannot resolve again"
 )
 
 
@@ -56,22 +57,33 @@ def _log_discarded_cleanup_error(cleanup_error: Exception) -> None:
     )
 
 
-def _close_quietly(obj: Any) -> None:
-    """Best-effort ``close()`` of a pydapper-owned resource, discarding an ordinary failure."""
+def _owned_close(obj: Any) -> Any:
+    """Resolve ``obj``'s callable ``close``, or ``None`` when it exposes none.
+
+    A pydapper-owned resource is not required to have a ``close()``: ``connect_async()`` resolves to
+    a ``CommandsAsync``, which has none. Every caller asks this one question both to decide whether a
+    close can be attempted at all and to know afterwards whether anything was actually closed, so the
+    two answers cannot disagree -- see :meth:`_AwaitableAsyncContextManager._discard_owned_object`.
+
+    Attribute access can itself fail, since ``close`` may be a descriptor that raises. That is a
+    cleanup failure like any other and may not replace the error already on its way out, so it is
+    recorded and reported here as "nothing to close".
+    """
     try:
         close = getattr(obj, "close", None)
-        if callable(close):
-            close()
     except Exception as cleanup_error:
         _log_discarded_cleanup_error(cleanup_error)
+        return None
+    return close if callable(close) else None
 
 
-async def _close_quietly_async(obj: Any) -> None:
-    """Async twin of :func:`_close_quietly`; an awaitable ``close()`` result is awaited."""
+def _close_quietly(obj: Any) -> None:
+    """Best-effort ``close()`` of a pydapper-owned resource, discarding an ordinary failure."""
+    close = _owned_close(obj)
+    if close is None:
+        return
     try:
-        close = getattr(obj, "close", None)
-        if callable(close):
-            await _await_if_needed(close())
+        close()
     except Exception as cleanup_error:
         _log_discarded_cleanup_error(cleanup_error)
 
@@ -133,15 +145,41 @@ class _AwaitableAsyncContextManager(Generic[_AwaitResultT, _EnterResultT]):
           to be handed would trade this leak for a use-after-close, which is worse. ``_obj`` is checked
           for the same reason, since a concurrent awaiter may already have resumed and taken ownership.
 
-        Closing makes the wrapper spent rather than merely unresolved: ``_resolution`` stays a completed
-        future holding the now-closed object, so ``_discarded`` is set -- before the close is awaited --
-        to stop a later ``_resolve`` from handing that object out as if it were healthy.
+        What the close itself does to the wrapper is :meth:`_discard_owned_object`'s decision, shared
+        with the other discard path.
         """
         if self._awaiting or self._obj is not _UNRESOLVED:
             return
         if resolution.done() and not resolution.cancelled() and resolution.exception() is None:
-            self._discarded = True
-            await _close_quietly_async(resolution.result())
+            await self._discard_owned_object(resolution.result())
+
+    async def _discard_owned_object(self, obj: Any) -> None:
+        """Close a pydapper-owned resource the caller can no longer reach, and spend the wrapper.
+
+        The one discard policy for both paths that strand an already-acquired object -- an awaiter
+        cancelled after acquisition completed, and an ``__aenter__`` that raised -- so the two cannot
+        drift apart. The object is closed best-effort, a cleanup failure never replaces the error on
+        its way out, and the wrapper is marked spent so a later ``_resolve`` cannot hand the closed
+        object out as if it were healthy: ``_resolution`` stays a completed future still holding it.
+
+        Being spent is tied to a close actually being attempted, because the two consequences only make
+        sense together. A resource exposing no callable ``close()`` -- ``connect_async()`` resolves to a
+        ``CommandsAsync``, which has none -- cannot be cleaned up here at all, and poisoning the wrapper
+        anyway would put a still-open resource permanently out of reach behind a ``RuntimeError`` that
+        claims it was closed. The wrapper therefore stays resolvable in that case and keeps handing the
+        live object back, which is the only remaining way for the caller to clean it up.
+
+        ``_discarded`` is set before the close is awaited: a ``close()`` that suspends would otherwise
+        leave a window in which a newly arriving awaiter resolves and takes the object out mid-close.
+        """
+        close = _owned_close(obj)
+        if close is None:
+            return
+        self._discarded = True
+        try:
+            await _await_if_needed(close())
+        except Exception as cleanup_error:
+            _log_discarded_cleanup_error(cleanup_error)
 
     def __await__(self) -> Generator[Any, None, _AwaitResultT]:
         return self._resolve().__await__()
@@ -160,7 +198,10 @@ class _AwaitableAsyncContextManager(Generic[_AwaitResultT, _EnterResultT]):
                 # context-manager semantics -- a manager that fails to enter is not exited -- govern a
                 # manager the caller supplied, which this never is. __aexit__ stays unbound, so the
                 # object is never cleaned up twice, and the close failure loses to the entry error.
-                await _close_quietly_async(obj)
+                # This strands an acquired object exactly as a cancelled awaiter does, so it takes the
+                # same discard policy: once closed, the wrapper is spent and will not hand the closed
+                # object to the next await or async with.
+                await self._discard_owned_object(obj)
                 raise
             self._aexit = aexit
             return cast(_EnterResultT, entered_obj)

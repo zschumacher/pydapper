@@ -19,14 +19,20 @@
   drain seams alongside the `_prepare_*` hooks is deliberately deferred to the v1 export and typing
   audit ([#484](https://github.com/zschumacher/pydapper/issues/484)); they remain private hooks
   outside the documented compatibility surface. Fourth, cancelling a task that is awaiting an async
-  cursor or `connect_async()` no longer leaks the resource when the cancellation lands after
-  acquisition has already completed. Acquisition runs as an independent future, so `await` and
-  `async with` could raise `CancelledError` while that future held a fully created cursor with no
-  owner: the raising `await` binds nothing and a failed `__aenter__` is never exited, so nothing was
-  left to close it. The stranded object is now closed best-effort through the same discard policy,
-  the `CancelledError` is never suppressed, an object another task is concurrently awaiting is never
-  closed, and a wrapper whose resource was discarded this way raises `RuntimeError` rather than
-  handing the closed object out again.
+  cursor no longer leaks that cursor when the cancellation lands after acquisition has already
+  completed. Acquisition runs as an independent future, so `await` and `async with` could raise
+  `CancelledError` while that future held a fully created cursor with no owner: the raising `await`
+  binds nothing and a failed `__aenter__` is never exited, so nothing was left to close it. The
+  stranded cursor is now closed best-effort through the same discard policy, the `CancelledError` is
+  never suppressed, and a cursor another task is concurrently awaiting is never closed. A wrapper
+  that closed its resource this way — on a cancelled acquisition or on a failed `__aenter__`, which
+  share one policy — is spent, and a later `await` or `async with` on it raises `RuntimeError`
+  instead of handing the closed cursor out again. This does **not** fix the same race for
+  `connect_async()`, which still strands its connection: `connect_async()` resolves to a
+  `CommandsAsync`, and `CommandsAsync` exposes no `close()`, so pydapper has nothing it can close
+  there. A wrapper that closed nothing is deliberately never marked spent, so awaiting a cancelled
+  `connect_async()` wrapper again still returns the live `CommandsAsync` — that is the only remaining
+  way to reach the open connection and close it.
 * feat: add reusable adapter conformance suite and capability profiles. PR [#565](https://github.com/zschumacher/pydapper/pull/565) by [@zschumacher](https://github.com/zschumacher).
 * v1: a reusable adapter conformance suite now ships in the installed distribution at
   `pydapper.testing.adapter_conformance`. Adapter authors implement a typed `SyncAdapterHarness` /

@@ -3988,6 +3988,40 @@ class TestCommandsAsync:
         assert connection.exit_calls == 1
 
     @pytest.mark.asyncio
+    async def test_a_cancelled_connect_async_awaiter_leaves_the_commands_object_reachable(self):
+        # connect_async() resolves to a CommandsAsync, which exposes no close(), so the wrapper's
+        # discard policy has nothing it can clean up when the awaiting task is cancelled after
+        # acquisition completed. It must not mark itself spent in that case: handing the live commands
+        # object back is the caller's only remaining route to the open connection.
+        connection = MockAsyncConnection()
+        # a bare future stands in for the pending connect_async() coroutine so the test, not the
+        # scheduler, decides when acquisition completes and when the cancellation lands
+        acquisition = asyncio.get_running_loop().create_future()
+        # mirrors CommandFactory.from_dsn_async, which wraps the connection without preserve_active_error
+        wrapper = _AwaitableAsyncContextManager(acquisition)
+
+        async def consume():
+            return await wrapper
+
+        task = asyncio.create_task(consume())
+        await asyncio.sleep(0)
+        assert not task.done()
+
+        acquisition.set_result(MockAsyncCommands(connection))  # acquisition completes...
+        task.cancel()  # ...and only then is its awaiter cancelled
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        commands = await wrapper
+        assert commands.connection is connection
+        assert connection.closed == 0
+
+        async with commands:
+            pass
+        assert connection.closed == 1
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "params, exception_type",
         [

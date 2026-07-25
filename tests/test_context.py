@@ -344,11 +344,35 @@ async def test_entry_failure_of_an_object_without_close_is_a_no_op():
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             raise AssertionError("exit should not run")
 
+    obj = FailingEntryWithoutClose()
+    wrapper = _AwaitableAsyncContextManager(asyncio.sleep(0, result=obj), preserve_active_error=True)
+
     with pytest.raises(RuntimeError, match="entry"):
-        async with _AwaitableAsyncContextManager(
-            asyncio.sleep(0, result=FailingEntryWithoutClose()), preserve_active_error=True
-        ):
+        async with wrapper:
             raise AssertionError("body must not run")
+
+    # nothing was closed, so the wrapper is not spent: it still hands the live object back
+    assert await wrapper is obj
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["await", "async with"])
+async def test_entry_failure_spends_the_wrapper_it_closed(path):
+    # a failed __aenter__ strands an acquired object exactly as a cancelled awaiter does, so both
+    # discard paths take the same policy: the object is closed once and the wrapper never hands the
+    # closed object to the next caller
+    obj = FailingEntryObject()
+    wrapper = _AwaitableAsyncContextManager(asyncio.sleep(0, result=obj), preserve_active_error=True)
+
+    with pytest.raises(RuntimeError, match="entry"):
+        async with wrapper:
+            raise AssertionError("body must not run")
+
+    with pytest.raises(RuntimeError, match="spent and cannot resolve again"):
+        await acquire_via(wrapper, path)
+
+    assert obj.close_calls == 1
+    assert obj.exit_calls == 0
 
 
 @pytest.mark.asyncio
@@ -436,6 +460,85 @@ async def test_a_discarded_wrapper_never_hands_the_closed_object_out_again(path)
     with pytest.raises(RuntimeError, match="spent and cannot resolve again"):
         await acquire_via(wrapper, path)
     assert obj.closed == 1
+
+
+class CloselessObject:
+    """The ``connect_async()`` shape: an owned resource pydapper has no way to close.
+
+    ``CommandsAsync`` exposes ``__aenter__``/``__aexit__`` and no ``close()``, so the discard policy
+    cannot clean it up at all.
+    """
+
+    def __init__(self):
+        self.enter_calls = 0
+        self.exit_calls = 0
+
+    async def __aenter__(self):
+        self.enter_calls += 1
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.exit_calls += 1
+        return False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["await", "async with"])
+async def test_a_stranded_object_that_cannot_be_closed_stays_reachable(path):
+    # the discard closed nothing here, so marking the wrapper spent would strand a still-open resource
+    # behind a RuntimeError claiming it was closed -- permanently unreachable instead of merely leaked,
+    # which is worse than the leak the discard exists to prevent. Handing the live object back is the
+    # caller's only remaining route to it.
+    obj = CloselessObject()
+    acquisition = asyncio.get_running_loop().create_future()
+    wrapper = _AwaitableAsyncContextManager(acquisition)
+    task = await parked_on_acquisition(wrapper, path)
+
+    acquisition.set_result(obj)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert await wrapper is obj
+    async with wrapper as entered:
+        assert entered is obj
+    assert obj.enter_calls == 1
+    assert obj.exit_calls == 1
+
+
+class RaisingCloseAttributeObject:
+    """A resource whose ``close`` attribute access itself fails."""
+
+    def __init__(self, error):
+        self.error = error
+
+    @property
+    def close(self):
+        raise self.error
+
+
+@pytest.mark.asyncio
+async def test_a_close_attribute_that_raises_closes_nothing_and_leaves_the_wrapper_usable(caplog):
+    error = ValueError("close attribute failed")
+    obj = RaisingCloseAttributeObject(error)
+    acquisition = asyncio.get_running_loop().create_future()
+    wrapper = _AwaitableAsyncContextManager(acquisition, preserve_active_error=True)
+    task = await parked_on_acquisition(wrapper)
+
+    acquisition.set_result(obj)
+    task.cancel()
+    with caplog.at_level(logging.DEBUG, logger="pydapper._context"):
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    # failing to even resolve close() is a cleanup failure like any other: it loses to the cancellation
+    # and is recorded at DEBUG. Nothing was closed, so the wrapper is not spent.
+    records = debug_records(caplog)
+    assert [record.getMessage() for record in records] == [
+        "Discarding ValueError raised while cleaning up a pydapper-owned resource"
+    ]
+    assert records[0].exc_info[1] is error
+    assert await wrapper is obj
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,7 @@ import textwrap
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -25,6 +26,7 @@ from pydapper import main
 from pydapper._context import _AwaitableAsyncContextManager as _RealAwaitableAsyncContextManager
 from pydapper.bigquery import GoogleBigqueryClientCommands
 from pydapper.capabilities import AdapterCapability
+from pydapper.command_options import CommandOptions
 from pydapper.commands import Commands
 from pydapper.exceptions import MoreThanOneResultException
 from pydapper.mssql import PymssqlCommands
@@ -487,6 +489,100 @@ def _recorded_hook_calls(commands, hook_name):
         setattr(commands, hook_name, real_hook)
 
 
+class _OtherHandlerStandIn:
+    """A forwarding handler stand-in reporting SQL the driver never executes."""
+
+    def __init__(self, handler):
+        self._handler = handler
+
+    def __getattr__(self, name):
+        return getattr(self._handler, name)
+
+    @property
+    def prepared_sql(self):
+        return f"{self._handler.prepared_sql} -- never executed"
+
+
+@contextmanager
+def _other_handler_for_prepare_command(commands, hook_name, awaitable):
+    """Show the prepare-command hook a handler other than the one the driver executes.
+
+    Hook call counts, driver event order, options and cursor identity all stay conformant,
+    so the prepared-handler pairing assertion is the only thing that can catch this one.
+    """
+    real_hook = getattr(commands, hook_name)
+
+    def hook(cursor, handler, **kwargs):
+        return real_hook(cursor, _OtherHandlerStandIn(handler), **kwargs)
+
+    async def hook_async(cursor, handler, **kwargs):
+        await real_hook(cursor, _OtherHandlerStandIn(handler), **kwargs)
+
+    setattr(commands, hook_name, hook_async if awaitable else hook)
+    try:
+        yield
+    finally:
+        setattr(commands, hook_name, real_hook)
+
+
+@contextmanager
+def _handlers_prepared_one_query_late(commands, hook_name, awaitable):
+    """Prepare handler i+1 immediately before executing handler i.
+
+    Every hook call count, the full driver event order, the options and the entered-cursor
+    identity stay exactly conformant: only the pairing between the handler a hook observes
+    and the statement the driver runs next is wrong. That is the ``query_multiple``
+    mis-pairing a false certificate would otherwise hide, and the pairing assertion is the
+    only check in the whole inventory that can see it.
+    """
+    real_hook = getattr(commands, hook_name)
+    real_handler_class = commands.SqlParamHandler
+    handlers = []
+
+    def handler_class(*args, **kwargs):
+        handler = real_handler_class(*args, **kwargs)
+        handlers.append(handler)
+        return handler
+
+    def rotated(handler):
+        return handlers[(handlers.index(handler) + 1) % len(handlers)]
+
+    def hook(cursor, handler, **kwargs):
+        return real_hook(cursor, rotated(handler), **kwargs)
+
+    async def hook_async(cursor, handler, **kwargs):
+        await real_hook(cursor, rotated(handler), **kwargs)
+
+    commands.SqlParamHandler = handler_class
+    setattr(commands, hook_name, hook_async if awaitable else hook)
+    try:
+        yield
+    finally:
+        del commands.SqlParamHandler
+        setattr(commands, hook_name, real_hook)
+
+
+@contextmanager
+def _denormalized_options_for_hook(commands, hook_name, awaitable):
+    """Hand one hook options the caller never asked for instead of the normalized instance."""
+    real_hook = getattr(commands, hook_name)
+    substitute = CommandOptions(max_rows=5)
+
+    def hook(cursor, *args, **kwargs):
+        kwargs["options"] = substitute
+        return real_hook(cursor, *args, **kwargs)
+
+    async def hook_async(cursor, *args, **kwargs):
+        kwargs["options"] = substitute
+        await real_hook(cursor, *args, **kwargs)
+
+    setattr(commands, hook_name, hook_async if awaitable else hook)
+    try:
+        yield
+    finally:
+        setattr(commands, hook_name, real_hook)
+
+
 def _sync_mutation(commands, mutation):
     return mutation(commands, "_prepare_cursor", "_prepare_command", False)
 
@@ -513,10 +609,42 @@ class _SwappedHooksInUnbufferedQueryCommands(MockSyncConformanceCommands):
             yield from super()._unbuffered_query(*args, **kwargs)
 
 
+class _ExtraCursorAfterUnbufferedQueryCommands(MockSyncConformanceCommands):
+    """Acquires a second, never-prepared cursor once the streamed result set is exhausted."""
+
+    def _unbuffered_query(self, *args, **kwargs):
+        yield from super()._unbuffered_query(*args, **kwargs)
+        self.cursor()
+
+
+class _NonEnteredHooksInUnbufferedQueryCommands(MockSyncConformanceCommands):
+    def _unbuffered_query(self, *args, **kwargs):
+        with _non_entered_cursor_for_hook(self, "_prepare_cursor", False):
+            yield from super()._unbuffered_query(*args, **kwargs)
+
+
+class _OtherHandlerInUnbufferedQueryCommands(MockSyncConformanceCommands):
+    def _unbuffered_query(self, *args, **kwargs):
+        with _other_handler_for_prepare_command(self, "_prepare_command", False):
+            yield from super()._unbuffered_query(*args, **kwargs)
+
+
 class _NoHooksInQueryFirstCommands(MockSyncConformanceCommands):
     def query_first(self, *args, **kwargs):
         with _sync_mutation(self, _skipped_hooks):
             return super().query_first(*args, **kwargs)
+
+
+class _NoHooksInQuerySingleCommands(MockSyncConformanceCommands):
+    def query_single(self, *args, **kwargs):
+        with _sync_mutation(self, _skipped_hooks):
+            return super().query_single(*args, **kwargs)
+
+
+class _NoHooksInExecuteScalarCommands(MockSyncConformanceCommands):
+    def execute_scalar(self, *args, **kwargs):
+        with _sync_mutation(self, _skipped_hooks):
+            return super().execute_scalar(*args, **kwargs)
 
 
 class _PerQueryPrepareCursorCommands(MockSyncConformanceCommands):
@@ -531,6 +659,25 @@ class _SwappedHooksInQueryMultipleCommands(MockSyncConformanceCommands):
             return super().query_multiple(*args, **kwargs)
 
 
+class _NonEnteredHooksInQueryMultipleCommands(MockSyncConformanceCommands):
+    def query_multiple(self, *args, **kwargs):
+        with _non_entered_cursor_for_hook(self, "_prepare_cursor", False):
+            return super().query_multiple(*args, **kwargs)
+
+
+class _MispairedHandlersInQueryMultipleCommands(MockSyncConformanceCommands):
+    def query_multiple(self, *args, **kwargs):
+        with _handlers_prepared_one_query_late(self, "_prepare_command", False):
+            return super().query_multiple(*args, **kwargs)
+
+
+class _TruncatedQueryMultipleResultsCommands(MockSyncConformanceCommands):
+    """Runs every query but drops all but the first result set from the return value."""
+
+    def query_multiple(self, *args, **kwargs):
+        return super().query_multiple(*args, **kwargs)[:1]
+
+
 class _NonEnteredPrepareCursorCommands(MockSyncConformanceCommands):
     def _buffered_query(self, *args, **kwargs):
         with _non_entered_cursor_for_hook(self, "_prepare_cursor", False):
@@ -540,6 +687,24 @@ class _NonEnteredPrepareCursorCommands(MockSyncConformanceCommands):
 class _NonEnteredPrepareCommandCommands(MockSyncConformanceCommands):
     def _buffered_query(self, *args, **kwargs):
         with _non_entered_cursor_for_hook(self, "_prepare_command", False):
+            return super()._buffered_query(*args, **kwargs)
+
+
+class _DenormalizedOptionsForPrepareCursorCommands(MockSyncConformanceCommands):
+    def _buffered_query(self, *args, **kwargs):
+        with _denormalized_options_for_hook(self, "_prepare_cursor", False):
+            return super()._buffered_query(*args, **kwargs)
+
+
+class _DenormalizedOptionsForPrepareCommandCommands(MockSyncConformanceCommands):
+    def _buffered_query(self, *args, **kwargs):
+        with _denormalized_options_for_hook(self, "_prepare_command", False):
+            return super()._buffered_query(*args, **kwargs)
+
+
+class _OtherHandlerInBufferedQueryCommands(MockSyncConformanceCommands):
+    def _buffered_query(self, *args, **kwargs):
+        with _other_handler_for_prepare_command(self, "_prepare_command", False):
             return super()._buffered_query(*args, **kwargs)
 
 
@@ -601,10 +766,57 @@ class _SwappedHooksInAsyncUnbufferedQueryCommands(MockAsyncConformanceCommands):
             await inner.aclose()
 
 
+class _ExtraCursorAfterAsyncUnbufferedQueryCommands(MockAsyncConformanceCommands):
+    """Acquires a second, never-prepared cursor once the streamed result set is exhausted."""
+
+    async def _unbuffered_query(self, *args, **kwargs):
+        inner = super()._unbuffered_query(*args, **kwargs)
+        try:
+            async for row in inner:
+                yield row
+        finally:
+            await inner.aclose()
+        await self.cursor()
+
+
+class _NonEnteredHooksInAsyncUnbufferedQueryCommands(MockAsyncConformanceCommands):
+    async def _unbuffered_query(self, *args, **kwargs):
+        inner = super()._unbuffered_query(*args, **kwargs)
+        try:
+            with _non_entered_cursor_for_hook(self, "_prepare_cursor_async", True):
+                async for row in inner:
+                    yield row
+        finally:
+            await inner.aclose()
+
+
+class _OtherHandlerInAsyncUnbufferedQueryCommands(MockAsyncConformanceCommands):
+    async def _unbuffered_query(self, *args, **kwargs):
+        inner = super()._unbuffered_query(*args, **kwargs)
+        try:
+            with _other_handler_for_prepare_command(self, "_prepare_command_async", True):
+                async for row in inner:
+                    yield row
+        finally:
+            await inner.aclose()
+
+
 class _NoHooksInAsyncQueryFirstCommands(MockAsyncConformanceCommands):
     async def query_first_async(self, *args, **kwargs):
         with _async_mutation(self, _skipped_hooks):
             return await super().query_first_async(*args, **kwargs)
+
+
+class _NoHooksInAsyncQuerySingleCommands(MockAsyncConformanceCommands):
+    async def query_single_async(self, *args, **kwargs):
+        with _async_mutation(self, _skipped_hooks):
+            return await super().query_single_async(*args, **kwargs)
+
+
+class _NoHooksInAsyncExecuteScalarCommands(MockAsyncConformanceCommands):
+    async def execute_scalar_async(self, *args, **kwargs):
+        with _async_mutation(self, _skipped_hooks):
+            return await super().execute_scalar_async(*args, **kwargs)
 
 
 class _PerQueryPrepareCursorAsyncCommands(MockAsyncConformanceCommands):
@@ -619,6 +831,25 @@ class _SwappedHooksInAsyncQueryMultipleCommands(MockAsyncConformanceCommands):
             return await super().query_multiple_async(*args, **kwargs)
 
 
+class _NonEnteredHooksInAsyncQueryMultipleCommands(MockAsyncConformanceCommands):
+    async def query_multiple_async(self, *args, **kwargs):
+        with _non_entered_cursor_for_hook(self, "_prepare_cursor_async", True):
+            return await super().query_multiple_async(*args, **kwargs)
+
+
+class _MispairedHandlersInAsyncQueryMultipleCommands(MockAsyncConformanceCommands):
+    async def query_multiple_async(self, *args, **kwargs):
+        with _handlers_prepared_one_query_late(self, "_prepare_command_async", True):
+            return await super().query_multiple_async(*args, **kwargs)
+
+
+class _TruncatedAsyncQueryMultipleResultsCommands(MockAsyncConformanceCommands):
+    """Runs every query but drops all but the first result set from the return value."""
+
+    async def query_multiple_async(self, *args, **kwargs):
+        return (await super().query_multiple_async(*args, **kwargs))[:1]
+
+
 class _NonEnteredPrepareCursorAsyncCommands(MockAsyncConformanceCommands):
     async def _buffered_query(self, *args, **kwargs):
         with _non_entered_cursor_for_hook(self, "_prepare_cursor_async", True):
@@ -628,6 +859,24 @@ class _NonEnteredPrepareCursorAsyncCommands(MockAsyncConformanceCommands):
 class _NonEnteredPrepareCommandAsyncCommands(MockAsyncConformanceCommands):
     async def _buffered_query(self, *args, **kwargs):
         with _non_entered_cursor_for_hook(self, "_prepare_command_async", True):
+            return await super()._buffered_query(*args, **kwargs)
+
+
+class _DenormalizedOptionsForPrepareCursorAsyncCommands(MockAsyncConformanceCommands):
+    async def _buffered_query(self, *args, **kwargs):
+        with _denormalized_options_for_hook(self, "_prepare_cursor_async", True):
+            return await super()._buffered_query(*args, **kwargs)
+
+
+class _DenormalizedOptionsForPrepareCommandAsyncCommands(MockAsyncConformanceCommands):
+    async def _buffered_query(self, *args, **kwargs):
+        with _denormalized_options_for_hook(self, "_prepare_command_async", True):
+            return await super()._buffered_query(*args, **kwargs)
+
+
+class _OtherHandlerInAsyncBufferedQueryCommands(MockAsyncConformanceCommands):
+    async def _buffered_query(self, *args, **kwargs):
+        with _other_handler_for_prepare_command(self, "_prepare_command_async", True):
             return await super()._buffered_query(*args, **kwargs)
 
 
@@ -655,108 +904,293 @@ class _LatePrepareCommandInAsyncQueryFirstCommands(MockAsyncConformanceCommands)
         return result
 
 
-#: (slug, case the mutant must fail, assertion it pins, sync class, async class). Together these
-#: pin every assertion the four new cases add: event order, the preparation prefix, the
-#: once-per-cursor and once-per-handler counts, and entered-cursor identity.
+class _Assertion(NamedTuple):
+    """One assertion the new cases make, plus the text that identifies it in a failure message.
+
+    ``fragment`` is what turns the ``assertion`` column of the table below from a comment into
+    a checked claim: the negative tests require it to appear in the failure the mutant
+    produces, so a row naming the wrong assertion fails instead of quietly drifting.
+    """
+
+    label: str
+    fragment: str
+
+
+_EVENT_ORDER = _Assertion("full driver event order", "expected driver interaction order")
+_PREPARATION_PREFIX = _Assertion(
+    "preparation prefix",
+    "must acquire and enter a cursor, run the preparation hooks in order",
+)
+_ONE_COMMAND_CURSOR = _Assertion("one command-owned cursor", "must acquire exactly one command-owned cursor")
+_PREPARE_CURSOR_ONCE = _Assertion(
+    "once-per-cursor prepare-cursor count",
+    "must run the prepare-cursor hook exactly once per cursor",
+)
+_PREPARE_COMMAND_ONCE = _Assertion(
+    "once-per-handler prepare-command count",
+    "must run the prepare-command hook exactly once per executed handler",
+)
+_PREPARE_CURSOR_ENTERED_CURSOR = _Assertion(
+    "prepare-cursor entered-cursor identity",
+    "prepare-cursor hook must receive the entered cursor object",
+)
+_PREPARE_COMMAND_ENTERED_CURSOR = _Assertion(
+    "prepare-command entered-cursor identity",
+    "prepare-command hook must receive the entered cursor object",
+)
+_PREPARE_CURSOR_NORMALIZED_OPTIONS = _Assertion(
+    "prepare-cursor normalized options",
+    "prepare-cursor hook must receive normalized default CommandOptions",
+)
+_PREPARE_COMMAND_NORMALIZED_OPTIONS = _Assertion(
+    "prepare-command normalized options",
+    "prepare-command hook must receive normalized default CommandOptions",
+)
+_PREPARED_HANDLER_PAIRING = _Assertion(
+    "prepared-handler pairing",
+    "must observe the handler whose prepared SQL is executed next",
+)
+_ONE_RESULT_SET_PER_QUERY = _Assertion(
+    "one result set per query",
+    "must return one result set per query",
+)
+
+
+class _HookOrderMutant(NamedTuple):
+    """One non-conformant adapter, the case it must fail, and the assertion that must fail it."""
+
+    slug: str
+    case_id: str
+    assertion: _Assertion
+    sync_commands: type
+    async_commands: type
+    #: command path whose name must also appear in the failure message, which is what pins the
+    #: individual legs of the single-row case; empty for the framework's own event-order
+    #: assertion, whose message names no path
+    path: str = ""
+
+
+#: Every row is one deliberately non-conformant adapter. The negative tests require it to fail
+#: exactly one case, on exactly the assertion named here (checked against the failure message),
+#: while every other case in the profile still passes.
+#:
+#: Between them these rows pin every assertion-helper invocation the four new cases add and every
+#: check inside those helpers: delete any one of them from ``_cases_sync.py``/``_cases_async.py``
+#: and at least one row below stops failing. The remaining checks in the four cases are
+#: defence-in-depth and are deliberately *not* pinned here, because a violation that reaches them
+#: is already rejected by a case that predates this change:
+#:
+#: * the unconsumed-unbuffered ``kinds() == ()`` check -- both hooks run inside the cursor block,
+#:   so running them before consumption means acquiring a cursor before consumption, which
+#:   ``lifecycle.unbuffered-exhaustion-cleanup`` already rejects (an adapter that violates it
+#:   therefore fails two cases, which is why no row here can pin it narrowly);
+#: * the projection checks in the buffered and unbuffered cases -- ``rows.query-buffered`` and
+#:   ``rows.query-unbuffered`` own row mapping, so the same is true of them.
 _HOOK_ORDER_MUTANTS = (
-    (
-        "swapped-hooks-buffered",
-        "lifecycle.hook-order-buffered-query",
-        "event order",
-        _SwappedHooksInBufferedQueryCommands,
-        _SwappedHooksInAsyncBufferedQueryCommands,
+    _HookOrderMutant(
+        slug="swapped-hooks-buffered",
+        case_id="lifecycle.hook-order-buffered-query",
+        assertion=_EVENT_ORDER,
+        sync_commands=_SwappedHooksInBufferedQueryCommands,
+        async_commands=_SwappedHooksInAsyncBufferedQueryCommands,
     ),
-    (
-        "non-entered-prepare-cursor",
-        "lifecycle.hook-order-buffered-query",
-        "prepare-cursor entered-cursor identity",
-        _NonEnteredPrepareCursorCommands,
-        _NonEnteredPrepareCursorAsyncCommands,
+    _HookOrderMutant(
+        slug="non-entered-prepare-cursor",
+        case_id="lifecycle.hook-order-buffered-query",
+        assertion=_PREPARE_CURSOR_ENTERED_CURSOR,
+        sync_commands=_NonEnteredPrepareCursorCommands,
+        async_commands=_NonEnteredPrepareCursorAsyncCommands,
+        path="buffered query",
     ),
-    (
-        "non-entered-prepare-command",
-        "lifecycle.hook-order-buffered-query",
-        "prepare-command entered-cursor identity",
-        _NonEnteredPrepareCommandCommands,
-        _NonEnteredPrepareCommandAsyncCommands,
+    _HookOrderMutant(
+        slug="non-entered-prepare-command",
+        case_id="lifecycle.hook-order-buffered-query",
+        assertion=_PREPARE_COMMAND_ENTERED_CURSOR,
+        sync_commands=_NonEnteredPrepareCommandCommands,
+        async_commands=_NonEnteredPrepareCommandAsyncCommands,
+        path="buffered query",
     ),
-    (
-        "no-hooks-unbuffered",
-        "lifecycle.hook-order-unbuffered-query",
-        "once-per-cursor count",
-        _NoHooksInUnbufferedQueryCommands,
-        _NoHooksInAsyncUnbufferedQueryCommands,
+    _HookOrderMutant(
+        slug="denormalized-options-prepare-cursor",
+        case_id="lifecycle.hook-order-buffered-query",
+        assertion=_PREPARE_CURSOR_NORMALIZED_OPTIONS,
+        sync_commands=_DenormalizedOptionsForPrepareCursorCommands,
+        async_commands=_DenormalizedOptionsForPrepareCursorAsyncCommands,
+        path="buffered query",
     ),
-    (
-        "swapped-hooks-unbuffered",
-        "lifecycle.hook-order-unbuffered-query",
-        "event order (the only check that can see this one)",
-        _SwappedHooksInUnbufferedQueryCommands,
-        _SwappedHooksInAsyncUnbufferedQueryCommands,
+    _HookOrderMutant(
+        slug="denormalized-options-prepare-command",
+        case_id="lifecycle.hook-order-buffered-query",
+        assertion=_PREPARE_COMMAND_NORMALIZED_OPTIONS,
+        sync_commands=_DenormalizedOptionsForPrepareCommandCommands,
+        async_commands=_DenormalizedOptionsForPrepareCommandAsyncCommands,
+        path="buffered query",
     ),
-    (
-        "no-hooks-query-first",
-        "lifecycle.hook-order-single-row-commands",
-        "preparation prefix",
-        _NoHooksInQueryFirstCommands,
-        _NoHooksInAsyncQueryFirstCommands,
+    _HookOrderMutant(
+        slug="other-handler-buffered",
+        case_id="lifecycle.hook-order-buffered-query",
+        assertion=_PREPARED_HANDLER_PAIRING,
+        sync_commands=_OtherHandlerInBufferedQueryCommands,
+        async_commands=_OtherHandlerInAsyncBufferedQueryCommands,
+        path="buffered query",
     ),
-    (
-        "swapped-hooks-query-first",
-        "lifecycle.hook-order-single-row-commands",
-        "preparation prefix (the only check that can see this one)",
-        _SwappedHooksInQueryFirstCommands,
-        _SwappedHooksInAsyncQueryFirstCommands,
+    _HookOrderMutant(
+        slug="no-hooks-unbuffered",
+        case_id="lifecycle.hook-order-unbuffered-query",
+        assertion=_PREPARATION_PREFIX,
+        sync_commands=_NoHooksInUnbufferedQueryCommands,
+        async_commands=_NoHooksInAsyncUnbufferedQueryCommands,
+        path="unbuffered query",
     ),
-    (
-        "late-prepare-cursor-query-first",
-        "lifecycle.hook-order-single-row-commands",
-        "once-per-cursor count",
-        _LatePrepareCursorInQueryFirstCommands,
-        _LatePrepareCursorInAsyncQueryFirstCommands,
+    _HookOrderMutant(
+        slug="swapped-hooks-unbuffered",
+        case_id="lifecycle.hook-order-unbuffered-query",
+        assertion=_PREPARATION_PREFIX,
+        sync_commands=_SwappedHooksInUnbufferedQueryCommands,
+        async_commands=_SwappedHooksInAsyncUnbufferedQueryCommands,
+        path="unbuffered query",
     ),
-    (
-        "late-prepare-command-query-first",
-        "lifecycle.hook-order-single-row-commands",
-        "once-per-handler count",
-        _LatePrepareCommandInQueryFirstCommands,
-        _LatePrepareCommandInAsyncQueryFirstCommands,
+    _HookOrderMutant(
+        slug="extra-cursor-unbuffered",
+        case_id="lifecycle.hook-order-unbuffered-query",
+        assertion=_ONE_COMMAND_CURSOR,
+        sync_commands=_ExtraCursorAfterUnbufferedQueryCommands,
+        async_commands=_ExtraCursorAfterAsyncUnbufferedQueryCommands,
+        path="unbuffered query",
     ),
-    (
-        "per-query-prepare-cursor",
-        "lifecycle.hook-order-query-multiple",
-        "once-per-cursor count",
-        _PerQueryPrepareCursorCommands,
-        _PerQueryPrepareCursorAsyncCommands,
+    _HookOrderMutant(
+        slug="non-entered-hooks-unbuffered",
+        case_id="lifecycle.hook-order-unbuffered-query",
+        assertion=_PREPARE_CURSOR_ENTERED_CURSOR,
+        sync_commands=_NonEnteredHooksInUnbufferedQueryCommands,
+        async_commands=_NonEnteredHooksInAsyncUnbufferedQueryCommands,
+        path="unbuffered query",
     ),
-    (
-        "swapped-hooks-query-multiple",
-        "lifecycle.hook-order-query-multiple",
-        "event order (the only check that can see this one)",
-        _SwappedHooksInQueryMultipleCommands,
-        _SwappedHooksInAsyncQueryMultipleCommands,
+    _HookOrderMutant(
+        slug="other-handler-unbuffered",
+        case_id="lifecycle.hook-order-unbuffered-query",
+        assertion=_PREPARED_HANDLER_PAIRING,
+        sync_commands=_OtherHandlerInUnbufferedQueryCommands,
+        async_commands=_OtherHandlerInAsyncUnbufferedQueryCommands,
+        path="unbuffered query",
+    ),
+    _HookOrderMutant(
+        slug="no-hooks-query-first",
+        case_id="lifecycle.hook-order-single-row-commands",
+        assertion=_PREPARATION_PREFIX,
+        sync_commands=_NoHooksInQueryFirstCommands,
+        async_commands=_NoHooksInAsyncQueryFirstCommands,
+        path="query_first",
+    ),
+    _HookOrderMutant(
+        slug="swapped-hooks-query-first",
+        case_id="lifecycle.hook-order-single-row-commands",
+        assertion=_PREPARATION_PREFIX,
+        sync_commands=_SwappedHooksInQueryFirstCommands,
+        async_commands=_SwappedHooksInAsyncQueryFirstCommands,
+        path="query_first",
+    ),
+    _HookOrderMutant(
+        slug="late-prepare-cursor-query-first",
+        case_id="lifecycle.hook-order-single-row-commands",
+        assertion=_PREPARE_CURSOR_ONCE,
+        sync_commands=_LatePrepareCursorInQueryFirstCommands,
+        async_commands=_LatePrepareCursorInAsyncQueryFirstCommands,
+        path="query_first",
+    ),
+    _HookOrderMutant(
+        slug="late-prepare-command-query-first",
+        case_id="lifecycle.hook-order-single-row-commands",
+        assertion=_PREPARE_COMMAND_ONCE,
+        sync_commands=_LatePrepareCommandInQueryFirstCommands,
+        async_commands=_LatePrepareCommandInAsyncQueryFirstCommands,
+        path="query_first",
+    ),
+    _HookOrderMutant(
+        slug="no-hooks-query-single",
+        case_id="lifecycle.hook-order-single-row-commands",
+        assertion=_PREPARATION_PREFIX,
+        sync_commands=_NoHooksInQuerySingleCommands,
+        async_commands=_NoHooksInAsyncQuerySingleCommands,
+        path="query_single",
+    ),
+    _HookOrderMutant(
+        slug="no-hooks-execute-scalar",
+        case_id="lifecycle.hook-order-single-row-commands",
+        assertion=_PREPARATION_PREFIX,
+        sync_commands=_NoHooksInExecuteScalarCommands,
+        async_commands=_NoHooksInAsyncExecuteScalarCommands,
+        path="execute_scalar",
+    ),
+    _HookOrderMutant(
+        slug="per-query-prepare-cursor",
+        case_id="lifecycle.hook-order-query-multiple",
+        assertion=_EVENT_ORDER,
+        sync_commands=_PerQueryPrepareCursorCommands,
+        async_commands=_PerQueryPrepareCursorAsyncCommands,
+    ),
+    _HookOrderMutant(
+        slug="swapped-hooks-query-multiple",
+        case_id="lifecycle.hook-order-query-multiple",
+        assertion=_EVENT_ORDER,
+        sync_commands=_SwappedHooksInQueryMultipleCommands,
+        async_commands=_SwappedHooksInAsyncQueryMultipleCommands,
+    ),
+    _HookOrderMutant(
+        slug="non-entered-hooks-query-multiple",
+        case_id="lifecycle.hook-order-query-multiple",
+        assertion=_PREPARE_CURSOR_ENTERED_CURSOR,
+        sync_commands=_NonEnteredHooksInQueryMultipleCommands,
+        async_commands=_NonEnteredHooksInAsyncQueryMultipleCommands,
+        path="query_multiple",
+    ),
+    _HookOrderMutant(
+        slug="mispaired-handlers-query-multiple",
+        case_id="lifecycle.hook-order-query-multiple",
+        assertion=_PREPARED_HANDLER_PAIRING,
+        sync_commands=_MispairedHandlersInQueryMultipleCommands,
+        async_commands=_MispairedHandlersInAsyncQueryMultipleCommands,
+        path="query_multiple",
+    ),
+    _HookOrderMutant(
+        slug="truncated-query-multiple-results",
+        case_id="lifecycle.hook-order-query-multiple",
+        assertion=_ONE_RESULT_SET_PER_QUERY,
+        sync_commands=_TruncatedQueryMultipleResultsCommands,
+        async_commands=_TruncatedAsyncQueryMultipleResultsCommands,
+        path="query_multiple",
     ),
 )
 
-_HOOK_ORDER_MUTANT_IDS = [mutant[0] for mutant in _HOOK_ORDER_MUTANTS]
-_SYNC_HOOK_ORDER_MUTANTS = [(mutant[0], mutant[1], mutant[3]) for mutant in _HOOK_ORDER_MUTANTS]
-_ASYNC_HOOK_ORDER_MUTANTS = [(mutant[0], mutant[1], mutant[4]) for mutant in _HOOK_ORDER_MUTANTS]
+
+_HOOK_ORDER_MUTANT_IDS = [mutant.slug for mutant in _HOOK_ORDER_MUTANTS]
 
 
-def _assert_only_the_named_hook_case_failed(report, expected_case_id):
+def _expected_message_fragments(mutant):
+    if mutant.path:
+        return (mutant.assertion.fragment, mutant.path)
+    return (mutant.assertion.fragment,)
+
+
+def _assert_only_the_named_hook_case_failed(report, mutant):
     failed_ids = {failure.case_id for failure in report.failures}
-    assert failed_ids == {expected_case_id}, "the mutant must be caught, and caught narrowly, by its own case"
+    assert failed_ids == {mutant.case_id}, "the mutant must be caught, and caught narrowly, by its own case"
     passed_ids = {result.case_id for result in report.results if result.passed}
     assert "lifecycle.hook-order" in passed_ids, "the pre-existing execute-path case cannot see query-path hooks"
-    named = next(failure for failure in report.failures if failure.case_id == expected_case_id)
-    assert named.message
+    named = next(failure for failure in report.failures if failure.case_id == mutant.case_id)
+    for fragment in _expected_message_fragments(mutant):
+        # failing the right case on the *wrong* assertion proves nothing about the assertion the
+        # table says this row pins, so the failure message has to match it too
+        assert fragment in named.message, (
+            f"{mutant.slug} must fail {mutant.case_id} on the {mutant.assertion.label} assertion "
+            f"the table names for it: expected {fragment!r} in {named.message!r}"
+        )
 
 
-@pytest.mark.parametrize("slug,expected_case_id,commands_class", _SYNC_HOOK_ORDER_MUTANTS, ids=_HOOK_ORDER_MUTANT_IDS)
-def test_query_path_hook_ordering_mutant_fails_its_named_case(
-    isolated_registry, slug, expected_case_id, commands_class
-):
-    name = f"conformance-mock-{slug}"
+@pytest.mark.parametrize("mutant", _HOOK_ORDER_MUTANTS, ids=_HOOK_ORDER_MUTANT_IDS)
+def test_query_path_hook_ordering_mutant_fails_its_named_case(isolated_registry, mutant):
+    name = f"conformance-mock-{mutant.slug}"
+    commands_class = mutant.sync_commands
     _register_mock_sync(name=name, commands=commands_class)
 
     class _Harness(MockSyncConformanceHarness):
@@ -767,15 +1201,14 @@ def test_query_path_hook_ordering_mutant_fails_its_named_case(
         def create_commands(self):
             return commands_class(FakeSyncConnection(seeded_mini_db()))
 
-    _assert_only_the_named_hook_case_failed(run_core_sync(_Harness()), expected_case_id)
+    _assert_only_the_named_hook_case_failed(run_core_sync(_Harness()), mutant)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("slug,expected_case_id,commands_class", _ASYNC_HOOK_ORDER_MUTANTS, ids=_HOOK_ORDER_MUTANT_IDS)
-async def test_async_query_path_hook_ordering_mutant_fails_its_named_case(
-    isolated_registry, slug, expected_case_id, commands_class
-):
-    name = f"conformance-mock-{slug}-async"
+@pytest.mark.parametrize("mutant", _HOOK_ORDER_MUTANTS, ids=_HOOK_ORDER_MUTANT_IDS)
+async def test_async_query_path_hook_ordering_mutant_fails_its_named_case(isolated_registry, mutant):
+    name = f"conformance-mock-{mutant.slug}-async"
+    commands_class = mutant.async_commands
     _register_mock_async(name=name, async_commands=commands_class)
 
     class _Harness(MockAsyncConformanceHarness):
@@ -786,7 +1219,7 @@ async def test_async_query_path_hook_ordering_mutant_fails_its_named_case(
         async def create_commands(self):
             return commands_class(FakeAsyncConnection(seeded_mini_db()))
 
-    _assert_only_the_named_hook_case_failed(await run_core_async(_Harness()), expected_case_id)
+    _assert_only_the_named_hook_case_failed(await run_core_async(_Harness()), mutant)
 
 
 class _InvalidCapabilityCommands(MockSyncConformanceCommands):
@@ -1521,6 +1954,13 @@ def test_check_event_order_helper_reports_the_observed_order(isolated_registry):
     with pytest.raises(CaseCheckError) as exc_info:
         ctx.check_event_order(connection.log, ("execute",))
     assert "expected driver interaction order" in str(exc_info.value)
+
+    # the helper is an *exact* order assertion, not a prefix one: cases that mean to pin only
+    # the preparation prefix say so with their own prefix check, and every other case relies on
+    # trailing interactions being rejected here
+    with pytest.raises(CaseCheckError) as prefix_info:
+        ctx.check_event_order(connection.log, observed[:-1])
+    assert "expected driver interaction order" in str(prefix_info.value)
 
 
 def test_conformance_failure_error_tolerates_a_report_without_failures():

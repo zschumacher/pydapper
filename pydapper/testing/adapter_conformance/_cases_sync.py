@@ -504,10 +504,12 @@ def _lifecycle_hook_order_unbuffered_query(ctx: SyncCaseContext) -> None:
     )
     rows = list(generator)
     ctx.check(rows == [{"id": 1, "label": "alpha"}, {"id": 2, "label": "beta"}], f"unexpected projection {rows!r}")
-    ctx.check_event_order(
-        connection.log,
-        ("cursor", "enter", "prepare_cursor", "prepare_command", "execute", "fetchone", "fetchone", "fetchone", "exit"),
-    )
+    # only the preparation prefix is pinned: how an adapter drains an unbuffered result set
+    # (one fetchone per row, fetchmany batches, a driver-side iterator) is a fetch-strategy
+    # choice this case is not about, and pinning the whole sequence would fail a conformant
+    # adapter for making a different one. The prefix still proves no row is fetched before
+    # both hooks have run, and the helpers below still bound how often each hook may run.
+    _check_preparation_prefix(ctx, connection, "unbuffered query")
     _check_hooks_prepared_the_entered_cursor(ctx, connection, "unbuffered query")
     _check_prepared_handlers_reach_the_driver(ctx, connection, "unbuffered query")
 

@@ -32,8 +32,9 @@ owns a cursor — `execute`, buffered `query`, unbuffered `query`, `query_first`
 and `query_multiple` — because each opens its own cursor block: `_prepare_cursor` must run exactly once per
 command-owned cursor and `_prepare_command` exactly once per executed handler, both on the *entered* cursor and
 both before that handler reaches the driver (`query_multiple` therefore prepares one cursor and N handlers).
-These cases constrain preparation, not fetching: how an adapter drains an unbuffered result set (one `fetchone`
-per row, `fetchmany` batches, a driver-side iterator) is its own choice and no hook-ordering case asserts it.
+These cases constrain preparation and how often a statement runs — every single-statement path must execute
+exactly once — but not fetching: how an adapter drains an unbuffered result set (one `fetchone` per row,
+`fetchmany` batches, a driver-side iterator) is its own choice and no hook-ordering case asserts it.
 
 Cases are either **live** (they run through your real database resources) or **instrumented** (they wrap your
 real concrete command class around framework-owned recording and fault-injection connections, so cursor counts,

@@ -600,6 +600,35 @@ def _denormalized_options_for_hook(commands, hook_name, awaitable):
         setattr(commands, hook_name, real_hook)
 
 
+@contextmanager
+def _statement_executed_twice(commands, hook_name, awaitable):
+    """Run the whole prepare-command-then-execute pair twice for every handler.
+
+    Everything else stays conformant: one cursor, one prepare-cursor call, the preparation
+    hooks still run in order on the entered cursor before any row is fetched, every execution
+    is still immediately preceded by a prepare-command call observing the handler that runs
+    next, and the rows are still drained exactly once. Only the statement runs twice, which
+    is invisible to a case that pins the preparation *prefix* and leaves the drain unpinned.
+    """
+    real_hook = getattr(commands, hook_name)
+
+    def hook(cursor, handler, **kwargs):
+        real_hook(cursor, handler, **kwargs)
+        handler.execute(cursor)
+        return real_hook(cursor, handler, **kwargs)
+
+    async def hook_async(cursor, handler, **kwargs):
+        await real_hook(cursor, handler, **kwargs)
+        await handler.execute_async(cursor)
+        await real_hook(cursor, handler, **kwargs)
+
+    setattr(commands, hook_name, hook_async if awaitable else hook)
+    try:
+        yield
+    finally:
+        setattr(commands, hook_name, real_hook)
+
+
 def _sync_mutation(commands, mutation):
     return mutation(commands, "_prepare_cursor", "_prepare_command", False)
 
@@ -626,6 +655,14 @@ class _SwappedHooksInUnbufferedQueryCommands(MockSyncConformanceCommands):
             yield from super()._unbuffered_query(*args, **kwargs)
 
 
+class _DoubleExecuteInUnbufferedQueryCommands(MockSyncConformanceCommands):
+    """Prepares and runs the same statement twice before draining the result set once."""
+
+    def _unbuffered_query(self, *args, **kwargs):
+        with _statement_executed_twice(self, "_prepare_command", False):
+            yield from super()._unbuffered_query(*args, **kwargs)
+
+
 class _ExtraCursorAfterUnbufferedQueryCommands(MockSyncConformanceCommands):
     """Acquires a second, never-prepared cursor once the streamed result set is exhausted."""
 
@@ -649,6 +686,14 @@ class _OtherHandlerInUnbufferedQueryCommands(MockSyncConformanceCommands):
 class _NoHooksInQueryFirstCommands(MockSyncConformanceCommands):
     def query_first(self, *args, **kwargs):
         with _sync_mutation(self, _skipped_hooks):
+            return super().query_first(*args, **kwargs)
+
+
+class _DoubleExecuteInQueryFirstCommands(MockSyncConformanceCommands):
+    """Prepares and runs the same statement twice before reading the first row once."""
+
+    def query_first(self, *args, **kwargs):
+        with _statement_executed_twice(self, "_prepare_command", False):
             return super().query_first(*args, **kwargs)
 
 
@@ -783,6 +828,19 @@ class _SwappedHooksInAsyncUnbufferedQueryCommands(MockAsyncConformanceCommands):
             await inner.aclose()
 
 
+class _DoubleExecuteInAsyncUnbufferedQueryCommands(MockAsyncConformanceCommands):
+    """Prepares and runs the same statement twice before draining the result set once."""
+
+    async def _unbuffered_query(self, *args, **kwargs):
+        inner = super()._unbuffered_query(*args, **kwargs)
+        try:
+            with _statement_executed_twice(self, "_prepare_command_async", True):
+                async for row in inner:
+                    yield row
+        finally:
+            await inner.aclose()
+
+
 class _ExtraCursorAfterAsyncUnbufferedQueryCommands(MockAsyncConformanceCommands):
     """Acquires a second, never-prepared cursor once the streamed result set is exhausted."""
 
@@ -821,6 +879,14 @@ class _OtherHandlerInAsyncUnbufferedQueryCommands(MockAsyncConformanceCommands):
 class _NoHooksInAsyncQueryFirstCommands(MockAsyncConformanceCommands):
     async def query_first_async(self, *args, **kwargs):
         with _async_mutation(self, _skipped_hooks):
+            return await super().query_first_async(*args, **kwargs)
+
+
+class _DoubleExecuteInAsyncQueryFirstCommands(MockAsyncConformanceCommands):
+    """Prepares and runs the same statement twice before reading the first row once."""
+
+    async def query_first_async(self, *args, **kwargs):
+        with _statement_executed_twice(self, "_prepare_command_async", True):
             return await super().query_first_async(*args, **kwargs)
 
 
@@ -947,6 +1013,10 @@ _PREPARE_COMMAND_ONCE = _Assertion(
     "once-per-handler prepare-command count",
     "must run the prepare-command hook exactly once per executed handler",
 )
+_STATEMENT_EXECUTED_ONCE = _Assertion(
+    "exactly-one-execution count",
+    "must execute its statement exactly once",
+)
 _PREPARE_CURSOR_ENTERED_CURSOR = _Assertion(
     "prepare-cursor entered-cursor identity",
     "prepare-cursor hook must receive the entered cursor object",
@@ -1068,6 +1138,14 @@ _HOOK_ORDER_MUTANTS = (
         path="unbuffered query",
     ),
     _HookOrderMutant(
+        slug="double-execute-unbuffered",
+        case_id="lifecycle.hook-order-unbuffered-query",
+        assertion=_STATEMENT_EXECUTED_ONCE,
+        sync_commands=_DoubleExecuteInUnbufferedQueryCommands,
+        async_commands=_DoubleExecuteInAsyncUnbufferedQueryCommands,
+        path="unbuffered query",
+    ),
+    _HookOrderMutant(
         slug="extra-cursor-unbuffered",
         case_id="lifecycle.hook-order-unbuffered-query",
         assertion=_ONE_COMMAND_CURSOR,
@@ -1105,6 +1183,14 @@ _HOOK_ORDER_MUTANTS = (
         assertion=_PREPARATION_PREFIX,
         sync_commands=_SwappedHooksInQueryFirstCommands,
         async_commands=_SwappedHooksInAsyncQueryFirstCommands,
+        path="query_first",
+    ),
+    _HookOrderMutant(
+        slug="double-execute-query-first",
+        case_id="lifecycle.hook-order-single-row-commands",
+        assertion=_STATEMENT_EXECUTED_ONCE,
+        sync_commands=_DoubleExecuteInQueryFirstCommands,
+        async_commands=_DoubleExecuteInAsyncQueryFirstCommands,
         path="query_first",
     ),
     _HookOrderMutant(

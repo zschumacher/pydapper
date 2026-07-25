@@ -453,6 +453,22 @@ def _check_preparation_prefix(ctx: AsyncCaseContext, connection: Any, path: str)
     )
 
 
+def _check_executed_exactly_once(ctx: AsyncCaseContext, connection: Any, path: str) -> None:
+    """Framework check: a single-statement path runs that statement exactly once.
+
+    This is the constraint a path pinned by the preparation prefix would otherwise lose. A
+    path that runs prepare-command plus execute twice and then drains once keeps the prefix
+    intact, keeps one prepare-cursor call, and still pairs one prepare-command call with each
+    execution, so nothing else in the inventory can see the repeated execution. Counting
+    executions catches it without saying anything about how the rows are fetched.
+    """
+    executions = connection.log.count("execute")
+    ctx.check(
+        executions == 1,
+        f"the {path} path must execute its statement exactly once; saw {executions}",
+    )
+
+
 def _check_hooks_prepared_the_entered_cursor(ctx: AsyncCaseContext, connection: Any, path: str) -> None:
     """Framework check: one prepare-cursor call per cursor, and every hook saw the entered cursor.
 
@@ -545,12 +561,14 @@ async def _lifecycle_hook_order_unbuffered_query(ctx: AsyncCaseContext) -> None:
     )
     rows = [row async for row in generator]
     ctx.check(rows == [{"id": 1, "label": "alpha"}, {"id": 2, "label": "beta"}], f"unexpected projection {rows!r}")
-    # only the preparation prefix is pinned: how an adapter drains an unbuffered result set
-    # (one fetchone per row, fetchmany batches, a driver-side iterator) is a fetch-strategy
-    # choice this case is not about, and pinning the whole sequence would fail a conformant
-    # adapter for making a different one. The prefix still proves no row is fetched before
-    # both hooks have run, and the helpers below still bound how often each hook may run.
+    # this case pins the preparation ordering and that the statement runs exactly once; it
+    # deliberately does not pin how the rows are drained, because that (one fetchone per row,
+    # fetchmany batches, a driver-side iterator) is a fetch-strategy choice, and pinning the
+    # whole sequence would fail a conformant adapter for making a different one. The prefix
+    # still proves no row is fetched before both hooks have run, and the helpers below still
+    # bound how often each hook, and the statement itself, may run.
     _check_preparation_prefix(ctx, connection, "async unbuffered query")
+    _check_executed_exactly_once(ctx, connection, "async unbuffered query")
     _check_hooks_prepared_the_entered_cursor(ctx, connection, "async unbuffered query")
     _check_prepared_handlers_reach_the_driver(ctx, connection, "async unbuffered query")
 
@@ -563,14 +581,16 @@ async def _lifecycle_hook_order_unbuffered_query(ctx: AsyncCaseContext) -> None:
 )
 async def _lifecycle_hook_order_single_row_commands(ctx: AsyncCaseContext) -> None:
     # every single-row family owns its own cursor block, so each is a distinct preparation path;
-    # only the prefix is pinned because documented adapter-specific traffic legitimately follows
-    # the execution
+    # the fetch traffic is left unpinned because documented adapter-specific traffic legitimately
+    # follows the execution, so each leg pins the preparation prefix plus the execution count
+    # instead of the whole event sequence
     for method_name in ("query_first_async", "query_single_async", "execute_scalar_async"):
         connection = ctx.recording_connection(CursorScript(rows=((1, "alpha"),)))
         commands = ctx.instrumented_commands(connection)
         ctx.install_hook_recorder(commands, connection.log)
         await getattr(commands, method_name)("SELECT id, label FROM t WHERE id = ?id?", params={"id": 1})
         _check_preparation_prefix(ctx, connection, method_name)
+        _check_executed_exactly_once(ctx, connection, method_name)
         _check_hooks_prepared_the_entered_cursor(ctx, connection, method_name)
         _check_prepared_handlers_reach_the_driver(ctx, connection, method_name)
 

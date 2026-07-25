@@ -212,6 +212,23 @@ def test_sqlite_in_memory_core_sync_harness_passes(isolated_registry, tmp_path):
     assert report.passed, [(f.case_id, f.message) for f in report.failures]
     assert report.adapter_name == "sqlite3"
     assert report.command_class_name.endswith("Sqlite3Commands")
+    # Sqlite3Commands declares TRANSACTIONS, so the runner appends the production
+    # transactions profile after the core inventory — live supported-adapter coverage
+    transaction_results = [result for result in report.results if result.profile_id == "transactions"]
+    expected_ids = [case.case_id for case in capability_profiles()[AdapterCapability.TRANSACTIONS].sync_cases]
+    assert [result.case_id for result in transaction_results] == expected_ids
+    assert all(result.passed for result in transaction_results)
+
+
+def test_non_declaring_adapter_is_never_run_against_the_transactions_profile(isolated_registry):
+    """The unsupported half of the capability contract: an adapter that does not declare
+    TRANSACTIONS passes core conformance without the transactions profile ever running."""
+    _register_mock_sync()
+    report = run_core_sync(MockSyncConformanceHarness())
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+    assert MockSyncConformanceCommands.capabilities == frozenset()
+    assert [result for result in report.results if result.profile_id == "transactions"] == []
+    assert len(report.results) == len(core_sync_profile().sync_cases)
 
 
 def test_pass_fail_ordering_is_deterministic(isolated_registry):
@@ -362,62 +379,68 @@ class _DeclaredTransactionsCommands(MockSyncConformanceCommands):
     capabilities = frozenset({AdapterCapability.TRANSACTIONS})
 
 
+class _DeclaredRawReaderCommands(MockSyncConformanceCommands):
+    capabilities = frozenset({AdapterCapability.RAW_READER})
+
+
 def test_declared_capability_without_profile_fails_clearly(isolated_registry):
-    name = "conformance-mock-declared-txn"
-    _register_mock_sync(name=name, commands=_DeclaredTransactionsCommands)
+    name = "conformance-mock-declared-raw"
+    _register_mock_sync(name=name, commands=_DeclaredRawReaderCommands)
 
     class _Harness(MockSyncConformanceHarness):
         adapter_name = name
-        command_class = _DeclaredTransactionsCommands
+        command_class = _DeclaredRawReaderCommands
         connect_dsn = f"sqlite+{name}://mock"
 
         def create_commands(self):
-            return _DeclaredTransactionsCommands(FakeSyncConnection(seeded_mini_db()))
+            return _DeclaredRawReaderCommands(FakeSyncConnection(seeded_mini_db()))
 
     report = run_core_sync(_Harness())
     failed_ids = [failure.case_id for failure in report.failures]
     assert failed_ids == ["capabilities.declared-profile-populated"], failed_ids
     named = report.failures[0]
-    assert "transactions" in named.message
+    assert "raw_reader" in named.message
     assert named.profile_id == CORE_SYNC
 
 
 def test_synthetic_capability_profile_runs_but_cannot_cover_a_declaration(isolated_registry):
     """A test-local synthetic profile runs its cases, but only the production catalog
     can satisfy the declared-capability honesty check — injection is not a bypass."""
-    name = "conformance-mock-synth-txn"
-    _register_mock_sync(name=name, commands=_DeclaredTransactionsCommands)
+    name = "conformance-mock-synth-raw"
+    _register_mock_sync(name=name, commands=_DeclaredRawReaderCommands)
 
     class _Harness(MockSyncConformanceHarness):
         adapter_name = name
-        command_class = _DeclaredTransactionsCommands
+        command_class = _DeclaredRawReaderCommands
         connect_dsn = f"sqlite+{name}://mock"
 
         def create_commands(self):
-            return _DeclaredTransactionsCommands(FakeSyncConnection(seeded_mini_db()))
+            return _DeclaredRawReaderCommands(FakeSyncConnection(seeded_mini_db()))
 
     ran = []
 
-    def _txn_case(ctx):
+    def _raw_case(ctx):
         ran.append(ctx.case_id)
         commands = ctx.command_class(FakeSyncConnection())
-        ctx.check(commands.supports(AdapterCapability.TRANSACTIONS), "declared capability must be supported")
+        ctx.check(commands.supports(AdapterCapability.RAW_READER), "declared capability must be supported")
 
     synthetic = ConformanceProfile(
-        profile_id="transactions",
-        capability=AdapterCapability.TRANSACTIONS,
-        sync_cases=(SyncCase("transactions.smoke", "synthetic transactions case", "instrumented", _txn_case),),
+        profile_id="raw_reader",
+        capability=AdapterCapability.RAW_READER,
+        sync_cases=(SyncCase("raw_reader.smoke", "synthetic raw reader case", "instrumented", _raw_case),),
     )
-    report = run_core_sync(_Harness(), capability_catalog={AdapterCapability.TRANSACTIONS: synthetic})
-    assert ran == ["transactions.smoke"], "the injected profile's cases must actually run"
-    synthetic_results = [result for result in report.results if result.profile_id == "transactions"]
-    assert [result.case_id for result in synthetic_results] == ["transactions.smoke"]
+    report = run_core_sync(_Harness(), capability_catalog={AdapterCapability.RAW_READER: synthetic})
+    assert ran == ["raw_reader.smoke"], "the injected profile's cases must actually run"
+    synthetic_results = [result for result in report.results if result.profile_id == "raw_reader"]
+    assert [result.case_id for result in synthetic_results] == ["raw_reader.smoke"]
     assert synthetic_results[0].passed
     # the declaration honesty case still fails: the production catalog has no
-    # transactions profile, and an injected catalog can never make one appear covered
+    # raw_reader profile, and an injected catalog can never make one appear covered
     failed_ids = [failure.case_id for failure in report.failures]
     assert failed_ids == ["capabilities.declared-profile-populated"], failed_ids
-    assert capability_profiles() == {}, "the production catalog must stay empty until a capability ships"
+    assert (
+        AdapterCapability.RAW_READER not in capability_profiles()
+    ), "the production catalog must not cover a capability until its feature ships"
 
 
 def test_option_probes_cannot_be_waived_by_declaration_alone(isolated_registry):
@@ -465,9 +488,16 @@ def test_option_probes_cannot_be_waived_by_declaration_alone(isolated_registry):
     assert not report.passed
 
 
-def test_production_capability_catalog_is_empty_and_immutable():
+def test_production_capability_catalog_ships_transactions_and_is_immutable():
     catalog = capability_profiles()
-    assert dict(catalog) == {}
+    assert set(catalog) == {AdapterCapability.TRANSACTIONS}
+    profile = catalog[AdapterCapability.TRANSACTIONS]
+    assert profile.profile_id == "transactions"
+    assert profile.capability is AdapterCapability.TRANSACTIONS
+    assert profile.sync_cases, "the transactions profile must ship real sync cases"
+    # async transaction APIs have not landed; async cases arrive with that feature
+    assert profile.async_cases == ()
+    validate_capability_catalog(catalog)
     with pytest.raises(TypeError):
         catalog[AdapterCapability.TRANSACTIONS] = None  # type: ignore[index]
 
@@ -1151,6 +1181,36 @@ def test_recording_connections_accept_a_sequence_of_scripts():
     assert async_connection.cursor_calls == 0
 
 
+def test_recording_connection_records_commit_and_rollback():
+    connection = RecordingConnection()
+    assert connection.commit_calls == 0
+    assert connection.rollback_calls == 0
+
+    connection.commit()
+    connection.rollback()
+    connection.rollback()
+    assert connection.commit_calls == 1
+    assert connection.rollback_calls == 2
+    assert connection.log.kinds() == ("commit", "rollback", "rollback")
+
+
+def test_recording_connection_injects_commit_and_rollback_faults():
+    commit_fault = RuntimeError("commit boom")
+    rollback_fault = RuntimeError("rollback boom")
+    connection = RecordingConnection(commit_error=commit_fault, rollback_error=rollback_fault)
+
+    with pytest.raises(RuntimeError) as commit_info:
+        connection.commit()
+    assert commit_info.value is commit_fault
+    with pytest.raises(RuntimeError) as rollback_info:
+        connection.rollback()
+    assert rollback_info.value is rollback_fault
+    # the interaction is recorded even when it fails
+    assert connection.commit_calls == 1
+    assert connection.rollback_calls == 1
+    assert connection.log.kinds() == ("commit", "rollback")
+
+
 # ------------------------------------------------------------------ connect() cleanup tolerance
 
 
@@ -1388,6 +1448,10 @@ class _DeclaredTransactionsAsyncCommands(MockAsyncConformanceCommands):
     capabilities = frozenset({AdapterCapability.TRANSACTIONS})
 
 
+class _DeclaredRawReaderAsyncCommands(MockAsyncConformanceCommands):
+    capabilities = frozenset({AdapterCapability.RAW_READER})
+
+
 def _profile_for(capability, *, sync=True, async_=True):
     return ConformanceProfile(
         profile_id=capability.value,
@@ -1445,21 +1509,25 @@ async def test_async_shipped_capability_profile_waives_its_option_probe(isolated
 
 
 def test_capability_profile_without_sync_cases_fails_the_sync_declaration(isolated_registry, monkeypatch):
-    """A capability covered only in the other mode does not cover this one."""
+    """A capability covered only in the other mode does not cover this one.
+
+    Uses RAW_READER so the runner's real production catalog plans no capability cases
+    against the fake connection — TRANSACTIONS now ships real sync cases.
+    """
     from pydapper.testing.adapter_conformance import _cases_sync
 
     name = "conformance-mock-async-only-profile"
-    _register_mock_sync(name=name, commands=_DeclaredTransactionsCommands)
-    catalog = {AdapterCapability.TRANSACTIONS: _profile_for(AdapterCapability.TRANSACTIONS, sync=False)}
+    _register_mock_sync(name=name, commands=_DeclaredRawReaderCommands)
+    catalog = {AdapterCapability.RAW_READER: _profile_for(AdapterCapability.RAW_READER, sync=False)}
     monkeypatch.setattr(_cases_sync, "capability_profiles", lambda: catalog)
 
     class _Harness(MockSyncConformanceHarness):
         adapter_name = name
-        command_class = _DeclaredTransactionsCommands
+        command_class = _DeclaredRawReaderCommands
         connect_dsn = f"sqlite+{name}://mock"
 
         def create_commands(self):
-            return _DeclaredTransactionsCommands(FakeSyncConnection(seeded_mini_db()))
+            return _DeclaredRawReaderCommands(FakeSyncConnection(seeded_mini_db()))
 
     report = run_core_sync(_Harness())
     failures = {failure.case_id: failure.message for failure in report.failures}
@@ -1471,17 +1539,17 @@ async def test_capability_profile_without_async_cases_fails_the_async_declaratio
     from pydapper.testing.adapter_conformance import _cases_async
 
     name = "conformance-mock-sync-only-profile"
-    _register_mock_async(name=name, async_commands=_DeclaredTransactionsAsyncCommands)
-    catalog = {AdapterCapability.TRANSACTIONS: _profile_for(AdapterCapability.TRANSACTIONS, async_=False)}
+    _register_mock_async(name=name, async_commands=_DeclaredRawReaderAsyncCommands)
+    catalog = {AdapterCapability.RAW_READER: _profile_for(AdapterCapability.RAW_READER, async_=False)}
     monkeypatch.setattr(_cases_async, "capability_profiles", lambda: catalog)
 
     class _Harness(MockAsyncConformanceHarness):
         adapter_name = name
-        command_class = _DeclaredTransactionsAsyncCommands
+        command_class = _DeclaredRawReaderAsyncCommands
         connect_dsn = f"sqlite+{name}://mock"
 
         async def create_commands(self):
-            return _DeclaredTransactionsAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+            return _DeclaredRawReaderAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
 
     report = await run_core_async(_Harness())
     failures = {failure.case_id: failure.message for failure in report.failures}
@@ -1602,6 +1670,29 @@ def test_capability_catalog_value_must_be_a_profile():
 @pytest.mark.asyncio
 async def test_async_declared_capability_without_profile_fails_clearly(isolated_registry):
     """The async twin of the sync declaration-honesty check, against the real catalog."""
+    name = "conformance-mock-declared-raw-async"
+    _register_mock_async(name=name, async_commands=_DeclaredRawReaderAsyncCommands)
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = name
+        command_class = _DeclaredRawReaderAsyncCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        async def create_commands(self):
+            return _DeclaredRawReaderAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+
+    report = await run_core_async(_Harness())
+    failed_ids = [failure.case_id for failure in report.failures]
+    assert failed_ids == ["capabilities.declared-profile-populated"], failed_ids
+    assert "has no production conformance profile" in report.failures[0].message
+    assert report.failures[0].profile_id == CORE_ASYNC
+
+
+@pytest.mark.asyncio
+async def test_async_transactions_declaration_requires_async_cases(isolated_registry):
+    """Pins the #464 sequencing contract: the production transactions profile is
+    sync-only, so an async class may not declare TRANSACTIONS before the async
+    transaction APIs land with their async case inventory."""
     name = "conformance-mock-declared-txn-async"
     _register_mock_async(name=name, async_commands=_DeclaredTransactionsAsyncCommands)
 
@@ -1616,7 +1707,7 @@ async def test_async_declared_capability_without_profile_fails_clearly(isolated_
     report = await run_core_async(_Harness())
     failed_ids = [failure.case_id for failure in report.failures]
     assert failed_ids == ["capabilities.declared-profile-populated"], failed_ids
-    assert "has no production conformance profile" in report.failures[0].message
+    assert "has no async conformance cases" in report.failures[0].message
     assert report.failures[0].profile_id == CORE_ASYNC
 
 

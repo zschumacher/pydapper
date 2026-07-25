@@ -28,6 +28,22 @@ class ConnectionType(Protocol):
     def cursor(self, *args: Optional[Any], **kwargs: Optional[Any]) -> "CursorType": ...
 
 
+class TransactionalConnectionType(Protocol):
+    """Connections usable by the capability-gated transaction APIs.
+
+    Deliberately not part of ``ConnectionType``: PEP 249 makes ``rollback()`` optional and some
+    DBAPIs (e.g. BigQuery) omit it entirely, so requiring these members on every connection would
+    structurally break connections that cannot support transactions. Command classes gate access
+    behind ``AdapterCapability.TRANSACTIONS`` instead.
+    """
+
+    @abstractmethod
+    def commit(self) -> Any: ...
+
+    @abstractmethod
+    def rollback(self) -> Any: ...
+
+
 class AsyncConnectionType(Protocol):
     @abstractmethod
     def __await__(self): ...

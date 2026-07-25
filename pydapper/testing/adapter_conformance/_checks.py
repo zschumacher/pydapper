@@ -189,8 +189,12 @@ class SyncCaseContext(_BaseCaseContext):
         self,
         scripts: Union[CursorScript, Sequence[CursorScript], None] = None,
         cursor_style: str = "context",
+        commit_error: Optional[BaseException] = None,
+        rollback_error: Optional[BaseException] = None,
     ) -> RecordingConnection:
-        return RecordingConnection(scripts, cursor_style=cursor_style)
+        return RecordingConnection(
+            scripts, cursor_style=cursor_style, commit_error=commit_error, rollback_error=rollback_error
+        )
 
     def instrumented_commands(self, connection: RecordingConnection) -> Commands:
         return self.command_class(cast("ConnectionType", connection))  # type: ignore[abstract]

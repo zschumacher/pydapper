@@ -1,5 +1,19 @@
 ## Latest Changes
 
+* v1: synchronous commands now expose explicit transaction APIs — `commit()`, `rollback()`, and a
+  `transaction()` context manager that commits on clean exit and rolls back (then re-raises) on any exception,
+  including `KeyboardInterrupt`. The block's error always wins over a rollback failure, a failed exit commit
+  propagates unchanged with no rollback attempt, entering a block emits no SQL (the DBAPI's implicit
+  transaction start is the contract), and nested blocks on the same `Commands` instance raise `RuntimeError`.
+  All three methods are gated behind `AdapterCapability.TRANSACTIONS`: an adapter that does not declare it
+  raises `UnsupportedFeatureError` before the connection is touched. Every first-party sync adapter declares
+  the capability except BigQuery, whose DBAPI has no connection-level transactions (`commit()` is a no-op and
+  there is no `rollback()`); async command classes stay undeclared until the async transaction APIs land. This
+  is also the first shipped conformance capability profile: `capability_profiles()` now carries `transactions`
+  (nine sync cases — durability, rollback, context-manager lifecycle, delegation, and error precedence), the
+  runners automatically exercise it for every declaring adapter, and the previously provisional capability
+  surface (`ConformanceProfile`, `SyncCase`, `AsyncCase`, `capability_profiles()`) is now stable. See
+  [Transactions](transactions.md).
 * fix: keep connection representations out of automatic adapter-selection errors. The zero-match and
   ambiguous-match `using()` / `using_async()` failures now identify the connection by the module-qualified
   name of its type — for example `'sqlite3.Connection'` — instead of interpolating `repr(connection)`, so a

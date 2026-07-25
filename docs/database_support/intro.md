@@ -153,6 +153,17 @@ async def main():
 asyncio.run(main())
 ```
 
+### Context manager semantics
+The connection context manager belongs to you and to the dbapi, not to *pydapper*. `__enter__` / `__exit__` are
+proxied to the connection's own context manager when the connection implements one, and `__aenter__` / `__aexit__`
+are proxied unconditionally, so ordinary Python semantics apply: whatever the driver does on exit — commit, roll
+back, close, or suppress the exception by returning a truthy value — is what happens to the code in your block.
+
+That is deliberately different from the cursors *pydapper* owns inside a single command call. A command-owned
+cursor is never allowed to suppress a command failure or to replace it with a cleanup error, so a failing command
+always raises instead of returning a partial or invalid result. See
+[Command-owned cursor lifecycle](../adapter_registration.md#command-owned-cursor-lifecycle) for that contract.
+
 ### `using`
 You should use the `using` method when you want to use your own connection.  A use case
 for this could be if you have a custom connection pool in your application and you don't want a framework

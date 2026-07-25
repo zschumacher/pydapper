@@ -71,6 +71,21 @@
   `query_single`; see **Breaking Changes** below for the subclass-override impact.
 * feat: add AdapterCapability vocabulary and command capability checks. PR [#554](https://github.com/zschumacher/pydapper/pull/554) by [@zschumacher](https://github.com/zschumacher).
 * test: cover query_multiple runtime failures inside the command-owned cursor lifecycle. PR [#553](https://github.com/zschumacher/pydapper/pull/553) by [@zschumacher](https://github.com/zschumacher).
+* v1: a driver cursor can no longer suppress an internal command failure. Every sync and async command method does
+  all of its result work — execution, fetching, cardinality checks, duplicate-column validation, scalar extraction,
+  and row projection — inside the one cursor the command owns, and that cursor's disposal can no longer change the
+  outcome of the call: a native cursor `__exit__` / `__aexit__` that returns a truthy value is ignored while a
+  command error is active, and a cleanup failure never replaces an active command error, which still propagates as
+  the same exception object after cleanup runs exactly once. Previously a driver cursor exit could change that
+  outcome in two distinct ways. A truthy exit swallowed the real failure and let the command fall through instead of
+  raising, so a caller could receive a partial or invalid value in place of the error — a `query_multiple()` tuple
+  shorter than the batch it was given, `None` from a `query()` that promises a list of rows, or an unrelated
+  `UnboundLocalError` from work the swallowed failure never completed. An exit that raised replaced the real command
+  error with its own cleanup exception, so the caller was told the cursor failed to close rather than why the
+  command failed. This rule is scoped to cursors pydapper owns internally; the user-visible connection context
+  managers (`with pydapper.connect(...) as commands:` and `async with pydapper.connect_async(...) as commands:`)
+  still proxy to the dbapi connection and keep ordinary Python suppression semantics. See
+  [Command-owned cursor lifecycle](adapter_registration.md#command-owned-cursor-lifecycle).
 * fix: project query_single rows inside the command-owned cursor lifecycle. PR [#551](https://github.com/zschumacher/pydapper/pull/551) by [@zschumacher](https://github.com/zschumacher).
 * fix: run mysql query_first inside the command-owned cursor lifecycle. PR [#552](https://github.com/zschumacher/pydapper/pull/552) by [@zschumacher](https://github.com/zschumacher).
 * fix: project query_single rows inside the command-owned cursor lifecycle. PR [#550](https://github.com/zschumacher/pydapper/pull/550) by [@zschumacher](https://github.com/zschumacher).

@@ -371,9 +371,12 @@ the adapter and preserves the original exception as its cause.
 
 Both selection failures identify the connection by the module-qualified name of its type — for example
 `'sqlite3.Connection'` — and never by `repr(connection)`, so a driver representation that embeds the DSN the
-connection was opened with cannot reach a pydapper error message. The label names the module that *defines* the
-connection class, which is not always the driver's public import path, and it identifies the driver rather than
-naming an adapter — pass the adapter's registered name to `adapter=`.
+connection was opened with cannot reach a pydapper error message. The label names the module that *defines* the class
+of the connection object itself, which is not always the driver's public import path: for a driver subclass or a
+connection wrapper it names that subclass or wrapper rather than the underlying driver class the built-in predicates
+match through the MRO. It is not an adapter name either — pass the adapter's registered name to `adapter=`. A
+connection type with a missing or non-string `__module__` or `__qualname__` degrades the label instead of raising, so
+selection still fails with the documented `ValueError`.
 
 Using connection predicates should be synchronous and side-effect-free. In particular, they should inspect connection
 metadata without importing optional drivers. Built-in predicates inspect the class MRO so ordinary driver subclasses

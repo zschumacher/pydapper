@@ -554,12 +554,28 @@ def _connection_type_label(connection: object) -> str:
     useless on its own: psycopg2's connection class is named ``connection``,
     and other drivers' are named ``Connection`` just as ``sqlite3``'s is. Note
     this is the module that *defines* the class, which is not always the
-    driver's public import path. It identifies the driver, which is what the
-    caller needs in order to choose an adapter; it is not itself an adapter
-    name to hand to ``adapter=``.
+    driver's public import path.
+
+    What the label names is the class of the connection object itself and
+    nothing further up its MRO. For an ordinary driver connection that is the
+    driver's class, but for a driver subclass or a connection wrapper it names
+    the subclass or the wrapper rather than the underlying driver class that
+    the built-in MRO-walking predicates match on. It is never an adapter name
+    to hand to ``adapter=`` either.
+
+    Reading those identity attributes is itself defensive, the same way
+    ``_connection_module_matches`` is: a connection type whose ``__module__``
+    or ``__qualname__`` is missing or is not a string degrades the label
+    instead of raising, so a pathological type still fails selection with the
+    documented ValueError rather than an AttributeError from the error path.
     """
     connection_type = type(connection)
-    return f"{connection_type.__module__}.{connection_type.__qualname__}"
+    qualname = getattr(connection_type, "__qualname__", None)
+    label = qualname if isinstance(qualname, str) and qualname else "<unknown type>"
+    module = getattr(connection_type, "__module__", None)
+    if isinstance(module, str) and module:
+        return f"{module}.{label}"
+    return label
 
 
 def _select_registration(connection: object, mode: str) -> _AdapterRegistration:

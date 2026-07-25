@@ -38,6 +38,24 @@ class CredentialLeakingConnection:
 EXPECTED_CONNECTION_TYPE_LABEL = "tests.test_main.CredentialLeakingConnection"
 
 
+class UnreadableTypeIdentityMeta(type):
+    """Makes a connection class's own identity attributes unreadable, as a hostile driver could."""
+
+    def __getattribute__(cls, name):
+        if name in ("__module__", "__qualname__"):
+            raise AttributeError(name)
+        return super().__getattribute__(name)
+
+
+class NonStringTypeIdentityMeta(type):
+    """Same, except the identity attributes are readable and are not strings."""
+
+    def __getattribute__(cls, name):
+        if name in ("__module__", "__qualname__"):
+            return 42
+        return super().__getattribute__(name)
+
+
 @pytest.fixture
 def adapter_registry(monkeypatch):
     registry = main._adapter_registry.copy()
@@ -426,6 +444,37 @@ def test_automatic_selection_ambiguity_error_names_the_connection_type_not_its_r
     # the ambiguity is still actionable: both matching adapters are still named
     assert "first" in message
     assert "second" in message
+
+
+@pytest.mark.parametrize("factory", [pydapper.using, pydapper.using_async])
+def test_automatic_selection_error_falls_back_to_the_class_name_when_the_module_is_unusable(adapter_registry, factory):
+    connection_class = type("ConnectionWithNonStringModule", (), {})
+    connection_class.__module__ = None
+
+    with pytest.raises(ValueError, match="adapter=") as exc_info:
+        factory(connection_class())
+
+    message = str(exc_info.value)
+    # no "None." prefix and no bare leading dot: an unusable module drops out of the label entirely
+    assert "a connection of type 'ConnectionWithNonStringModule'" in message
+
+
+@pytest.mark.parametrize("metaclass", [UnreadableTypeIdentityMeta, NonStringTypeIdentityMeta])
+@pytest.mark.parametrize("factory", [pydapper.using, pydapper.using_async])
+def test_automatic_selection_still_raises_value_error_for_an_unlabelable_connection_type(
+    adapter_registry, factory, metaclass
+):
+    # reading type identity off a connection must not be able to turn the documented ValueError
+    # into an AttributeError (or anything else a driver's metaclass chooses to raise)
+    connection_class = metaclass("PathologicalConnection", (), {})
+
+    with pytest.raises(ValueError, match="adapter=") as exc_info:
+        factory(connection_class())
+
+    message = str(exc_info.value)
+    # still a usable message: what pydapper was asked to do, and what to do about it
+    assert "a connection of type '<unknown type>'" in message
+    assert "register an adapter" in message
 
 
 def test_sync_selection_does_not_call_async_only_predicates(adapter_registry):

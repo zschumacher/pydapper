@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: add sync commit, rollback, and transaction APIs. PR [#572](https://github.com/zschumacher/pydapper/pull/572) by [@zschumacher](https://github.com/zschumacher).
 * v1: synchronous commands now expose explicit transaction APIs — `commit()`, `rollback()`, and a
   `transaction()` context manager that commits on clean exit and rolls back (then re-raises) on any exception,
   including `KeyboardInterrupt`. The block's error always wins over a rollback failure, a failed exit commit

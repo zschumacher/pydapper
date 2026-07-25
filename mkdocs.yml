@@ -3,6 +3,7 @@ nav:
   - Overview: index.md
   - Compatibility Policy: compatibility.md
   - Command options: command_options.md
+  - Transactions: transactions.md
   - Adapter registration: adapter_registration.md
   - Adapter conformance: adapter_conformance.md
   - Database Support:

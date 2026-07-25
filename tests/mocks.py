@@ -72,6 +72,8 @@ class MockAsyncCursor:
 class MockConnection:
     def __init__(self):
         self.closed = 0
+        self.commits = 0
+        self.rollbacks = 0
 
     def __enter__(self):
         return self
@@ -83,10 +85,10 @@ class MockConnection:
         return MockCursor()
 
     def commit(self):
-        pass
+        self.commits += 1
 
     def rollback(self):
-        pass
+        self.rollbacks += 1
 
     def close(self):
         self.closed = 1
@@ -95,6 +97,8 @@ class MockConnection:
 class MockAsyncConnection:
     def __init__(self):
         self.closed = 0
+        self.commits = 0
+        self.rollbacks = 0
 
     async def __aenter__(self):
         return self
@@ -106,10 +110,10 @@ class MockAsyncConnection:
         return MockAsyncCursor()
 
     def commit(self):
-        pass
+        self.commits += 1
 
     def rollback(self):
-        pass
+        self.rollbacks += 1
 
     async def close(self):
         self.closed = 1

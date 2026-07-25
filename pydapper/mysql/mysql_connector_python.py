@@ -55,7 +55,7 @@ def _discard_unread_result(cursor: "CursorType") -> None:
 
 
 class MySqlConnectorPythonCommands(Commands):
-    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset()
+    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset({AdapterCapability.TRANSACTIONS})
 
     @classmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands":

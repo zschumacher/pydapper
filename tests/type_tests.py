@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 from typing import AsyncGenerator
+from typing import ContextManager
 from typing import Dict
 from typing import Generator
 from typing import List
@@ -181,6 +182,15 @@ def adapter_capability_types() -> None:
     # concrete first-party declarations stay typed as frozenset[AdapterCapability]
     assert_type(Sqlite3Commands.capabilities, frozenset[pydapper.AdapterCapability])
     assert_type(Psycopg3CommandsAsync.capabilities, frozenset[pydapper.AdapterCapability])
+
+
+def transaction_api_types() -> None:
+    sync_commands = cast(PydapperCommands, object())
+    assert_type(sync_commands.commit(), None)
+    assert_type(sync_commands.rollback(), None)
+    assert_type(sync_commands.transaction(), ContextManager[None])
+    with sync_commands.transaction() as handle:
+        assert_type(handle, None)
 
 
 def preparation_hook_types() -> None:

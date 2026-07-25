@@ -347,13 +347,16 @@ class RecordingConnection:
     ``scripts`` supplies one :class:`CursorScript` per acquired cursor; the last
     script repeats if more cursors are acquired than scripts were given.
     ``cursor_style`` selects the cursor shape: ``"context"`` (native context manager)
-    or ``"plain"`` (close-only).
+    or ``"plain"`` (close-only). ``commit_error``/``rollback_error`` inject a failure
+    at the named connection-level transaction interaction.
     """
 
     def __init__(
         self,
         scripts: Union[CursorScript, Sequence[CursorScript], None] = None,
         cursor_style: str = "context",
+        commit_error: Optional[BaseException] = None,
+        rollback_error: Optional[BaseException] = None,
     ) -> None:
         if scripts is None:
             scripts = CursorScript()
@@ -361,10 +364,26 @@ class RecordingConnection:
             scripts = [scripts]
         self._scripts = list(scripts)
         self._cursor_style = cursor_style
+        self._commit_error = commit_error
+        self._rollback_error = rollback_error
         self.log = RecordingLog()
         self.cursor_calls = 0
+        self.commit_calls = 0
+        self.rollback_calls = 0
         self.recorders: List[CursorRecorder] = []
         self.cursors: List[_SyncCursorFacade] = []
+
+    def commit(self) -> None:
+        self.commit_calls += 1
+        self.log.add(RecordedEvent(kind="commit"))
+        if self._commit_error is not None:
+            raise self._commit_error
+
+    def rollback(self) -> None:
+        self.rollback_calls += 1
+        self.log.add(RecordedEvent(kind="rollback"))
+        if self._rollback_error is not None:
+            raise self._rollback_error
 
     def cursor(self, *args: Any, **kwargs: Any) -> _SyncCursorFacade:
         self.cursor_calls += 1

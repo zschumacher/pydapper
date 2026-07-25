@@ -16,7 +16,7 @@ _PARAM_TYPE_LOOKUP = {float: "%d", int: "%d", str: "%s", Decimal: "%d"}
 
 
 class PymssqlCommands(Commands):
-    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset()
+    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset({AdapterCapability.TRANSACTIONS})
 
     class SqlParamHandler(BaseSqlParamHandler):
         def get_param_placeholder(self, param_name) -> str:

@@ -1,5 +1,11 @@
 ## Latest Changes
 
+* fix: keep connection representations out of automatic adapter-selection errors. The zero-match and
+  ambiguous-match `using()` / `using_async()` failures now identify the connection by the module-qualified
+  name of its type — for example `'sqlite3.Connection'` — instead of interpolating `repr(connection)`, so a
+  driver representation that embeds the DSN the connection was opened with can no longer reach a pydapper
+  error message. Both messages still name the requested mode, the matching adapters in the ambiguous case,
+  and the `adapter=` escape hatch.
 * feat: add reusable adapter conformance suite and capability profiles. PR [#565](https://github.com/zschumacher/pydapper/pull/565) by [@zschumacher](https://github.com/zschumacher).
 * v1: a reusable adapter conformance suite now ships in the installed distribution at
   `pydapper.testing.adapter_conformance`. Adapter authors implement a typed `SyncAdapterHarness` /

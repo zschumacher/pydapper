@@ -537,6 +537,31 @@ def _get_async_commands_class(name: str) -> type[CommandsAsync]:
     return registration.async_commands
 
 
+def _connection_type_label(connection: object) -> str:
+    """Identify a connection for an error message without rendering the connection.
+
+    ``repr(connection)`` is driver-controlled and unbounded: DB-API connection
+    reprs routinely embed the DSN the connection was opened with (user, host,
+    port, database) and a third-party driver may render anything at all,
+    credentials included. The type is the bounded identifier that carries no
+    per-connection state, and it is what pydapper's own predicates match on
+    (see ``_connection_module_matches``), so it is what a selection failure
+    names. A user-supplied ``using_connection_predicate`` may inspect the
+    connection however it likes — that is the public contract — so this label
+    describes what failed to be claimed, not what every predicate examined.
+
+    The defining module is included because the bare class name is frequently
+    useless on its own: psycopg2's connection class is named ``connection``,
+    and other drivers' are named ``Connection`` just as ``sqlite3``'s is. Note
+    this is the module that *defines* the class, which is not always the
+    driver's public import path. It identifies the driver, which is what the
+    caller needs in order to choose an adapter; it is not itself an adapter
+    name to hand to ``adapter=``.
+    """
+    connection_type = type(connection)
+    return f"{connection_type.__module__}.{connection_type.__qualname__}"
+
+
 def _select_registration(connection: object, mode: str) -> _AdapterRegistration:
     """Choose the one adapter whose connection predicate claims a connection.
 
@@ -565,6 +590,11 @@ def _select_registration(connection: object, mode: str) -> _AdapterRegistration:
     provider error. Only once the pass succeeds does the existing behavior
     resume unchanged: filter by requested mode, evaluate the eligible predicates
     in deterministic adapter-name order, and apply the zero/one/multiple rule.
+
+    The zero-match and ambiguous-match failures hold to the same rule: they
+    identify the connection by _connection_type_label() alone, never by
+    ``repr(connection)``, so no driver-controlled connection representation
+    reaches a selection error either.
     """
     _load_all_adapter_providers()
 
@@ -590,13 +620,14 @@ def _select_registration(connection: object, mode: str) -> _AdapterRegistration:
         return matches[0]
     if not matches:
         raise ValueError(
-            f"No registered {mode} adapter can handle {connection!r}; "
+            f"No registered {mode} adapter can handle a connection of type {_connection_type_label(connection)!r}; "
             "register an adapter or pass adapter= explicitly"
         )
 
     matching_names = ", ".join(registration.name for registration in matches)
     raise ValueError(
-        f"Multiple registered {mode} adapters can handle {connection!r}: {matching_names}. Pass adapter= explicitly"
+        f"Multiple registered {mode} adapters can handle a connection of type "
+        f"{_connection_type_label(connection)!r}: {matching_names}. Pass adapter= explicitly"
     )
 
 

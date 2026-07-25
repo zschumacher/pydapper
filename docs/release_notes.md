@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: add reusable adapter conformance suite and capability profiles. PR [#565](https://github.com/zschumacher/pydapper/pull/565) by [@zschumacher](https://github.com/zschumacher).
 * v1: a reusable adapter conformance suite now ships in the installed distribution at
   `pydapper.testing.adapter_conformance`. Adapter authors implement a typed `SyncAdapterHarness` /
   `AsyncAdapterHarness` and run the mandatory `core-sync` and `core-async` profiles against their real concrete

@@ -27,10 +27,16 @@ Each profile covers registration and selection, the #541 cursor lifecycle (clean
 failure, error precedence, truthy-exit non-suppression, plain and context-manager cursors, unbuffered
 exhaustion and explicit `close()`/`aclose()`), parameter handling and execution, row mapping and `RawRow`
 mappers, zero/one/many cardinality, scalar semantics (no row vs SQL `NULL` vs falsey values), command options,
-preparation-hook ordering, and capability honesty. Cases are either **live** (they run through your real
-database resources) or **instrumented** (they wrap your real concrete command class around framework-owned
-recording and fault-injection connections, so cursor counts, call order, exception precedence, and
-"fails before driver work" guarantees are observed directly rather than inferred from return values).
+preparation-hook ordering, and capability honesty. Hook ordering is checked on every distinct command path that
+owns a cursor — `execute`, buffered `query`, unbuffered `query`, `query_first`/`query_single`/`execute_scalar`,
+and `query_multiple` — because each opens its own cursor block: `_prepare_cursor` must run exactly once per
+command-owned cursor and `_prepare_command` exactly once per executed handler, both on the *entered* cursor and
+both before that handler reaches the driver (`query_multiple` therefore prepares one cursor and N handlers).
+
+Cases are either **live** (they run through your real database resources) or **instrumented** (they wrap your
+real concrete command class around framework-owned recording and fault-injection connections, so cursor counts,
+call order, exception precedence, and "fails before driver work" guarantees are observed directly rather than
+inferred from return values).
 
 ## Optional capability profiles
 

@@ -340,6 +340,455 @@ def test_error_masking_adapter_fails_named_case(isolated_registry):
     assert isinstance(named.cause, _CleanupMask)
 
 
+# ---------------------------------------------- hook-ordering mutants fail the named query-path cases
+#
+# The query-path hook-ordering cases are only worth shipping if they can fail, so each is pinned here by
+# a deliberately non-conformant adapter. Every mutant keeps the real command body *and* the real hook
+# implementations and rewires only *when* the body's two hook calls reach them, so it differs from a
+# conformant adapter in preparation-hook ordering alone -- nothing else can be what fails the case.
+
+
+@contextmanager
+def _swapped_hooks(commands, cursor_hook_name, command_hook_name, awaitable):
+    """Defer the prepare-cursor hook until just after the prepare-command hook."""
+    real_cursor_hook = getattr(commands, cursor_hook_name)
+    real_command_hook = getattr(commands, command_hook_name)
+    deferred = []
+
+    def prepare_cursor(cursor, *, options):
+        deferred.append((cursor, options))
+
+    def prepare_command(cursor, handler, *, options):
+        real_command_hook(cursor, handler, options=options)
+        while deferred:
+            deferred_cursor, deferred_options = deferred.pop(0)
+            real_cursor_hook(deferred_cursor, options=deferred_options)
+
+    async def prepare_cursor_async(cursor, *, options):
+        deferred.append((cursor, options))
+
+    async def prepare_command_async(cursor, handler, *, options):
+        await real_command_hook(cursor, handler, options=options)
+        while deferred:
+            deferred_cursor, deferred_options = deferred.pop(0)
+            await real_cursor_hook(deferred_cursor, options=deferred_options)
+
+    setattr(commands, cursor_hook_name, prepare_cursor_async if awaitable else prepare_cursor)
+    setattr(commands, command_hook_name, prepare_command_async if awaitable else prepare_command)
+    try:
+        yield
+    finally:
+        setattr(commands, cursor_hook_name, real_cursor_hook)
+        setattr(commands, command_hook_name, real_command_hook)
+
+
+@contextmanager
+def _skipped_hooks(commands, cursor_hook_name, command_hook_name, awaitable):
+    """Never let either hook call reach its implementation."""
+    real_cursor_hook = getattr(commands, cursor_hook_name)
+    real_command_hook = getattr(commands, command_hook_name)
+
+    def prepare_cursor(cursor, *, options):
+        return None
+
+    def prepare_command(cursor, handler, *, options):
+        return None
+
+    async def prepare_cursor_async(cursor, *, options):
+        return None
+
+    async def prepare_command_async(cursor, handler, *, options):
+        return None
+
+    setattr(commands, cursor_hook_name, prepare_cursor_async if awaitable else prepare_cursor)
+    setattr(commands, command_hook_name, prepare_command_async if awaitable else prepare_command)
+    try:
+        yield
+    finally:
+        setattr(commands, cursor_hook_name, real_cursor_hook)
+        setattr(commands, command_hook_name, real_command_hook)
+
+
+@contextmanager
+def _prepare_cursor_moved_into_the_query_loop(commands, cursor_hook_name, command_hook_name, awaitable):
+    """Drop the once-per-cursor prepare-cursor call and re-run it before every handler instead."""
+    real_cursor_hook = getattr(commands, cursor_hook_name)
+    real_command_hook = getattr(commands, command_hook_name)
+
+    def prepare_cursor(cursor, *, options):
+        return None
+
+    def prepare_command(cursor, handler, *, options):
+        real_cursor_hook(cursor, options=options)
+        real_command_hook(cursor, handler, options=options)
+
+    async def prepare_cursor_async(cursor, *, options):
+        return None
+
+    async def prepare_command_async(cursor, handler, *, options):
+        await real_cursor_hook(cursor, options=options)
+        await real_command_hook(cursor, handler, options=options)
+
+    setattr(commands, cursor_hook_name, prepare_cursor_async if awaitable else prepare_cursor)
+    setattr(commands, command_hook_name, prepare_command_async if awaitable else prepare_command)
+    try:
+        yield
+    finally:
+        setattr(commands, cursor_hook_name, real_cursor_hook)
+        setattr(commands, command_hook_name, real_command_hook)
+
+
+class _CursorStandIn:
+    """A forwarding stand-in that is *not* the object the command body entered."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+@contextmanager
+def _non_entered_cursor_for_hook(commands, hook_name, awaitable):
+    """Hand one hook a stand-in instead of the cursor the command body entered.
+
+    Only one hook is mis-targeted per mutant so each entered-cursor assertion is pinned on
+    its own rather than by its sibling.
+    """
+    real_hook = getattr(commands, hook_name)
+
+    def hook(cursor, *args, **kwargs):
+        return real_hook(_CursorStandIn(cursor), *args, **kwargs)
+
+    async def hook_async(cursor, *args, **kwargs):
+        await real_hook(_CursorStandIn(cursor), *args, **kwargs)
+
+    setattr(commands, hook_name, hook_async if awaitable else hook)
+    try:
+        yield
+    finally:
+        setattr(commands, hook_name, real_hook)
+
+
+@contextmanager
+def _recorded_hook_calls(commands, hook_name):
+    """Let one hook through untouched while capturing its arguments for a later replay."""
+    real_hook = getattr(commands, hook_name)
+    calls = []
+
+    def hook(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real_hook(*args, **kwargs)
+
+    setattr(commands, hook_name, hook)
+    try:
+        yield calls
+    finally:
+        setattr(commands, hook_name, real_hook)
+
+
+def _sync_mutation(commands, mutation):
+    return mutation(commands, "_prepare_cursor", "_prepare_command", False)
+
+
+def _async_mutation(commands, mutation):
+    return mutation(commands, "_prepare_cursor_async", "_prepare_command_async", True)
+
+
+class _SwappedHooksInBufferedQueryCommands(MockSyncConformanceCommands):
+    def _buffered_query(self, *args, **kwargs):
+        with _sync_mutation(self, _swapped_hooks):
+            return super()._buffered_query(*args, **kwargs)
+
+
+class _NoHooksInUnbufferedQueryCommands(MockSyncConformanceCommands):
+    def _unbuffered_query(self, *args, **kwargs):
+        with _sync_mutation(self, _skipped_hooks):
+            yield from super()._unbuffered_query(*args, **kwargs)
+
+
+class _SwappedHooksInUnbufferedQueryCommands(MockSyncConformanceCommands):
+    def _unbuffered_query(self, *args, **kwargs):
+        with _sync_mutation(self, _swapped_hooks):
+            yield from super()._unbuffered_query(*args, **kwargs)
+
+
+class _NoHooksInQueryFirstCommands(MockSyncConformanceCommands):
+    def query_first(self, *args, **kwargs):
+        with _sync_mutation(self, _skipped_hooks):
+            return super().query_first(*args, **kwargs)
+
+
+class _PerQueryPrepareCursorCommands(MockSyncConformanceCommands):
+    def query_multiple(self, *args, **kwargs):
+        with _sync_mutation(self, _prepare_cursor_moved_into_the_query_loop):
+            return super().query_multiple(*args, **kwargs)
+
+
+class _SwappedHooksInQueryMultipleCommands(MockSyncConformanceCommands):
+    def query_multiple(self, *args, **kwargs):
+        with _sync_mutation(self, _swapped_hooks):
+            return super().query_multiple(*args, **kwargs)
+
+
+class _NonEnteredPrepareCursorCommands(MockSyncConformanceCommands):
+    def _buffered_query(self, *args, **kwargs):
+        with _non_entered_cursor_for_hook(self, "_prepare_cursor", False):
+            return super()._buffered_query(*args, **kwargs)
+
+
+class _NonEnteredPrepareCommandCommands(MockSyncConformanceCommands):
+    def _buffered_query(self, *args, **kwargs):
+        with _non_entered_cursor_for_hook(self, "_prepare_command", False):
+            return super()._buffered_query(*args, **kwargs)
+
+
+class _SwappedHooksInQueryFirstCommands(MockSyncConformanceCommands):
+    def query_first(self, *args, **kwargs):
+        with _sync_mutation(self, _swapped_hooks):
+            return super().query_first(*args, **kwargs)
+
+
+class _LatePrepareCursorInQueryFirstCommands(MockSyncConformanceCommands):
+    """Repeats the prepare-cursor hook once the cursor block has already closed."""
+
+    def query_first(self, *args, **kwargs):
+        with _recorded_hook_calls(self, "_prepare_cursor") as calls:
+            result = super().query_first(*args, **kwargs)
+        for call_args, call_kwargs in calls:
+            self._prepare_cursor(*call_args, **call_kwargs)
+        return result
+
+
+class _LatePrepareCommandInQueryFirstCommands(MockSyncConformanceCommands):
+    """Repeats the prepare-command hook for a handler that is never executed again."""
+
+    def query_first(self, *args, **kwargs):
+        with _recorded_hook_calls(self, "_prepare_command") as calls:
+            result = super().query_first(*args, **kwargs)
+        for call_args, call_kwargs in calls:
+            self._prepare_command(*call_args, **call_kwargs)
+        return result
+
+
+class _SwappedHooksInAsyncBufferedQueryCommands(MockAsyncConformanceCommands):
+    async def _buffered_query(self, *args, **kwargs):
+        with _async_mutation(self, _swapped_hooks):
+            return await super()._buffered_query(*args, **kwargs)
+
+
+class _NoHooksInAsyncUnbufferedQueryCommands(MockAsyncConformanceCommands):
+    async def _unbuffered_query(self, *args, **kwargs):
+        # the inner generator is aclosed explicitly so wrapping it stays invisible to the
+        # unbuffered cleanup cases; only the hook calls differ from a conformant adapter
+        inner = super()._unbuffered_query(*args, **kwargs)
+        try:
+            with _async_mutation(self, _skipped_hooks):
+                async for row in inner:
+                    yield row
+        finally:
+            await inner.aclose()
+
+
+class _SwappedHooksInAsyncUnbufferedQueryCommands(MockAsyncConformanceCommands):
+    async def _unbuffered_query(self, *args, **kwargs):
+        inner = super()._unbuffered_query(*args, **kwargs)
+        try:
+            with _async_mutation(self, _swapped_hooks):
+                async for row in inner:
+                    yield row
+        finally:
+            await inner.aclose()
+
+
+class _NoHooksInAsyncQueryFirstCommands(MockAsyncConformanceCommands):
+    async def query_first_async(self, *args, **kwargs):
+        with _async_mutation(self, _skipped_hooks):
+            return await super().query_first_async(*args, **kwargs)
+
+
+class _PerQueryPrepareCursorAsyncCommands(MockAsyncConformanceCommands):
+    async def query_multiple_async(self, *args, **kwargs):
+        with _async_mutation(self, _prepare_cursor_moved_into_the_query_loop):
+            return await super().query_multiple_async(*args, **kwargs)
+
+
+class _SwappedHooksInAsyncQueryMultipleCommands(MockAsyncConformanceCommands):
+    async def query_multiple_async(self, *args, **kwargs):
+        with _async_mutation(self, _swapped_hooks):
+            return await super().query_multiple_async(*args, **kwargs)
+
+
+class _NonEnteredPrepareCursorAsyncCommands(MockAsyncConformanceCommands):
+    async def _buffered_query(self, *args, **kwargs):
+        with _non_entered_cursor_for_hook(self, "_prepare_cursor_async", True):
+            return await super()._buffered_query(*args, **kwargs)
+
+
+class _NonEnteredPrepareCommandAsyncCommands(MockAsyncConformanceCommands):
+    async def _buffered_query(self, *args, **kwargs):
+        with _non_entered_cursor_for_hook(self, "_prepare_command_async", True):
+            return await super()._buffered_query(*args, **kwargs)
+
+
+class _SwappedHooksInAsyncQueryFirstCommands(MockAsyncConformanceCommands):
+    async def query_first_async(self, *args, **kwargs):
+        with _async_mutation(self, _swapped_hooks):
+            return await super().query_first_async(*args, **kwargs)
+
+
+class _LatePrepareCursorInAsyncQueryFirstCommands(MockAsyncConformanceCommands):
+    async def query_first_async(self, *args, **kwargs):
+        with _recorded_hook_calls(self, "_prepare_cursor_async") as calls:
+            result = await super().query_first_async(*args, **kwargs)
+        for call_args, call_kwargs in calls:
+            await self._prepare_cursor_async(*call_args, **call_kwargs)
+        return result
+
+
+class _LatePrepareCommandInAsyncQueryFirstCommands(MockAsyncConformanceCommands):
+    async def query_first_async(self, *args, **kwargs):
+        with _recorded_hook_calls(self, "_prepare_command_async") as calls:
+            result = await super().query_first_async(*args, **kwargs)
+        for call_args, call_kwargs in calls:
+            await self._prepare_command_async(*call_args, **call_kwargs)
+        return result
+
+
+#: (slug, case the mutant must fail, assertion it pins, sync class, async class). Together these
+#: pin every assertion the four new cases add: event order, the preparation prefix, the
+#: once-per-cursor and once-per-handler counts, and entered-cursor identity.
+_HOOK_ORDER_MUTANTS = (
+    (
+        "swapped-hooks-buffered",
+        "lifecycle.hook-order-buffered-query",
+        "event order",
+        _SwappedHooksInBufferedQueryCommands,
+        _SwappedHooksInAsyncBufferedQueryCommands,
+    ),
+    (
+        "non-entered-prepare-cursor",
+        "lifecycle.hook-order-buffered-query",
+        "prepare-cursor entered-cursor identity",
+        _NonEnteredPrepareCursorCommands,
+        _NonEnteredPrepareCursorAsyncCommands,
+    ),
+    (
+        "non-entered-prepare-command",
+        "lifecycle.hook-order-buffered-query",
+        "prepare-command entered-cursor identity",
+        _NonEnteredPrepareCommandCommands,
+        _NonEnteredPrepareCommandAsyncCommands,
+    ),
+    (
+        "no-hooks-unbuffered",
+        "lifecycle.hook-order-unbuffered-query",
+        "once-per-cursor count",
+        _NoHooksInUnbufferedQueryCommands,
+        _NoHooksInAsyncUnbufferedQueryCommands,
+    ),
+    (
+        "swapped-hooks-unbuffered",
+        "lifecycle.hook-order-unbuffered-query",
+        "event order (the only check that can see this one)",
+        _SwappedHooksInUnbufferedQueryCommands,
+        _SwappedHooksInAsyncUnbufferedQueryCommands,
+    ),
+    (
+        "no-hooks-query-first",
+        "lifecycle.hook-order-single-row-commands",
+        "preparation prefix",
+        _NoHooksInQueryFirstCommands,
+        _NoHooksInAsyncQueryFirstCommands,
+    ),
+    (
+        "swapped-hooks-query-first",
+        "lifecycle.hook-order-single-row-commands",
+        "preparation prefix (the only check that can see this one)",
+        _SwappedHooksInQueryFirstCommands,
+        _SwappedHooksInAsyncQueryFirstCommands,
+    ),
+    (
+        "late-prepare-cursor-query-first",
+        "lifecycle.hook-order-single-row-commands",
+        "once-per-cursor count",
+        _LatePrepareCursorInQueryFirstCommands,
+        _LatePrepareCursorInAsyncQueryFirstCommands,
+    ),
+    (
+        "late-prepare-command-query-first",
+        "lifecycle.hook-order-single-row-commands",
+        "once-per-handler count",
+        _LatePrepareCommandInQueryFirstCommands,
+        _LatePrepareCommandInAsyncQueryFirstCommands,
+    ),
+    (
+        "per-query-prepare-cursor",
+        "lifecycle.hook-order-query-multiple",
+        "once-per-cursor count",
+        _PerQueryPrepareCursorCommands,
+        _PerQueryPrepareCursorAsyncCommands,
+    ),
+    (
+        "swapped-hooks-query-multiple",
+        "lifecycle.hook-order-query-multiple",
+        "event order (the only check that can see this one)",
+        _SwappedHooksInQueryMultipleCommands,
+        _SwappedHooksInAsyncQueryMultipleCommands,
+    ),
+)
+
+_HOOK_ORDER_MUTANT_IDS = [mutant[0] for mutant in _HOOK_ORDER_MUTANTS]
+_SYNC_HOOK_ORDER_MUTANTS = [(mutant[0], mutant[1], mutant[3]) for mutant in _HOOK_ORDER_MUTANTS]
+_ASYNC_HOOK_ORDER_MUTANTS = [(mutant[0], mutant[1], mutant[4]) for mutant in _HOOK_ORDER_MUTANTS]
+
+
+def _assert_only_the_named_hook_case_failed(report, expected_case_id):
+    failed_ids = {failure.case_id for failure in report.failures}
+    assert failed_ids == {expected_case_id}, "the mutant must be caught, and caught narrowly, by its own case"
+    passed_ids = {result.case_id for result in report.results if result.passed}
+    assert "lifecycle.hook-order" in passed_ids, "the pre-existing execute-path case cannot see query-path hooks"
+    named = next(failure for failure in report.failures if failure.case_id == expected_case_id)
+    assert named.message
+
+
+@pytest.mark.parametrize("slug,expected_case_id,commands_class", _SYNC_HOOK_ORDER_MUTANTS, ids=_HOOK_ORDER_MUTANT_IDS)
+def test_query_path_hook_ordering_mutant_fails_its_named_case(
+    isolated_registry, slug, expected_case_id, commands_class
+):
+    name = f"conformance-mock-{slug}"
+    _register_mock_sync(name=name, commands=commands_class)
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = commands_class
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return commands_class(FakeSyncConnection(seeded_mini_db()))
+
+    _assert_only_the_named_hook_case_failed(run_core_sync(_Harness()), expected_case_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("slug,expected_case_id,commands_class", _ASYNC_HOOK_ORDER_MUTANTS, ids=_HOOK_ORDER_MUTANT_IDS)
+async def test_async_query_path_hook_ordering_mutant_fails_its_named_case(
+    isolated_registry, slug, expected_case_id, commands_class
+):
+    name = f"conformance-mock-{slug}-async"
+    _register_mock_async(name=name, async_commands=commands_class)
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = name
+        command_class = commands_class
+        connect_dsn = f"sqlite+{name}://mock"
+
+        async def create_commands(self):
+            return commands_class(FakeAsyncConnection(seeded_mini_db()))
+
+    _assert_only_the_named_hook_case_failed(await run_core_async(_Harness()), expected_case_id)
+
+
 class _InvalidCapabilityCommands(MockSyncConformanceCommands):
     capabilities = {"transactions"}  # type: ignore[assignment]  # deliberately wrong: set of str
 

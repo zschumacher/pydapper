@@ -260,6 +260,52 @@ def test_duplicate_registration_is_rejected_without_mutating_the_original(adapte
     assert adapter_registry["duplicate"] is original_registration
 
 
+@pytest.mark.parametrize(
+    ("registered_kwargs", "second_kwargs", "absent_attribute", "factory", "connection_class", "mode"),
+    [
+        pytest.param(
+            {"commands": MockCommands},
+            {"async_commands": MockAsyncCommands},
+            "async_commands",
+            pydapper.using_async,
+            MockAsyncConnection,
+            "async",
+            id="sync-only-then-async-only",
+        ),
+        pytest.param(
+            {"async_commands": MockAsyncCommands},
+            {"commands": MockCommands},
+            "commands",
+            pydapper.using,
+            MockConnection,
+            "sync",
+            id="async-only-then-sync-only",
+        ),
+    ],
+)
+def test_duplicate_registration_never_merges_the_missing_mode(
+    adapter_registry, registered_kwargs, second_kwargs, absent_attribute, factory, connection_class, mode
+):
+    # registration is one-way: a duplicate name may never overwrite *or merge*. Re-registering the
+    # same name supplying only the mode the record lacks is still a duplicate, not a helpful
+    # completion of a half-registered adapter, so the absent mode must stay absent afterwards.
+    pydapper.register_adapter("half-registered", using_connection_predicate=never_matches, **registered_kwargs)
+    original_registration = adapter_registry["half-registered"]
+    before = adapter_registry.copy()
+    assert getattr(original_registration, absent_attribute) is None
+
+    with pytest.raises(ValueError, match="already registered"):
+        pydapper.register_adapter("half-registered", using_connection_predicate=never_matches, **second_kwargs)
+
+    assert adapter_registry == before
+    assert adapter_registry["half-registered"] is original_registration
+    assert getattr(adapter_registry["half-registered"], absent_attribute) is None
+
+    # and the rejected mode is still unreachable through the public API, not silently usable
+    with pytest.raises(ValueError, match=f"does not support {mode} mode"):
+        factory(connection_class(), adapter="half-registered")
+
+
 def test_duplicate_name_is_rejected_before_validating_a_second_payload(adapter_registry):
     pydapper.register_adapter("duplicate", commands=MockCommands, using_connection_predicate=never_matches)
 

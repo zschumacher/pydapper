@@ -1,5 +1,32 @@
 ## Latest Changes
 
+* fix: harden command-owned cursor cleanup and complete the async drain seam. Four
+  user-observable behaviors changed. First, cleaning up a command-owned cursor no longer discards
+  a `BaseException` that is not an `Exception`: a `KeyboardInterrupt`, `SystemExit`,
+  `asyncio.CancelledError`, or `GeneratorExit` raised by a cursor's `__exit__`/`__aexit__` or
+  `close()` while a command error is already propagating now propagates in place of that command
+  error, which is preserved as its `__context__`. Previously a Ctrl-C or a cancellation raised
+  during cleanup was silently swallowed. Ordinary `Exception` cleanup failures are still discarded
+  so the active command error is re-raised unchanged, but they are now recorded at `DEBUG` on the
+  `pydapper._context` logger with their traceback instead of vanishing. Second, a cursor whose
+  `__enter__`/`__aenter__` raises is now closed best-effort instead of leaking; pydapper created
+  and solely owns that cursor, `__exit__`/`__aexit__` is still not called for a cursor that never
+  entered, and a failing `close()` never replaces the entry error. Third, `CommandsAsync` gained
+  `_on_query_single_more_than_one_result_async`, the previously missing async twin of the sync
+  `query_single` drain seam, invoked at the same point of `query_single_async`, so sync and async
+  exception timing match for an adapter that must drain unread rows before its cursor can be
+  closed. The default is a no-op and no first-party adapter overrides it. Documenting the `_on_*`
+  drain seams alongside the `_prepare_*` hooks is deliberately deferred to the v1 export and typing
+  audit ([#484](https://github.com/zschumacher/pydapper/issues/484)); they remain private hooks
+  outside the documented compatibility surface. Fourth, cancelling a task that is awaiting an async
+  cursor or `connect_async()` no longer leaks the resource when the cancellation lands after
+  acquisition has already completed. Acquisition runs as an independent future, so `await` and
+  `async with` could raise `CancelledError` while that future held a fully created cursor with no
+  owner: the raising `await` binds nothing and a failed `__aenter__` is never exited, so nothing was
+  left to close it. The stranded object is now closed best-effort through the same discard policy,
+  the `CancelledError` is never suppressed, an object another task is concurrently awaiting is never
+  closed, and a wrapper whose resource was discarded this way raises `RuntimeError` rather than
+  handing the closed object out again.
 * feat: add reusable adapter conformance suite and capability profiles. PR [#565](https://github.com/zschumacher/pydapper/pull/565) by [@zschumacher](https://github.com/zschumacher).
 * v1: a reusable adapter conformance suite now ships in the installed distribution at
   `pydapper.testing.adapter_conformance`. Adapter authors implement a typed `SyncAdapterHarness` /

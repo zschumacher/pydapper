@@ -350,9 +350,12 @@ class BaseCommands(ABC):
 
 
 class Commands(BaseCommands, ABC):
+    # class-level default so a subclass that overrides __init__ without calling super() still
+    # gets a working transaction guard; entering a block shadows it per instance
+    _in_transaction: bool = False
+
     def __init__(self, connection: "ConnectionType"):
         self.connection = connection
-        self._in_transaction = False
 
     def __enter__(self) -> "Commands":
         if hasattr(self.connection, "__enter__"):
@@ -397,7 +400,11 @@ class Commands(BaseCommands, ABC):
         back and re-raises, with a rollback failure losing to the active exception. A commit
         failure on clean exit propagates unchanged and no rollback is attempted, because
         connection state after a failed commit is driver-defined. Blocks cannot be nested on the
-        same instance; re-entry raises ``RuntimeError``.
+        same instance; re-entry raises ``RuntimeError``. The guard is per ``Commands`` instance:
+        a second instance over the same connection (for example from a second ``using()`` call)
+        shares the same single connection-level transaction and is not guarded against. Entering
+        the returned context manager manually without exiting it leaves the rollback to generator
+        finalization at a nondeterministic time; always use ``with``.
         """
         self._require_capability(AdapterCapability.TRANSACTIONS)
         return self._transaction_proxy()

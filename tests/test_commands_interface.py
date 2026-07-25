@@ -10,6 +10,7 @@ import pytest
 import pydapper
 from pydapper import RawRow
 from pydapper._context import _AwaitableAsyncContextManager
+from pydapper.bigquery import GoogleBigqueryClientCommands
 from pydapper.capabilities import AdapterCapability
 from pydapper.command_options import CommandKind
 from pydapper.exceptions import DuplicateColumnException
@@ -5516,6 +5517,17 @@ class TestTransactions:
         # the error comes from the bare call, before any context manager exists to enter
         with pytest.raises(UnsupportedFeatureError):
             undeclared_commands.transaction()
+
+    @pytest.mark.parametrize("method", ["commit", "rollback", "transaction"])
+    def test_bigquery_is_a_first_party_unsupported_adapter(self, connection, method):
+        # the BigQuery DBAPI has no connection-level transactions (commit() is a no-op and
+        # there is no rollback()), so its command class must reject the whole API
+        commands = GoogleBigqueryClientCommands(connection)
+        with pytest.raises(UnsupportedFeatureError) as exc_info:
+            getattr(commands, method)()
+        assert "transactions" in str(exc_info.value)
+        assert connection.commits == 0
+        assert connection.rollbacks == 0
 
     # -- commit / rollback delegation ---------------------------------------------
 

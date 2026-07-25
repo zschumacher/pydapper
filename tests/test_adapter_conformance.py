@@ -220,6 +220,17 @@ def test_sqlite_in_memory_core_sync_harness_passes(isolated_registry, tmp_path):
     assert all(result.passed for result in transaction_results)
 
 
+def test_non_declaring_adapter_is_never_run_against_the_transactions_profile(isolated_registry):
+    """The unsupported half of the capability contract: an adapter that does not declare
+    TRANSACTIONS passes core conformance without the transactions profile ever running."""
+    _register_mock_sync()
+    report = run_core_sync(MockSyncConformanceHarness())
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+    assert MockSyncConformanceCommands.capabilities == frozenset()
+    assert [result for result in report.results if result.profile_id == "transactions"] == []
+    assert len(report.results) == len(core_sync_profile().sync_cases)
+
+
 def test_pass_fail_ordering_is_deterministic(isolated_registry):
     _register_mock_sync()
     first = run_core_sync(MockSyncConformanceHarness())
@@ -1498,21 +1509,25 @@ async def test_async_shipped_capability_profile_waives_its_option_probe(isolated
 
 
 def test_capability_profile_without_sync_cases_fails_the_sync_declaration(isolated_registry, monkeypatch):
-    """A capability covered only in the other mode does not cover this one."""
+    """A capability covered only in the other mode does not cover this one.
+
+    Uses RAW_READER so the runner's real production catalog plans no capability cases
+    against the fake connection — TRANSACTIONS now ships real sync cases.
+    """
     from pydapper.testing.adapter_conformance import _cases_sync
 
     name = "conformance-mock-async-only-profile"
-    _register_mock_sync(name=name, commands=_DeclaredTransactionsCommands)
-    catalog = {AdapterCapability.TRANSACTIONS: _profile_for(AdapterCapability.TRANSACTIONS, sync=False)}
+    _register_mock_sync(name=name, commands=_DeclaredRawReaderCommands)
+    catalog = {AdapterCapability.RAW_READER: _profile_for(AdapterCapability.RAW_READER, sync=False)}
     monkeypatch.setattr(_cases_sync, "capability_profiles", lambda: catalog)
 
     class _Harness(MockSyncConformanceHarness):
         adapter_name = name
-        command_class = _DeclaredTransactionsCommands
+        command_class = _DeclaredRawReaderCommands
         connect_dsn = f"sqlite+{name}://mock"
 
         def create_commands(self):
-            return _DeclaredTransactionsCommands(FakeSyncConnection(seeded_mini_db()))
+            return _DeclaredRawReaderCommands(FakeSyncConnection(seeded_mini_db()))
 
     report = run_core_sync(_Harness())
     failures = {failure.case_id: failure.message for failure in report.failures}
@@ -1524,17 +1539,17 @@ async def test_capability_profile_without_async_cases_fails_the_async_declaratio
     from pydapper.testing.adapter_conformance import _cases_async
 
     name = "conformance-mock-sync-only-profile"
-    _register_mock_async(name=name, async_commands=_DeclaredTransactionsAsyncCommands)
-    catalog = {AdapterCapability.TRANSACTIONS: _profile_for(AdapterCapability.TRANSACTIONS, async_=False)}
+    _register_mock_async(name=name, async_commands=_DeclaredRawReaderAsyncCommands)
+    catalog = {AdapterCapability.RAW_READER: _profile_for(AdapterCapability.RAW_READER, async_=False)}
     monkeypatch.setattr(_cases_async, "capability_profiles", lambda: catalog)
 
     class _Harness(MockAsyncConformanceHarness):
         adapter_name = name
-        command_class = _DeclaredTransactionsAsyncCommands
+        command_class = _DeclaredRawReaderAsyncCommands
         connect_dsn = f"sqlite+{name}://mock"
 
         async def create_commands(self):
-            return _DeclaredTransactionsAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+            return _DeclaredRawReaderAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
 
     report = await run_core_async(_Harness())
     failures = {failure.case_id: failure.message for failure in report.failures}

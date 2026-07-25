@@ -44,6 +44,10 @@ class _Psycopg2ConformanceHarness(SyncAdapterHarness):
     def teardown_commands(self, commands: Commands) -> None:
         try:
             commands.connection.rollback()
+            # transaction-profile cases commit durable state; don't leave the table behind
+            with suppress(Exception):
+                commands.execute(_DROP)
+                commands.connection.commit()
         finally:
             commands.connection.close()
 
@@ -68,6 +72,10 @@ class _Psycopg3SyncConformanceHarness(SyncAdapterHarness):
     def teardown_commands(self, commands: Commands) -> None:
         try:
             commands.connection.rollback()
+            # transaction-profile cases commit durable state; don't leave the table behind
+            with suppress(Exception):
+                commands.execute(_DROP)
+                commands.connection.commit()
         finally:
             commands.connection.close()
 

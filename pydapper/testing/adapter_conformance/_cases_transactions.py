@@ -121,16 +121,17 @@ def _transactions_context_rolls_back(ctx: SyncCaseContext) -> None:
             commands.execute(ctx.sql("insert_row"), params=dict(_TX_ROW))
             raise fault
     ctx.check(caught.exception is fault, "the block's exception must propagate as the same exception object")
-    ctx.recover(commands)
     ctx.check(
         _row_count(ctx, commands, _TX_ROW["id"]) == 0,
         "a transaction() block that raised must roll its insert back",
     )
+    # recover runs last so a harness recovery step can never repair the state under test
+    ctx.recover(commands)
 
 
 @_case(
     "transactions.commit-delegates-once",
-    "commit() delegates to the connection exactly once and acquires no cursor",
+    "commit() delegates to the connection exactly once, acquires no cursor, and its failure propagates",
     "instrumented",
 )
 def _transactions_commit_delegates(ctx: SyncCaseContext) -> None:
@@ -144,10 +145,19 @@ def _transactions_commit_delegates(ctx: SyncCaseContext) -> None:
     ctx.check(connection.cursor_calls == 0, "commit() must not acquire a cursor")
     ctx.check_event_order(connection.log, ("commit",))
 
+    fault = _InjectedTransactionCleanupFault("commit")
+    failing = ctx.recording_connection(commit_error=fault)
+    commands = ctx.instrumented_commands(failing)
+    with ctx.expect_raises(_InjectedTransactionCleanupFault) as caught:
+        commands.commit()
+    ctx.check(caught.exception is fault, "a connection commit failure must propagate from commit() unchanged")
+    ctx.check(failing.commit_calls == 1, f"expected exactly one commit attempt, saw {failing.commit_calls}")
+    ctx.check(failing.rollback_calls == 0, "a failed commit() must not trigger a rollback")
+
 
 @_case(
     "transactions.rollback-delegates-once",
-    "rollback() delegates to the connection exactly once and acquires no cursor",
+    "rollback() delegates to the connection exactly once, acquires no cursor, and its failure propagates",
     "instrumented",
 )
 def _transactions_rollback_delegates(ctx: SyncCaseContext) -> None:
@@ -162,6 +172,15 @@ def _transactions_rollback_delegates(ctx: SyncCaseContext) -> None:
     ctx.check(connection.commit_calls == 0, "rollback() must not commit")
     ctx.check(connection.cursor_calls == 0, "rollback() must not acquire a cursor")
     ctx.check_event_order(connection.log, ("rollback",))
+
+    fault = _InjectedTransactionCleanupFault("rollback")
+    failing = ctx.recording_connection(rollback_error=fault)
+    commands = ctx.instrumented_commands(failing)
+    with ctx.expect_raises(_InjectedTransactionCleanupFault) as caught:
+        commands.rollback()
+    ctx.check(caught.exception is fault, "a connection rollback failure must propagate from rollback() unchanged")
+    ctx.check(failing.rollback_calls == 1, f"expected exactly one rollback attempt, saw {failing.rollback_calls}")
+    ctx.check(failing.commit_calls == 0, "a failed rollback() must not trigger a commit")
 
 
 @_case(

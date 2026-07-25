@@ -69,8 +69,8 @@ async cases yet — the async transaction APIs are a separate feature — so an 
 | `transactions.rollback-discards` | live | `rollback()` discards uncommitted work, committed rows stay intact |
 | `transactions.context-commits-on-exit` | live | a `transaction()` block commits on clean exit |
 | `transactions.context-rolls-back-on-error` | live | a raising block rolls back and re-raises the same exception object |
-| `transactions.commit-delegates-once` | instrumented | one connection `commit`, no cursor acquired, returns `None` |
-| `transactions.rollback-delegates-once` | instrumented | one connection `rollback`, no cursor acquired, returns `None` |
+| `transactions.commit-delegates-once` | instrumented | one connection `commit`, no cursor acquired, returns `None`, failures propagate unchanged |
+| `transactions.rollback-delegates-once` | instrumented | one connection `rollback`, no cursor acquired, returns `None`, failures propagate unchanged |
 | `transactions.context-lifecycle-order` | instrumented | the block's commit comes after the command's full cursor lifecycle |
 | `transactions.context-error-precedence` | instrumented | rollback on error, and the block's error wins over a rollback failure |
 | `transactions.commit-failure-propagates` | instrumented | a failed exit commit propagates unchanged with no rollback attempt |

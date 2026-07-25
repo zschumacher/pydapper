@@ -12,13 +12,11 @@ mandatory per-mode core profiles::
 ``core-sync`` and ``core-async`` are independent mandatory profiles; a dual-mode
 adapter must pass both. Optional capabilities are covered by independent capability
 profiles keyed to :class:`pydapper.AdapterCapability`; see :func:`capability_profiles`.
-
-The capability surface — :class:`ConformanceProfile`, :class:`SyncCase`,
-:class:`AsyncCase`, and :func:`capability_profiles` — is **provisional**: no capability
-profile ships yet, so there is nothing for an adapter author to write against, and this
-part of the API may change when the first one lands. The mandatory core surface is not
-provisional. See the "Extending the suite in future capability work" section of the
-adapter conformance documentation.
+The runners automatically append the profile cases for every capability the command
+class declares, so a declaring adapter is exercised against its capability profiles
+in the same run as the core inventory. The first shipped capability profile is
+``transactions``. See the "Extending the suite in future capability work" section of
+the adapter conformance documentation.
 
 This package uses only the standard library and pydapper core: it never imports
 pytest, optional database drivers, or any test-service tooling, and importing it
@@ -29,12 +27,14 @@ from ._harness import AsyncAdapterHarness
 from ._harness import SyncAdapterHarness
 from ._profiles import CORE_ASYNC
 from ._profiles import CORE_SYNC
+from ._profiles import TRANSACTIONS_PROFILE
 from ._profiles import AsyncCase
 from ._profiles import ConformanceProfile
 from ._profiles import SyncCase
 from ._profiles import capability_profiles
 from ._profiles import core_async_profile
 from ._profiles import core_sync_profile
+from ._profiles import transactions_profile
 from ._results import CaseResult
 from ._results import CaseSelectionError
 from ._results import ConformanceError
@@ -53,6 +53,7 @@ __all__ = [
     "CORE_SYNC",
     "CONFORMANCE_COLUMNS",
     "CONFORMANCE_ROWS",
+    "TRANSACTIONS_PROFILE",
     "AsyncAdapterHarness",
     "AsyncCase",
     "CaseResult",
@@ -71,4 +72,5 @@ __all__ = [
     "run_core_async",
     "run_core_sync",
     "seed_rows",
+    "transactions_profile",
 ]

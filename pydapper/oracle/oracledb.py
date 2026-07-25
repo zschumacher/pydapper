@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class OracledbCommands(Commands):
-    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset()
+    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset({AdapterCapability.TRANSACTIONS})
 
     class SqlParamHandler(BaseSqlParamHandler):
         def get_param_placeholder(self, param_name) -> str:

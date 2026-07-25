@@ -10,6 +10,7 @@ import pytest
 import pydapper
 from pydapper import RawRow
 from pydapper._context import _AwaitableAsyncContextManager
+from pydapper.bigquery import GoogleBigqueryClientCommands
 from pydapper.capabilities import AdapterCapability
 from pydapper.command_options import CommandKind
 from pydapper.exceptions import DuplicateColumnException
@@ -5480,3 +5481,150 @@ class TestAdapterCapabilities:
     def test_require_capability_rejects_non_enum_arguments(self, commands, bad):
         with pytest.raises(TypeError):
             commands._require_capability(bad)
+
+
+class _TransactionBlockError(Exception):
+    """Error raised inside a transaction block by the tests below."""
+
+
+class TestTransactions:
+    @pytest.fixture
+    def connection(self):
+        return MockConnection()
+
+    @pytest.fixture
+    def undeclared_commands(self, connection):
+        return MockCommands(connection)
+
+    @pytest.fixture
+    def commands(self, connection):
+        class TransactionalCommands(MockCommands):
+            capabilities = frozenset({AdapterCapability.TRANSACTIONS})
+
+        return TransactionalCommands(connection)
+
+    # -- unsupported adapters -----------------------------------------------------
+
+    @pytest.mark.parametrize("method", ["commit", "rollback", "transaction"])
+    def test_undeclared_adapter_raises_before_touching_the_connection(self, undeclared_commands, connection, method):
+        with pytest.raises(UnsupportedFeatureError) as exc_info:
+            getattr(undeclared_commands, method)()
+        assert "transactions" in str(exc_info.value)
+        assert connection.commits == 0
+        assert connection.rollbacks == 0
+
+    def test_undeclared_adapter_transaction_raises_at_call_time_without_entering(self, undeclared_commands):
+        # the error comes from the bare call, before any context manager exists to enter
+        with pytest.raises(UnsupportedFeatureError):
+            undeclared_commands.transaction()
+
+    @pytest.mark.parametrize("method", ["commit", "rollback", "transaction"])
+    def test_bigquery_is_a_first_party_unsupported_adapter(self, connection, method):
+        # the BigQuery DBAPI has no connection-level transactions (commit() is a no-op and
+        # there is no rollback()), so its command class must reject the whole API
+        commands = GoogleBigqueryClientCommands(connection)
+        with pytest.raises(UnsupportedFeatureError) as exc_info:
+            getattr(commands, method)()
+        assert "transactions" in str(exc_info.value)
+        assert connection.commits == 0
+        assert connection.rollbacks == 0
+
+    # -- commit / rollback delegation ---------------------------------------------
+
+    def test_commit_delegates_to_the_connection(self, commands, connection):
+        assert commands.commit() is None
+        assert connection.commits == 1
+        assert connection.rollbacks == 0
+
+    def test_rollback_delegates_to_the_connection(self, commands, connection):
+        assert commands.rollback() is None
+        assert connection.rollbacks == 1
+        assert connection.commits == 0
+
+    # -- transaction() context manager ---------------------------------------------
+
+    def test_transaction_commits_on_clean_exit(self, commands, connection):
+        with commands.transaction():
+            pass
+        assert connection.commits == 1
+        assert connection.rollbacks == 0
+
+    def test_transaction_yields_none(self, commands):
+        with commands.transaction() as value:
+            assert value is None
+
+    def test_transaction_rolls_back_and_reraises_the_same_exception(self, commands, connection):
+        error = _TransactionBlockError("boom")
+        with pytest.raises(_TransactionBlockError) as exc_info:
+            with commands.transaction():
+                raise error
+        assert exc_info.value is error
+        assert connection.rollbacks == 1
+        assert connection.commits == 0
+
+    def test_transaction_rolls_back_on_base_exceptions(self, commands, connection):
+        with pytest.raises(KeyboardInterrupt):
+            with commands.transaction():
+                raise KeyboardInterrupt
+        assert connection.rollbacks == 1
+        assert connection.commits == 0
+
+    def test_block_error_wins_over_a_rollback_failure(self, connection):
+        class RollbackFailingCommands(MockCommands):
+            capabilities = frozenset({AdapterCapability.TRANSACTIONS})
+
+        commands = RollbackFailingCommands(connection)
+        connection.rollback = lambda: (_ for _ in ()).throw(RuntimeError("rollback boom"))
+        error = _TransactionBlockError("boom")
+        with pytest.raises(_TransactionBlockError) as exc_info:
+            with commands.transaction():
+                raise error
+        assert exc_info.value is error
+
+    def test_commit_failure_on_clean_exit_propagates_without_rollback(self, commands, connection):
+        commit_error = RuntimeError("commit boom")
+        connection.commit = lambda: (_ for _ in ()).throw(commit_error)
+        with pytest.raises(RuntimeError) as exc_info:
+            with commands.transaction():
+                pass
+        assert exc_info.value is commit_error
+        assert connection.rollbacks == 0
+
+    def test_explicit_commit_inside_a_block_is_allowed(self, commands, connection):
+        with commands.transaction():
+            commands.commit()
+        assert connection.commits == 2
+
+    # -- nesting -------------------------------------------------------------------
+
+    def test_nested_transaction_blocks_raise(self, commands, connection):
+        with pytest.raises(RuntimeError, match="cannot be nested"):
+            with commands.transaction():
+                with commands.transaction():
+                    pass  # pragma: no cover
+        # the failed inner enter is not a block error: the outer block still rolls back
+        # because the RuntimeError propagates through it
+        assert connection.rollbacks == 1
+
+    def test_nesting_guard_resets_after_the_block_exits(self, commands, connection):
+        with commands.transaction():
+            pass
+        with commands.transaction():
+            pass
+        assert connection.commits == 2
+
+    def test_nesting_guard_resets_after_a_failed_block(self, commands, connection):
+        with pytest.raises(_TransactionBlockError):
+            with commands.transaction():
+                raise _TransactionBlockError("boom")
+        with commands.transaction():
+            pass
+        assert connection.commits == 1
+        assert connection.rollbacks == 1
+
+    def test_two_unentered_context_managers_cannot_both_enter(self, commands):
+        first = commands.transaction()
+        second = commands.transaction()
+        with first:
+            with pytest.raises(RuntimeError, match="cannot be nested"):
+                second.__enter__()

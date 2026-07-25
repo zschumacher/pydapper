@@ -1,5 +1,26 @@
 ## Latest Changes
 
+* v1: a reusable adapter conformance suite now ships in the installed distribution at
+  `pydapper.testing.adapter_conformance`. Adapter authors implement a typed `SyncAdapterHarness` /
+  `AsyncAdapterHarness` and run the mandatory `core-sync` and `core-async` profiles against their real concrete
+  command classes — no pytest, no optional database drivers, and no copied repository tests required. The two
+  mode profiles are independent (a dual-mode adapter must pass both), results and failures are structured and
+  deterministic (profile id, case id, original cause, and missing harness field), and framework-owned
+  recording/fault-injection connections prove lifecycle behavior — cursor cleanup on success and failure,
+  active-error precedence over cleanup failures, truthy-exit non-suppression, bounded single-row fetches, and
+  fail-before-driver-work validation — through the real adapter classes rather than mocks of them. Harness
+  configuration fields may be declared on the subclass or assigned per instance, so a DSN that only exists once a
+  test container has started needs no `type: ignore`. A failure inside the harness's own `create_commands()` is
+  attributed to the harness through `CaseResult.harness_setup_failed` / `ConformanceReport.harness_setup_failed`
+  and never reported as adapter behavior, so one broken seeding call cannot masquerade as dozens of behavioral
+  failures. Both runners take an optional `case_ids` filter for shortening the debug loop against a slow backend:
+  unknown ids and empty selections raise `CaseSelectionError` before anything runs, and a filtered report carries
+  `covers_full_inventory=False`, so only `report.passed and report.covers_full_inventory` is a conformance result.
+  Optional behaviors remain independent `AdapterCapability` profiles: the catalog starts empty, zero-case profiles
+  are rejected, and a declared capability without a populated profile fails conformance, so an unimplemented
+  capability can never appear covered — that capability surface is provisional until the first profile ships. All
+  eight first-party adapters (nine command classes) adopt the suite in the repository's backend test suites. See
+  [Adapter conformance](adapter_conformance.md).
 * feat: declare first-party adapters as installed entry points and remove eager bootstrap. PR [#564](https://github.com/zschumacher/pydapper/pull/564) by [@zschumacher](https://github.com/zschumacher).
 * v1: adapters are now discovered through the standard `pydapper.adapters` entry-point group and load lazily.
   First-party and third-party adapters use one provider contract: an installed distribution declares an entry point

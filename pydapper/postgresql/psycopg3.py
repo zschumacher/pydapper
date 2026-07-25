@@ -10,6 +10,7 @@ from ..utils import import_dbapi_module
 
 if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
+    from ..types import AsyncCursorType
 
 
 class Psycopg3Commands(Commands):
@@ -45,7 +46,7 @@ class Psycopg3CommandsAsync(CommandsAsync):
         )
         return cls(conn)
 
-    def cursor(self, *args, **kwargs):
+    def cursor(self, *args, **kwargs) -> "_AwaitableAsyncContextManager[AsyncCursorType, AsyncCursorType]":
         async def cursor_proxy():
             return self.connection.cursor(*args, **kwargs)
 

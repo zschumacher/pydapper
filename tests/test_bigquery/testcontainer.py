@@ -3,11 +3,16 @@ from testcontainers.core.generic import DockerContainer
 from testcontainers.core.waiting_utils import wait_container_is_ready
 from urllib3.exceptions import ConnectionError
 
+#: Pinned so an upstream release cannot change what CI runs without a commit here.
+#: The other backends inherit their images from the testcontainers classes, which pin
+#: their own defaults; this is the only image the repo names itself.
+BIGQUERY_EMULATOR_IMAGE = "ghcr.io/goccy/bigquery-emulator:0.8.1"
+
 
 class BigQueryEmulatorContainer(DockerContainer):
     def __init__(
         self,
-        image: str = "ghcr.io/goccy/bigquery-emulator:latest",
+        image: str = BIGQUERY_EMULATOR_IMAGE,
         project: str = "default",
         dataset: str = "default",
         **kwargs,

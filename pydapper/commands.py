@@ -12,6 +12,7 @@ from typing import Any
 from typing import AsyncGenerator
 from typing import Callable
 from typing import ClassVar
+from typing import ContextManager
 from typing import Dict
 from typing import Generator
 from typing import List
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
     from .types import CursorType
     from .types import ListParamType
     from .types import ParamType
+    from .types import TransactionalConnectionType
 
     _T = TypeVar("_T")
     _Default = TypeVar("_Default")
@@ -350,6 +352,7 @@ class BaseCommands(ABC):
 class Commands(BaseCommands, ABC):
     def __init__(self, connection: "ConnectionType"):
         self.connection = connection
+        self._in_transaction = False
 
     def __enter__(self) -> "Commands":
         if hasattr(self.connection, "__enter__"):
@@ -363,6 +366,64 @@ class Commands(BaseCommands, ABC):
     @classmethod
     @abstractmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands": ...
+
+    def commit(self) -> None:
+        """Commit the connection's current transaction.
+
+        Requires ``AdapterCapability.TRANSACTIONS``; an adapter that does not declare it raises
+        ``UnsupportedFeatureError`` before the connection is touched. May be called inside an open
+        ``transaction()`` block: there is only the single connection-level PEP 249 transaction, so
+        this commits the work so far and the block's exit commit covers the remainder.
+        """
+        self._require_capability(AdapterCapability.TRANSACTIONS)
+        cast("TransactionalConnectionType", self.connection).commit()
+
+    def rollback(self) -> None:
+        """Roll back the connection's current transaction.
+
+        Requires ``AdapterCapability.TRANSACTIONS``; an adapter that does not declare it raises
+        ``UnsupportedFeatureError`` before the connection is touched.
+        """
+        self._require_capability(AdapterCapability.TRANSACTIONS)
+        cast("TransactionalConnectionType", self.connection).rollback()
+
+    def transaction(self) -> ContextManager[None]:
+        """Return a context manager that commits on normal exit and rolls back on exception.
+
+        Requires ``AdapterCapability.TRANSACTIONS``; an adapter that does not declare it raises
+        ``UnsupportedFeatureError`` at call time, before the returned context manager is entered.
+        Entering the block emits no SQL — the DBAPI's implicit transaction start is the contract.
+        On a clean exit the block commits; on any exception (``BaseException`` included) it rolls
+        back and re-raises, with a rollback failure losing to the active exception. A commit
+        failure on clean exit propagates unchanged and no rollback is attempted, because
+        connection state after a failed commit is driver-defined. Blocks cannot be nested on the
+        same instance; re-entry raises ``RuntimeError``.
+        """
+        self._require_capability(AdapterCapability.TRANSACTIONS)
+        return self._transaction_proxy()
+
+    @contextmanager
+    def _transaction_proxy(self) -> Generator[None, None, None]:
+        if self._in_transaction:
+            raise RuntimeError(
+                "transaction() blocks cannot be nested; a transaction block is already active on this "
+                "Commands instance"
+            )
+        self._in_transaction = True
+        try:
+            try:
+                yield
+            except BaseException:
+                # the active error wins over a rollback failure (same precedence as _cursor_context_proxy)
+                try:
+                    self.rollback()
+                except BaseException:
+                    pass
+                raise
+            else:
+                self.commit()
+        finally:
+            self._in_transaction = False
 
     @contextmanager
     def _cursor_context_proxy(self):

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class Psycopg2Commands(Commands):
-    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset()
+    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset({AdapterCapability.TRANSACTIONS})
 
     @classmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands":

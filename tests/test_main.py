@@ -676,28 +676,33 @@ def test_connect_rejects_an_adapter_without_sync_support(adapter_registry):
     assert "sync" in str(exc_info.value)
 
 
-FIRST_PARTY_COMMAND_CLASSES = [
-    Sqlite3Commands,
-    Psycopg2Commands,
-    Psycopg3Commands,
-    Psycopg3CommandsAsync,
-    AiopgCommands,
-    MySqlConnectorPythonCommands,
-    PymssqlCommands,
-    OracledbCommands,
-    GoogleBigqueryClientCommands,
-]
+#: The exact capability set every first-party command class must declare. Sync classes
+#: implement the transaction APIs; the async transaction feature has not landed, and
+#: BigQuery's DBAPI cannot support transactions (commit() is a no-op, rollback() is absent).
+FIRST_PARTY_CAPABILITY_DECLARATIONS = {
+    Sqlite3Commands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
+    Psycopg2Commands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
+    Psycopg3Commands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
+    Psycopg3CommandsAsync: frozenset(),
+    AiopgCommands: frozenset(),
+    MySqlConnectorPythonCommands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
+    PymssqlCommands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
+    OracledbCommands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
+    GoogleBigqueryClientCommands: frozenset(),
+}
+
+FIRST_PARTY_COMMAND_CLASSES = list(FIRST_PARTY_CAPABILITY_DECLARATIONS)
 
 
 @pytest.mark.parametrize("command_class", FIRST_PARTY_COMMAND_CLASSES, ids=lambda command_class: command_class.__name__)
-def test_first_party_command_classes_declare_explicit_empty_capability_sets(command_class):
+def test_first_party_command_classes_declare_exact_capability_sets(command_class):
     declared = vars(command_class).get("capabilities")
 
     assert declared is not None, f"{command_class.__name__} must declare capabilities directly, not inherit the default"
     assert type(declared) is frozenset
     assert all(isinstance(member, pydapper.AdapterCapability) for member in declared)
-    # no optional capability is implemented yet, so any non-empty set would be an overclaim
-    assert declared == frozenset()
+    # any drift from this table is either an overclaim or an undeclared implemented feature
+    assert declared == FIRST_PARTY_CAPABILITY_DECLARATIONS[command_class]
 
 
 FIRST_PARTY_ADAPTER_TABLE = {

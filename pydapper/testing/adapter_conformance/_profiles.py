@@ -2,15 +2,14 @@
 
 ``core-sync`` and ``core-async`` are the mandatory per-mode profiles. Optional
 capability profiles are keyed to :class:`~pydapper.capabilities.AdapterCapability`
-members; each future capability feature adds its own independent profile here in the
-same change that implements the feature. The production catalog is immutable and is
-intentionally empty until the first capability feature lands — an unimplemented
-capability must never appear covered.
+members; each capability feature adds its own independent profile here in the same
+change that implements the feature — an unimplemented capability must never appear
+covered. The production catalog is immutable and currently ships the
+``transactions`` profile.
 
-Because no capability profile ships yet, the public capability surface here
-(:class:`ConformanceProfile`, :class:`SyncCase`, :class:`AsyncCase`, and
-:func:`capability_profiles`) is **provisional** and may change with the first real
-capability feature. The mandatory core profiles are not provisional.
+The capability surface (:class:`ConformanceProfile`, :class:`SyncCase`,
+:class:`AsyncCase`, and :func:`capability_profiles`) is stable alongside the
+mandatory core profiles.
 """
 
 from dataclasses import dataclass
@@ -37,6 +36,9 @@ CORE_SYNC = "core-sync"
 #: Stable identifier of the mandatory asynchronous core profile.
 CORE_ASYNC = "core-async"
 
+#: Stable identifier of the optional ``transactions`` capability profile.
+TRANSACTIONS_PROFILE = "transactions"
+
 #: Case kinds: ``"live"`` cases run through the harness's real database resources;
 #: ``"instrumented"`` cases run the real concrete command class around
 #: framework-owned recording/fault-injection connections.
@@ -47,8 +49,7 @@ CASE_KINDS = ("live", "instrumented")
 class SyncCase:
     """One named synchronous conformance case. ``run`` is framework-owned.
 
-    Provisional alongside :class:`ConformanceProfile` until the first capability
-    profile ships; adapter authors do not write cases today.
+    Adapter authors do not write cases; profiles ship with the framework.
     """
 
     case_id: str
@@ -61,7 +62,7 @@ class SyncCase:
 class AsyncCase:
     """One named asynchronous conformance case. ``run`` is framework-owned.
 
-    Provisional alongside :class:`ConformanceProfile`; see :class:`SyncCase`.
+    See :class:`SyncCase`.
     """
 
     case_id: str
@@ -83,10 +84,6 @@ def _validate_cases(profile_id: str, cases: Tuple[Any, ...], mode: str) -> None:
 @dataclass(frozen=True)
 class ConformanceProfile:
     """A named, per-mode set of conformance cases.
-
-    Provisional: outside the two mandatory core profiles, nothing constructs this yet
-    (the production capability catalog is empty), so its shape may change with the first
-    capability feature.
 
     A profile must contain at least one case; zero-case profiles are rejected so an
     empty profile can never make a capability appear covered. Case identifiers are
@@ -127,17 +124,32 @@ def core_async_profile() -> ConformanceProfile:
     return ConformanceProfile(profile_id=CORE_ASYNC, capability=None, async_cases=async_core_cases())
 
 
+def transactions_profile() -> ConformanceProfile:
+    """Build the optional ``transactions`` capability profile.
+
+    Sync cases only: the async transaction APIs are a separate feature, and the async
+    inventory ships with them. Until then an async command class may not declare
+    :attr:`AdapterCapability.TRANSACTIONS` — ``capabilities.declared-profile-populated``
+    rejects a declaration with no cases for its mode.
+    """
+    from ._cases_transactions import transactions_sync_cases
+
+    return ConformanceProfile(
+        profile_id=TRANSACTIONS_PROFILE,
+        capability=AdapterCapability.TRANSACTIONS,
+        sync_cases=transactions_sync_cases(),
+    )
+
+
 def capability_profiles() -> Mapping[AdapterCapability, ConformanceProfile]:
     """Return the production catalog of optional capability profiles.
 
-    The catalog is immutable and currently empty: no optional capability is
-    implemented yet, so no capability profile exists and there is nothing here for an
-    adapter author to act on. Future capability features register their profile here in
-    the same change that implements the capability, keyed by the owning
-    :class:`AdapterCapability` member; until the first one lands this function and the
-    profile/case types it returns are provisional and may change.
+    The catalog is immutable. Capability features register their profile here in the
+    same change that implements the capability, keyed by the owning
+    :class:`AdapterCapability` member; a capability with no profile here is not
+    implemented and may not be declared by any command class.
     """
-    return MappingProxyType({})
+    return MappingProxyType({AdapterCapability.TRANSACTIONS: transactions_profile()})
 
 
 def validate_capability_catalog(catalog: Mapping[AdapterCapability, ConformanceProfile]) -> None:

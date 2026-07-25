@@ -34,19 +34,13 @@ recording and fault-injection connections, so cursor counts, call order, excepti
 
 ## Optional capability profiles
 
-!!! warning "Provisional API — no capability profiles ship yet"
-    `capability_profiles()` returns an **empty** catalog, and `ConformanceProfile`, `SyncCase`, and `AsyncCase`
-    exist only so the first capability feature has somewhere to land. There is nothing for an adapter author to
-    write against yet: no `AdapterCapability` member has a profile, and no adapter can usefully declare one. This
-    part of the public API is **provisional and may change** when the first real capability profile is added; the
-    mandatory `core-sync` / `core-async` surface described above is not. See
-    [Extending the suite in future capability work](#extending-the-suite-in-future-capability-work) for what that
-    first change must carry.
-
 Optional behaviors are independent profiles keyed to `pydapper.AdapterCapability` members — there is no linear
 "better adapter" tier, and no adapter is required to support any optional capability. The production catalog is
-returned by `capability_profiles()` and is **currently empty**, because no optional capability is implemented
-yet. The framework enforces honesty in both directions:
+returned by `capability_profiles()` and currently ships one profile: `transactions`, covering the sync
+[transaction APIs](transactions.md). The runners automatically append the profile cases for every capability the
+command class under test declares, so a declaring adapter is exercised against its capability profiles in the
+same `run_core_sync()` / `run_core_async()` call as the core inventory — there is no separate capability runner
+to invoke. The framework enforces honesty in both directions:
 
 * A command class that declares a valid capability with no populated profile for its mode **fails** conformance
   (`capabilities.declared-profile-populated`). An unimplemented capability can never appear covered; zero-case
@@ -60,6 +54,26 @@ yet. The framework enforces honesty in both directions:
 Native database support alone is never enough to declare a capability: a capability describes behavior the
 command class actually implements, tests through its conformance profile, and documents. Until then, the
 feature must fail loudly rather than silently execute as if supported.
+
+### The `transactions` profile
+
+Nine sync cases pin the sync `commit()` / `rollback()` / `transaction()` contract for every declaring adapter.
+Every live case first commits the harness baseline (`create_commands()` then `commit()`), so scenarios start
+from a durable, transaction-free state even when a harness seeds inside an open transaction. The profile has no
+async cases yet — the async transaction APIs are a separate feature — so an async command class may not declare
+`TRANSACTIONS` until they land.
+
+| Case id | Kind | Pins |
+|---|---|---|
+| `transactions.commit-persists` | live | `commit()` makes a write durable; a later `rollback()` cannot remove it |
+| `transactions.rollback-discards` | live | `rollback()` discards uncommitted work, committed rows stay intact |
+| `transactions.context-commits-on-exit` | live | a `transaction()` block commits on clean exit |
+| `transactions.context-rolls-back-on-error` | live | a raising block rolls back and re-raises the same exception object |
+| `transactions.commit-delegates-once` | instrumented | one connection `commit`, no cursor acquired, returns `None` |
+| `transactions.rollback-delegates-once` | instrumented | one connection `rollback`, no cursor acquired, returns `None` |
+| `transactions.context-lifecycle-order` | instrumented | the block's commit comes after the command's full cursor lifecycle |
+| `transactions.context-error-precedence` | instrumented | rollback on error, and the block's error wins over a rollback failure |
+| `transactions.commit-failure-propagates` | instrumented | a failed exit commit propagates unchanged with no rollback attempt |
 
 ## The harness API
 
@@ -284,15 +298,15 @@ service or emulator is available.
 
 | Adapter name | Command class | Mode | Declared capabilities | Conformance entry | Verification | Driver limits |
 |---|---|---|---|---|---|---|
-| `sqlite3` | `Sqlite3Commands` | sync | *(none)* | `tests/test_sqlite/test_conformance.py` | live, service-free (runs in the core and sqlite suites) | [SQLite](database_support/sqlite.md) |
-| `psycopg2` | `Psycopg2Commands` | sync | *(none)* | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md) |
-| `psycopg` | `Psycopg3Commands` | sync | *(none)* | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md) |
+| `sqlite3` | `Sqlite3Commands` | sync | `transactions` | `tests/test_sqlite/test_conformance.py` | live, service-free (runs in the core and sqlite suites) | [SQLite](database_support/sqlite.md) |
+| `psycopg2` | `Psycopg2Commands` | sync | `transactions` | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md) |
+| `psycopg` | `Psycopg3Commands` | sync | `transactions` | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md) |
 | `psycopg` | `Psycopg3CommandsAsync` | async | *(none)* | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage (including its synchronous cursor-factory normalization); live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md) |
-| `aiopg` | `AiopgCommands` | async | *(none)* | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md); aiopg is autocommit-only and emulates `executemany` by looping `execute` |
-| `mysql` | `MySqlConnectorPythonCommands` | sync | *(none)* | `tests/test_mysql/test_conformance.py` | service-free instrumented + mock coverage (including its `query_first` unread-result drain); live suite under the `mysql` marker when Docker is available | [MySQL](database_support/mysql.md); unread results must be drained before a cursor closes |
-| `pymssql` | `PymssqlCommands` | sync | *(none)* | `tests/test_mssql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `mssql` marker when Docker is available | [Microsoft SQL Server](database_support/mssql.md) |
-| `oracledb` | `OracledbCommands` | sync | *(none)* | `tests/test_oracle/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `oracle` marker when Docker is available | [Oracle](database_support/oracle.md); unquoted identifiers fold to uppercase (`column_case="upper"`), and `''` is stored as NULL (`supports_empty_strings=False`) |
-| `google` | `GoogleBigqueryClientCommands` | sync | *(none)* | `tests/test_bigquery/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `bigquery` marker when the emulator is available | [Google BigQuery](database_support/bigquery.md); the emulator's DML rowcounts are unreliable (`strict_rowcounts=False`), and the DBAPI cannot bind an untyped `None`, so the harness seeds the canonical SQL `NULL` note through a sentinel and a literal `UPDATE` |
+| `aiopg` | `AiopgCommands` | async | *(none)* | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md); aiopg is autocommit-only and emulates `executemany` by looping `execute`; its connection-level commit/rollback raise, so `transactions` is not declared (the async transaction APIs are a separate feature) |
+| `mysql` | `MySqlConnectorPythonCommands` | sync | `transactions` | `tests/test_mysql/test_conformance.py` | service-free instrumented + mock coverage (including its `query_first` unread-result drain); live suite under the `mysql` marker when Docker is available | [MySQL](database_support/mysql.md); unread results must be drained before a cursor closes |
+| `pymssql` | `PymssqlCommands` | sync | `transactions` | `tests/test_mssql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `mssql` marker when Docker is available | [Microsoft SQL Server](database_support/mssql.md) |
+| `oracledb` | `OracledbCommands` | sync | `transactions` | `tests/test_oracle/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `oracle` marker when Docker is available | [Oracle](database_support/oracle.md); unquoted identifiers fold to uppercase (`column_case="upper"`), and `''` is stored as NULL (`supports_empty_strings=False`) |
+| `google` | `GoogleBigqueryClientCommands` | sync | *(none)* | `tests/test_bigquery/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `bigquery` marker when the emulator is available | [Google BigQuery](database_support/bigquery.md); the emulator's DML rowcounts are unreliable (`strict_rowcounts=False`), and the DBAPI cannot bind an untyped `None`, so the harness seeds the canonical SQL `NULL` note through a sentinel and a literal `UPDATE`; the DBAPI's `commit()` is a no-op and there is no `rollback()`, so `transactions` is not declared |
 
 ## Extending the suite in future capability work
 

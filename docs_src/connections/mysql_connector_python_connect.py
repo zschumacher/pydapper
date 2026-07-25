@@ -13,4 +13,4 @@ with pydapper.connect("mysql+mysql://root:pydapper@localhost:3307/pydapper", aut
         # <class 'mysql.connector.cursor_cext.CMySQLCursor'>
 
     # you could alternatively commit your transaction all together at the end of the block
-    commands.connection.commit()
+    commands.commit()

@@ -45,12 +45,19 @@ class _InjectedTransactionCleanupFault(Exception):
     """Framework-injected connection commit/rollback failure."""
 
 
-class _InjectedTransactionInterrupt(KeyboardInterrupt):
+class _InjectedTransactionInterrupt(BaseException):
     """Framework-injected ``BaseException`` that is deliberately not an ``Exception``.
 
-    A :class:`KeyboardInterrupt` subclass, so it takes the interpreter-level branch a
-    ``transaction()`` block must distinguish from an ordinary error while staying
-    distinguishable from a real Ctrl-C.
+    It derives straight from :class:`BaseException` rather than from
+    :class:`KeyboardInterrupt`, which is all the cases need: the split a ``transaction()``
+    block must honour is ``except Exception`` versus everything else, and this takes the
+    non-``Exception`` side of it identically.
+
+    Deriving from :class:`KeyboardInterrupt` would additionally hand the adapter under test
+    something its own Ctrl-C shutdown path recognises, and the runner propagates real
+    interrupts instead of recording them, so an adapter answering one with a plain
+    ``KeyboardInterrupt`` would tear down the whole conformance run. A misbehaving adapter
+    must fail a case, never take the harness with it.
     """
 
 
@@ -288,6 +295,12 @@ def _transactions_context_base_exception(ctx: SyncCaseContext) -> None:
         interrupted.exception is rollback_interrupt,
         "an interrupt raised by rollback must win over the block's ordinary error",
     )
+    # winning must not mean erasing: the block's own error is what says *what was being done*
+    # when the interrupt arrived, and implicit chaining is the only place it survives
+    ctx.check(
+        getattr(interrupted.exception, "__context__", None) is fault,
+        "the block's error must survive as the interrupt's __context__",
+    )
     ctx.check(failing.commit_calls == 0, "a block whose rollback was interrupted must not commit")
 
 
@@ -323,7 +336,11 @@ def _transactions_context_not_reentrant(ctx: SyncCaseContext) -> None:
         connection.commit_calls == 1,
         f"a sequential transaction() block must commit on clean exit, saw {connection.commit_calls} commits",
     )
-    ctx.check(connection.rollback_calls == 1, "a clean sequential transaction() block must not roll back")
+    ctx.check(
+        connection.rollback_calls == 1,
+        "a clean sequential transaction() block must not roll back again, saw "
+        f"{connection.rollback_calls} rollbacks (1 expected, from the nesting error above)",
+    )
 
 
 #: The production inventory is frozen once at import; later mutation of the private

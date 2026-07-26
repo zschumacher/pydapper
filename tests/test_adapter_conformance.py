@@ -56,6 +56,7 @@ from pydapper.testing.adapter_conformance import core_async_profile
 from pydapper.testing.adapter_conformance import core_sync_profile
 from pydapper.testing.adapter_conformance import run_core_async
 from pydapper.testing.adapter_conformance import run_core_sync
+from pydapper.testing.adapter_conformance._cases_transactions import _InjectedTransactionInterrupt
 from pydapper.testing.adapter_conformance._checks import SyncCaseContext
 from pydapper.testing.adapter_conformance._instrumentation import CursorScript
 from pydapper.testing.adapter_conformance._instrumentation import RecordingAsyncConnection
@@ -63,6 +64,7 @@ from pydapper.testing.adapter_conformance._instrumentation import RecordingConne
 from pydapper.testing.adapter_conformance._instrumentation import SynchronousCursorRecordingAsyncConnection
 from pydapper.testing.adapter_conformance._profiles import validate_capability_catalog
 from pydapper.testing.adapter_conformance._results import CaseCheckError
+from pydapper.testing.adapter_conformance._runner import _PROPAGATED
 from pydapper.testing.adapter_conformance._sqlspec import render_statement
 from pydapper.testing.adapter_conformance._sqlspec import statement_ids
 from tests.conformance_support import FIRST_PARTY_CONFORMANCE_ENTRIES
@@ -1674,6 +1676,48 @@ class _CommitsAfterInterruptedRollbackCommands(_ProxyMutantCommands):
             raise
 
 
+class _DetachesTheInterruptContextCommands(_ProxyMutantCommands):
+    """An interrupt raised by rollback wins, but with the block's own error detached from its
+    ``__context__``, so the report no longer says what the block was doing when it stopped.
+
+    Note that ``raise interrupt from None`` would *not* do this: it sets
+    ``__suppress_context__`` for display and leaves ``__context__`` in place. Detaching takes
+    an explicit assignment.
+    """
+
+    def _on_error(self, error: BaseException) -> None:
+        try:
+            self.rollback()
+        except Exception:
+            pass
+        except BaseException as interrupt:
+            interrupt.__context__ = None
+            raise
+
+
+class _ShutsDownOnInterruptedRollbackCommands(_ProxyMutantCommands):
+    """Commits after an interrupted rollback, and answers a ``KeyboardInterrupt`` from the
+    rollback with a plain ``KeyboardInterrupt`` of its own — an adapter-side Ctrl-C shutdown
+    path layered on a real defect.
+
+    This exists for the runner's benefit, not the profile's: the runner propagates
+    :class:`KeyboardInterrupt` as a shutdown signal rather than recording it, so if the
+    framework's injected interrupt were itself a ``KeyboardInterrupt`` this adapter would
+    abort the entire conformance run instead of failing one case.
+    """
+
+    def _on_error(self, error: BaseException) -> None:
+        try:
+            self.rollback()
+        except Exception:
+            pass
+        except BaseException as interrupt:
+            self.commit()
+            if isinstance(interrupt, KeyboardInterrupt):
+                raise KeyboardInterrupt("shutting down") from None
+            raise
+
+
 class _CommitSwallowsFailureCommands(Sqlite3Commands):
     """commit() reports success after the driver refused to commit."""
 
@@ -2079,6 +2123,13 @@ _TRANSACTION_MUTANTS = (
         commands=_TranslatesInterruptedRollbackCommands,
     ),
     _TransactionMutant(
+        slug="interrupted-rollback-detaches-the-block-error",
+        case_id="transactions.context-base-exception-rollback",
+        assertion="the block's error survives as the interrupt's __context__",
+        fragment="the block's error must survive as the interrupt's __context__",
+        commands=_DetachesTheInterruptContextCommands,
+    ),
+    _TransactionMutant(
         slug="interrupted-rollback-commits",
         case_id="transactions.context-base-exception-rollback",
         assertion="an interrupted rollback never commits",
@@ -2138,7 +2189,7 @@ _TRANSACTION_MUTANTS = (
         slug="sequential-block-also-rolls-back",
         case_id="transactions.context-not-reentrant",
         assertion="the next sequential block does not roll back",
-        fragment="a clean sequential transaction() block must not roll back",
+        fragment="a clean sequential transaction() block must not roll back again",
         commands=_RollsBackAfterCommitCommands,
     ),
     _TransactionMutant(
@@ -2172,12 +2223,36 @@ def _run_transactions_profile(commands_class, workdir):
     return run_core_sync(_Harness(workdir), case_ids=list(TRANSACTION_CASE_IDS))
 
 
-def test_transaction_mutant_base_is_itself_conformant(tmp_path):
-    """The mutants' shared scaffolding passes the whole profile unmodified, so each mutant's
-    failure is attributable to the single behavior its subclass overrides."""
-    report = _run_transactions_profile(_ProxyMutantCommands, tmp_path)
+@pytest.mark.parametrize("base", [_ProxyMutantCommands, Sqlite3Commands], ids=["proxy-mutant-base", "sqlite3"])
+def test_transaction_mutant_base_is_itself_conformant(base, tmp_path):
+    """Both bases the mutants subclass pass the whole profile unmodified under this very
+    harness, so each mutant's failure is attributable to the single behavior it overrides.
+
+    ``Sqlite3Commands`` is here for the same reason ``_ProxyMutantCommands`` is: roughly half
+    the mutant table derives from it directly, and a row can only be credited to its mutation
+    if the unmutated base certifies clean.
+    """
+    report = _run_transactions_profile(base, tmp_path)
     assert report.passed, [(f.case_id, f.message) for f in report.failures]
     assert [result.case_id for result in report.results] == list(TRANSACTION_CASE_IDS)
+
+
+def test_a_misbehaving_adapter_cannot_abort_the_conformance_run(tmp_path):
+    """An adapter with a Ctrl-C shutdown path must fail a case, not take the runner down.
+
+    The runner re-raises :class:`KeyboardInterrupt` instead of recording it, so the framework
+    must never hand an adapter something its shutdown path recognises. This is what keeps
+    ``_InjectedTransactionInterrupt`` off the ``KeyboardInterrupt`` branch: revert that and
+    this adapter aborts the whole session rather than failing one case.
+    """
+    assert not issubclass(_InjectedTransactionInterrupt, _PROPAGATED), (
+        "the framework's injected interrupt must not be a type the runner propagates as a "
+        "shutdown signal, or an escaping one would abort the run instead of failing a case"
+    )
+    report = _run_transactions_profile(_ShutsDownOnInterruptedRollbackCommands, tmp_path)
+    failed = {failure.case_id: failure.message for failure in report.failures}
+    assert list(failed) == ["transactions.context-base-exception-rollback"], sorted(failed)
+    assert "a block whose rollback was interrupted must not commit" in failed[list(failed)[0]]
 
 
 @pytest.mark.parametrize("mutant", _TRANSACTION_MUTANTS, ids=_TRANSACTION_MUTANT_IDS)

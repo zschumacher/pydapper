@@ -10,7 +10,8 @@
   case table is checked against the shipped one. The profile grows from nine sync cases to eleven:
   `transactions.context-base-exception-rollback` (a `BaseException` that is not an `Exception` — a
   `KeyboardInterrupt`, say — still rolls back, never commits, and propagates as the same object,
-  and an interrupt raised by the rollback itself wins over the block's ordinary error) and
+  and an interrupt raised by the rollback itself wins over the block's ordinary error, which
+  survives as its `__context__`) and
   `transactions.context-not-reentrant` (nested blocks on one `Commands` instance raise
   `RuntimeError` and roll the outer block back, and the guard clears so the next sequential block
   still commits). No runtime behavior changed; every first-party sync adapter already passes both

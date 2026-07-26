@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: add async commit, rollback, and transaction APIs. PR [#579](https://github.com/zschumacher/pydapper/pull/579) by [@zschumacher](https://github.com/zschumacher).
 * v1: `CommandsAsync` now exposes the async transaction APIs — `commit()`, `rollback()`, and a
   `transaction()` async context manager — with semantics identical to the sync APIs: commit on clean exit;
   rollback then re-raise on any exception (including `KeyboardInterrupt`) with the block's error winning over

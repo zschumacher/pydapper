@@ -1,7 +1,8 @@
 """The ``transactions`` capability profile's async case inventory.
 
-The async twin of ``_cases_transactions`` — same nine case ids, order, and kinds, so
-sync and async declaring adapters are held to one contract. These cases run only for
+The async twin of ``_cases_transactions`` — same eleven case ids, order, kinds, and
+descriptions, so sync and async declaring adapters are held to one contract, case for
+case and assertion for assertion. These cases run only for
 async command classes that declare
 :attr:`~pydapper.capabilities.AdapterCapability.TRANSACTIONS`. Every ``live`` case
 first commits the harness baseline (``create_commands()`` then ``commit()``) so the
@@ -17,6 +18,7 @@ from typing import Tuple
 from pydapper.commands import CommandsAsync
 
 from ._cases_transactions import _TX_ROW
+from ._cases_transactions import _InjectedTransactionInterrupt
 from ._checks import AsyncCaseContext
 from ._profiles import AsyncCase
 
@@ -237,6 +239,94 @@ async def _transactions_commit_failure(ctx: AsyncCaseContext) -> None:
     ctx.check(caught.exception is commit_fault, "the commit failure must propagate as the same exception object")
     ctx.check(connection.commit_calls == 1, f"expected exactly one commit attempt, saw {connection.commit_calls}")
     ctx.check(connection.rollback_calls == 0, "no rollback may be attempted after a failed commit")
+
+
+@_case(
+    "transactions.context-base-exception-rollback",
+    "A transaction() block rolls back a non-Exception BaseException too, and an interrupted "
+    "rollback wins over the block's own error",
+    "instrumented",
+)
+async def _transactions_context_base_exception(ctx: AsyncCaseContext) -> None:
+    # the injected interrupt is the sync inventory's class, deliberately a plain BaseException:
+    # anything the runner propagates as a shutdown signal (KeyboardInterrupt, SystemExit,
+    # asyncio.CancelledError) would let a misbehaving adapter abort the run instead of failing
+    # this case, and CancelledError would additionally be a lie about task state
+    interrupt = _InjectedTransactionInterrupt("interrupt")
+    connection = ctx.recording_connection()
+    commands = ctx.instrumented_commands(connection)
+    with ctx.expect_raises(_InjectedTransactionInterrupt) as caught:
+        async with commands.transaction():
+            raise interrupt
+    ctx.check(
+        caught.exception is interrupt,
+        "a BaseException that is not an Exception must propagate as the same exception object",
+    )
+    ctx.check(
+        connection.rollback_calls == 1,
+        f"a block abandoned by a BaseException must roll back exactly once, saw {connection.rollback_calls}",
+    )
+    ctx.check(connection.commit_calls == 0, "a block abandoned by a BaseException must not commit")
+
+    # an interrupt raised by the rollback itself is an interpreter-level request to stop, so it
+    # beats the block's ordinary error rather than being discarded like a failed cleanup
+    rollback_interrupt = _InjectedTransactionInterrupt("rollback")
+    failing = ctx.recording_connection(rollback_error=rollback_interrupt)
+    commands = ctx.instrumented_commands(failing)
+    fault = _InjectedTransactionFault("boom")
+    with ctx.expect_raises(_InjectedTransactionInterrupt) as interrupted:
+        async with commands.transaction():
+            raise fault
+    ctx.check(
+        interrupted.exception is rollback_interrupt,
+        "an interrupt raised by rollback must win over the block's ordinary error",
+    )
+    # winning must not mean erasing: the block's own error is what says *what was being done*
+    # when the interrupt arrived, and implicit chaining is the only place it survives
+    ctx.check(
+        getattr(interrupted.exception, "__context__", None) is fault,
+        "the block's error must survive as the interrupt's __context__",
+    )
+    ctx.check(failing.commit_calls == 0, "a block whose rollback was interrupted must not commit")
+
+
+@_case(
+    "transactions.context-not-reentrant",
+    "transaction() blocks do not nest on one instance, and the guard clears for the next block",
+    "instrumented",
+)
+async def _transactions_context_not_reentrant(ctx: AsyncCaseContext) -> None:
+    connection = ctx.recording_connection()
+    commands = ctx.instrumented_commands(connection)
+    with ctx.expect_raises(RuntimeError):
+        async with commands.transaction():
+            async with commands.transaction():
+                ctx.fail("a nested transaction() block on the same Commands instance must not be entered")
+    ctx.check(connection.commit_calls == 0, "a block abandoned by a nesting error must not commit")
+    ctx.check(
+        connection.rollback_calls == 1,
+        f"a block abandoned by a nesting error must roll back exactly once, saw {connection.rollback_calls}",
+    )
+
+    # the guard belongs to the block, not to the instance's lifetime
+    try:
+        async with commands.transaction():
+            await commands.execute_async("UPDATE t SET label = 'x'")
+    except RuntimeError as error:
+        ctx.fail(
+            "the nesting guard must clear when a block exits: a later sequential transaction() block "
+            "on the same Commands instance must be enterable",
+            cause=error,
+        )
+    ctx.check(
+        connection.commit_calls == 1,
+        f"a sequential transaction() block must commit on clean exit, saw {connection.commit_calls} commits",
+    )
+    ctx.check(
+        connection.rollback_calls == 1,
+        "a clean sequential transaction() block must not roll back again, saw "
+        f"{connection.rollback_calls} rollbacks (1 expected, from the nesting error above)",
+    )
 
 
 #: The production inventory is frozen once at import; later mutation of the private

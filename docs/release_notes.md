@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* fix: close five gaps in the owned-resource and adapter-registration contracts. PR [#576](https://github.com/zschumacher/pydapper/pull/576) by [@zschumacher](https://github.com/zschumacher).
 * fix: identify connections by type, not repr, in selection errors. PR [#575](https://github.com/zschumacher/pydapper/pull/575) by [@zschumacher](https://github.com/zschumacher).
 * fix: verify preparation-hook ordering on the conformance query paths. PR [#573](https://github.com/zschumacher/pydapper/pull/573) by [@zschumacher](https://github.com/zschumacher).
 * docs: document command-owned cursor exits and the #541 behavior change. PR [#574](https://github.com/zschumacher/pydapper/pull/574) by [@zschumacher](https://github.com/zschumacher).

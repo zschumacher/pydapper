@@ -7,9 +7,9 @@ with pydapper.connect("sqlite://pydapper.db") as commands:
     print(type(commands.connection))
     # <class 'sqlite3.Connection'>
 
-    # pydapper inherits from `sqlite3.Cursor` in order to supply a context manager
-    with commands.cursor() as raw_cursor:
-        print(type(raw_cursor))
-        # <class 'pydapper.sqlite.sqlite3.Sqlite3Cursor'>
-        print(raw_cursor.__class__.__bases__)
-        # (<class 'sqlite3.Cursor'>,)
+    # sqlite3 cursors are not context managers; close explicitly if you use one directly
+    # (cursors owned by pydapper command methods are cleaned up for you)
+    raw_cursor = commands.cursor()
+    print(type(raw_cursor))
+    # <class 'sqlite3.Cursor'>
+    raw_cursor.close()

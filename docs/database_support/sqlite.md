@@ -8,7 +8,7 @@ Supported drivers:
 ## sqlite3
 `sqlite3` is the default dbapi driver for SQLite in *pydapper*.
 
-### Instalation
+### Installation
 `sqlite3` is part of the stdlib and thus does not require installing an extra.
 === "pip"
     ```console
@@ -54,8 +54,7 @@ Paths are percent-decoded without treating plus signs as spaces. For example,
 
 
 ### Example - `connect`
-Please see the [sqlite3 docs](https://docs.python.org/3/library/sqlite3.html#using-the-connection-as-a-context-manager) for
-a full description of the context manager behavior.
+See [Transactions](#sqlite3-transactions) below for what the connection's context manager does on exit.
 ```python
 {!docs/../docs_src/connections/sqlite3_connect.py!}
 ```
@@ -65,3 +64,26 @@ Use *pydapper* with a custom connection pool.
 ```python
 {!docs/../docs_src/connections/sqlite3_using.py!}
 ```
+
+### Transactions {#sqlite3-transactions}
+
+`sqlite3` connects in its legacy `isolation_level` mode by default: an implicit transaction opens before the
+first DML statement, and **DDL issued while no transaction is open runs in autocommit** — so a rolled-back
+[`transaction()`](../transactions.md) block can leave a `CREATE TABLE` behind while its inserts are rolled
+back. (DDL issued *after* DML has already opened the implicit transaction participates in it and rolls back
+with it.) All of pydapper's transaction APIs (`commit()`, `rollback()`, `transaction()`) are supported.
+
+Exiting `with pydapper.connect(...)` delegates to
+[`sqlite3.Connection`'s own context manager](https://docs.python.org/3/library/sqlite3.html#using-the-connection-as-a-context-manager):
+it **commits on clean exit, rolls back on error, and never closes the connection** — close it explicitly when
+you are done:
+
+```python
+with pydapper.connect("sqlite://my.db") as commands:
+    commands.execute(insert_sql, params=task)
+# the exit committed the insert, but the connection is still open
+commands.connection.close()
+```
+
+See [Transactions](../transactions.md) and
+[Context manager semantics](intro.md#context-manager-semantics) for the cross-driver picture.

@@ -25,10 +25,16 @@ Every first-party adapter declares the capability except two — see the
 
 !!! note "`with pydapper.connect(...)` delegates exit behavior to the driver"
     `Commands.__enter__`/`__exit__` (and the `CommandsAsync` async equivalents) delegate to the driver
-    connection's own context manager. Some drivers' connection context managers commit on clean exit (for
-    example `sqlite3` and `psycopg2`), so leaving the `with connect(...)` block can itself commit outstanding
-    work. The transaction APIs below operate on the same single connection-level transaction that behavior
-    applies to.
+    connection's own context manager — see
+    [Context manager semantics](database_support/intro.md#context-manager-semantics) — and the drivers fall
+    into three families. Some **commit on clean exit**: `sqlite3` and `psycopg2` (neither closes), and
+    `psycopg` (commits, then closes). Some **only close**: `mysql-connector-python` discards uncommitted DML,
+    and `aiopg` closes too (everything was already durable — it is autocommit-only). Some **close with an
+    implicit rollback**: `pymssql` and `oracledb` throw away uncommitted work on exit. BigQuery is its own
+    case: its connection has no context manager at all, so exit performs no driver call whatsoever. The
+    per-driver table below links to
+    each driver's details. The transaction APIs on this page operate on the same single connection-level
+    transaction those behaviors apply to.
 
 ## `commit()` and `rollback()`
 
@@ -100,8 +106,15 @@ Transaction behavior is pinned for every declaring adapter in both modes by the
 [`transactions` conformance profile](adapter_conformance.md#the-transactions-profile), and per-driver limits
 are recorded in the driver-limits column of the
 [first-party conformance matrix](adapter_conformance.md#first-party-driver-conformance-matrix). Driver-level
-transaction defaults still apply beneath these APIs — for example `mysql-connector-python` connects with
-`autocommit=False` (so no DML is durable until you commit, though MySQL still implicitly commits every DDL
-statement), and `sqlite3`'s legacy `isolation_level` mode opens implicit transactions for DML but not DDL,
-which means a rolled-back block can leave a `CREATE TABLE` behind. Consult your driver's own documentation for
-its autocommit and isolation semantics.
+transaction defaults still apply beneath these APIs; each driver's page documents its own behavior in detail:
+
+| Driver | Autocommit default | `with connect(...)` exit does | Details |
+|---|---|---|---|
+| `sqlite3` | off (legacy `isolation_level` — implicit transactions open on DML; DDL outside an open transaction is autocommitted) | commits on clean exit, rolls back on error; does **not** close | [SQLite](database_support/sqlite.md#sqlite3-transactions) |
+| `psycopg2` | off | commits on clean exit, rolls back on error; does **not** close | [PostgreSQL](database_support/postgresql.md#psycopg2-transactions) |
+| `psycopg` (sync + async) | off | commits on clean exit, rolls back on error, then **closes** | [PostgreSQL](database_support/postgresql.md#psycopg3-transactions) |
+| `aiopg` | always on | closes; every statement was already durable | [PostgreSQL](database_support/postgresql.md#aiopg-transactions) |
+| `mysql` | off | **closes only** — uncommitted DML is discarded; MySQL implicitly commits DDL (temporary tables excepted) | [MySQL](database_support/mysql.md#mysql-transactions) |
+| `pymssql` | off (always-open `BEGIN TRAN`) | **closes only** — `close()` implicitly rolls back uncommitted work | [SQL Server](database_support/mssql.md#pymssql-transactions) |
+| `oracledb` | off | **rolls back** uncommitted work, then closes; Oracle implicitly commits DDL | [Oracle](database_support/oracle.md#oracledb-transactions) |
+| `google` (BigQuery) | effectively per-statement | nothing — the DBAPI connection has no context manager | [BigQuery](database_support/bigquery.md#bigquery-transactions) |

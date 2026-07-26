@@ -61,10 +61,11 @@ class AsyncConnectionType(Protocol):
 class AsyncTransactionalConnectionType(Protocol):
     """Async connections usable by the capability-gated transaction APIs.
 
-    Deliberately not part of ``AsyncConnectionType``: not every async driver can support
-    connection-level transactions (e.g. aiopg is autocommit-only and its ``commit()``/``rollback()``
-    raise), so requiring these members on every async connection would structurally break
-    connections that cannot support them. Command classes gate access behind
+    Deliberately not part of ``AsyncConnectionType``: not every async driver can honor
+    connection-level transactions at runtime — aiopg is autocommit-only, and although its
+    ``commit()``/``rollback()`` exist (structurally satisfying this protocol), they raise — and a
+    driver may omit the members entirely. Folding them into the base protocol would imply every
+    async connection supports transactions; command classes gate access behind
     ``AdapterCapability.TRANSACTIONS`` instead.
     """
 

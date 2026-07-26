@@ -12,6 +12,7 @@ The capability surface (:class:`ConformanceProfile`, :class:`SyncCase`,
 mandatory core profiles.
 """
 
+import inspect
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
@@ -79,6 +80,15 @@ def _validate_cases(profile_id: str, cases: Tuple[Any, ...], mode: str) -> None:
         if case.case_id in seen:
             raise ProfileDefinitionError(profile_id, f"duplicate {mode} case id {case.case_id!r}")
         seen.add(case.case_id)
+        # a mode/run mismatch would otherwise surface only at run time, as a confusing
+        # TypeError from awaiting None (or a sync body silently executing its side effects)
+        is_coroutine = inspect.iscoroutinefunction(case.run)
+        if mode == "async" and not is_coroutine:
+            raise ProfileDefinitionError(profile_id, f"{mode} case {case.case_id!r} run must be a coroutine function")
+        if mode == "sync" and is_coroutine:
+            raise ProfileDefinitionError(
+                profile_id, f"{mode} case {case.case_id!r} run must not be a coroutine function"
+            )
 
 
 @dataclass(frozen=True)

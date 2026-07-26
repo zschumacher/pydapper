@@ -354,6 +354,66 @@ class BaseCommands(ABC):
         return options
 
 
+_TRANSACTION_CONTEXT_REUSED = "transaction() context managers are single-use; call transaction() again for a new block"
+_TRANSACTION_CONTEXT_NOT_ACTIVE = (
+    "transaction() context manager is not active; it was never entered or has already exited"
+)
+
+
+class _TransactionContext:
+    """Single-use wrapper enforcing enter-before-exit for sync ``transaction()`` blocks.
+
+    Without it, ``__exit__`` on a never-entered context manager would start the underlying
+    generator — setting the nesting guard as a side effect — and reusing an exhausted one
+    would surface as contextlib's bare ``AttributeError`` instead of a clear error.
+    """
+
+    __slots__ = ("_inner", "_state")
+
+    def __init__(self, inner: ContextManager[None]) -> None:
+        self._inner = inner
+        self._state = "new"
+
+    def __enter__(self) -> None:
+        if self._state != "new":
+            raise RuntimeError(_TRANSACTION_CONTEXT_REUSED)
+        self._state = "entered"
+        return self._inner.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> Optional[bool]:
+        if self._state != "entered":
+            raise RuntimeError(_TRANSACTION_CONTEXT_NOT_ACTIVE)
+        self._state = "exited"
+        return self._inner.__exit__(exc_type, exc_val, exc_tb)
+
+
+class _AsyncTransactionContext:
+    """The async twin of :class:`_TransactionContext`; see its rationale.
+
+    The never-entered ``__aexit__`` misuse is worse in async mode: on Python 3.10 the
+    started-but-abandoned generator leaves the nesting guard set until finalization runs,
+    which may be arbitrarily late or never.
+    """
+
+    __slots__ = ("_inner", "_state")
+
+    def __init__(self, inner: AsyncContextManager[None]) -> None:
+        self._inner = inner
+        self._state = "new"
+
+    async def __aenter__(self) -> None:
+        if self._state != "new":
+            raise RuntimeError(_TRANSACTION_CONTEXT_REUSED)
+        self._state = "entered"
+        return await self._inner.__aenter__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> Optional[bool]:
+        if self._state != "entered":
+            raise RuntimeError(_TRANSACTION_CONTEXT_NOT_ACTIVE)
+        self._state = "exited"
+        return await self._inner.__aexit__(exc_type, exc_val, exc_tb)
+
+
 class Commands(BaseCommands, ABC):
     # class-level default so a subclass that overrides __init__ without calling super() still
     # gets a working transaction guard; entering a block shadows it per instance
@@ -410,12 +470,13 @@ class Commands(BaseCommands, ABC):
         connection state after a failed commit is driver-defined. Blocks cannot be nested on the
         same instance; re-entry raises ``RuntimeError``. The guard is per ``Commands`` instance:
         a second instance over the same connection (for example from a second ``using()`` call)
-        shares the same single connection-level transaction and is not guarded against. Entering
-        the returned context manager manually without exiting it leaves the rollback to generator
-        finalization at a nondeterministic time; always use ``with``.
+        shares the same single connection-level transaction and is not guarded against. The
+        returned context manager is single-use and must be entered before it is exited; misuse
+        raises ``RuntimeError``. Entering it manually without exiting it leaves the rollback to
+        generator finalization at a nondeterministic time; always use ``with``.
         """
         self._require_capability(AdapterCapability.TRANSACTIONS)
-        return self._transaction_proxy()
+        return _TransactionContext(self._transaction_proxy())
 
     @contextmanager
     def _transaction_proxy(self) -> Generator[None, None, None]:
@@ -1857,13 +1918,17 @@ class CommandsAsync(BaseCommands, ABC):
         same instance; re-entry raises ``RuntimeError``. The guard is per ``CommandsAsync``
         instance: a second instance over the same connection (for example from a second
         ``using_async()`` call) shares the same single connection-level transaction and is not
-        guarded against. Entering the returned context manager manually without exiting it leaves
+        guarded against. The returned context manager is single-use and must be entered before it
+        is exited; misuse raises ``RuntimeError``. Entering it manually without exiting it leaves
         the rollback to async-generator finalization at a nondeterministic time — and unlike the
         sync twin, if the event loop is closed before that finalization runs, the rollback never
-        happens and the nesting guard stays set on this instance. Always use ``async with``.
+        happens and the nesting guard stays set on this instance; if the surrounding connection
+        context manager exits first, a driver whose connection commits on clean exit (for example
+        psycopg) commits the abandoned block's work before finalization can roll it back. Always
+        use ``async with``.
         """
         self._require_capability(AdapterCapability.TRANSACTIONS)
-        return self._transaction_proxy()
+        return _AsyncTransactionContext(self._transaction_proxy())
 
     @asynccontextmanager
     async def _transaction_proxy(self) -> AsyncGenerator[None, None]:

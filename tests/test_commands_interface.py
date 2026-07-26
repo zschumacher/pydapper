@@ -5966,6 +5966,27 @@ class TestTransactions:
             with pytest.raises(RuntimeError, match="cannot be nested"):
                 second.__enter__()
 
+    def test_exiting_a_never_entered_context_manager_raises_without_touching_state(self, commands, connection):
+        # e.g. an ExitStack.push(...) where enter_context(...) was intended
+        cm = commands.transaction()
+        with pytest.raises(RuntimeError, match="never entered"):
+            cm.__exit__(None, None, None)
+        assert connection.commits == 0
+        assert connection.rollbacks == 0
+        # the guard was never touched, so a legitimate block still works
+        with commands.transaction():
+            pass
+        assert connection.commits == 1
+
+    def test_context_managers_are_single_use(self, commands, connection):
+        cm = commands.transaction()
+        with cm:
+            pass
+        with pytest.raises(RuntimeError, match="single-use"):
+            with cm:
+                pass  # pragma: no cover
+        assert connection.commits == 1
+
 
 class TestTransactionsAsync:
     @pytest.fixture
@@ -6171,3 +6192,27 @@ class TestTransactionsAsync:
         async with first:
             with pytest.raises(RuntimeError, match="cannot be nested"):
                 await second.__aenter__()
+
+    @pytest.mark.asyncio
+    async def test_exiting_a_never_entered_context_manager_raises_without_touching_state(self, commands, connection):
+        # e.g. an AsyncExitStack.push_async_exit(...) where enter_async_context(...) was
+        # intended — without the guard this would start the generator, set the nesting
+        # flag as a side effect, and (on 3.10) leave it stuck until finalization
+        cm = commands.transaction()
+        with pytest.raises(RuntimeError, match="never entered"):
+            await cm.__aexit__(None, None, None)
+        assert connection.commits == 0
+        assert connection.rollbacks == 0
+        async with commands.transaction():
+            pass
+        assert connection.commits == 1
+
+    @pytest.mark.asyncio
+    async def test_context_managers_are_single_use(self, commands, connection):
+        cm = commands.transaction()
+        async with cm:
+            pass
+        with pytest.raises(RuntimeError, match="single-use"):
+            async with cm:
+                pass  # pragma: no cover
+        assert connection.commits == 1

@@ -3,9 +3,9 @@
 * v1: `CommandsAsync` now exposes the async transaction APIs — `commit()`, `rollback()`, and a
   `transaction()` async context manager — with semantics identical to the sync APIs: commit on clean exit;
   rollback then re-raise on any exception (including `KeyboardInterrupt`) with the block's error winning over
-  an ordinary rollback failure (a `BaseException` such as a task cancellation raised during the rollback is
-  never swallowed and propagates in its place); a failed exit commit propagates unchanged with no rollback
-  attempt; no SQL on enter; and
+  an ordinary rollback failure (a `BaseException` that is not an `Exception` — such as a task cancellation —
+  raised during the rollback is never swallowed and propagates in its place); a failed exit commit propagates
+  unchanged with no rollback attempt; no SQL on enter; and
   `RuntimeError` on nested blocks on the same instance. The methods are deliberately unsuffixed — the class is
   async-only, so an `_async` suffix would be redundant — and all three are gated behind
   `AdapterCapability.TRANSACTIONS`, raising `UnsupportedFeatureError` for adapters that do not declare it.

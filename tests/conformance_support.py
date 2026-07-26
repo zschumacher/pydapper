@@ -105,7 +105,9 @@ class MiniDb:
         if match is None:
             raise MiniDbError(f"unsupported INSERT: {sql!r}")
         columns = tuple(part.strip() for part in match.group("cols").split(","))
-        self.rows.append(dict(zip(columns, params)))
+        # copy so a caller mutating its param objects after the insert cannot alias into
+        # rows (and, through a later commit, into the durable snapshot)
+        self.rows.append(copy.deepcopy(dict(zip(columns, params))))
         return 1
 
     def update(self, sql: str, params: Sequence[Any]) -> int:

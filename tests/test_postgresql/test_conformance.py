@@ -143,7 +143,10 @@ def test_psycopg2_core_sync_conformance(server, db_port, database_name):
     harness = _Psycopg2ConformanceHarness(server, db_port, database_name)
     assert harness.adapter_name == entry.adapter_name
     assert harness.command_class is entry.command_class
-    run_core_sync(harness).raise_for_failures()
+    report = run_core_sync(harness)
+    report.raise_for_failures()
+    # profile planning is declaration-driven: prove the live run actually included it
+    assert any(result.profile_id == "transactions" for result in report.results)
 
 
 def test_psycopg3_core_sync_conformance(server, db_port, database_name):
@@ -151,7 +154,9 @@ def test_psycopg3_core_sync_conformance(server, db_port, database_name):
     harness = _Psycopg3SyncConformanceHarness(server, db_port, database_name)
     assert harness.adapter_name == entry.adapter_name
     assert harness.command_class is entry.command_class
-    run_core_sync(harness).raise_for_failures()
+    report = run_core_sync(harness)
+    report.raise_for_failures()
+    assert any(result.profile_id == "transactions" for result in report.results)
 
 
 @pytest.mark.asyncio
@@ -162,6 +167,7 @@ async def test_psycopg3_core_async_conformance(server, db_port, database_name):
     assert harness.command_class is entry.command_class
     report = await run_core_async(harness)
     report.raise_for_failures()
+    assert any(result.profile_id == "transactions" for result in report.results)
 
 
 @pytest.mark.asyncio

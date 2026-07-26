@@ -1480,6 +1480,32 @@ def test_production_capability_catalog_ships_transactions_and_is_immutable():
         catalog[AdapterCapability.TRANSACTIONS] = None  # type: ignore[index]
 
 
+def test_sync_case_run_must_not_be_a_coroutine_function():
+    async def _async_body(ctx):
+        return None
+
+    with pytest.raises(ProfileDefinitionError) as exc_info:
+        ConformanceProfile(
+            profile_id="mode-mismatch",
+            capability=None,
+            sync_cases=(SyncCase("mismatch.sync", "d", "instrumented", _async_body),),
+        )
+    assert "must not be a coroutine function" in str(exc_info.value)
+
+
+def test_async_case_run_must_be_a_coroutine_function():
+    def _sync_body(ctx):
+        return None
+
+    with pytest.raises(ProfileDefinitionError) as exc_info:
+        ConformanceProfile(
+            profile_id="mode-mismatch",
+            capability=None,
+            async_cases=(AsyncCase("mismatch.async", "d", "instrumented", _sync_body),),
+        )
+    assert "must be a coroutine function" in str(exc_info.value)
+
+
 def test_zero_case_profile_is_rejected():
     with pytest.raises(ProfileDefinitionError) as exc_info:
         ConformanceProfile(profile_id="transactions", capability=AdapterCapability.TRANSACTIONS)
@@ -2808,10 +2834,11 @@ def test_core_sync_and_async_case_inventories_stay_in_parity():
 
 def test_transactions_profile_case_inventories_stay_in_parity():
     """The core parity guard above covers only the mandatory profiles; the transactions
-    capability profile promises the same nine case ids, order, and kinds in both modes."""
+    capability profile promises the same nine case ids, order, kinds, and descriptions in
+    both modes."""
     profile = capability_profiles()[AdapterCapability.TRANSACTIONS]
-    assert [(case.case_id, case.kind) for case in profile.sync_cases] == [
-        (case.case_id, case.kind) for case in profile.async_cases
+    assert [(case.case_id, case.kind, case.description) for case in profile.sync_cases] == [
+        (case.case_id, case.kind, case.description) for case in profile.async_cases
     ]
 
 

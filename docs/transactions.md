@@ -88,7 +88,8 @@ The exact semantics, identical in both modes:
 !!! note "Naming"
     The transaction methods are deliberately unsuffixed on `CommandsAsync` — the class itself is async-only, so
     an `_async` suffix would be redundant (`cursor()` and `supports()` are likewise unsuffixed). The execute
-    and query command methods currently keep their historical `_async` suffixes.
+    and query command methods currently keep their historical `_async` suffixes, and `connect_async` keeps its
+    suffix on purpose: it disambiguates mode at the package boundary, next to the sync `connect`.
 
 ## Driver notes
 

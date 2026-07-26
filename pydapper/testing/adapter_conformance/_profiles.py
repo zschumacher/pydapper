@@ -137,7 +137,7 @@ def core_async_profile() -> ConformanceProfile:
 def transactions_profile() -> ConformanceProfile:
     """Build the optional ``transactions`` capability profile.
 
-    Both modes ship the same nine case ids in the same order, so sync and async
+    Both modes ship the same eleven case ids in the same order, so sync and async
     declaring adapters are held to one contract.
     """
     from ._cases_transactions import transactions_sync_cases

@@ -66,11 +66,11 @@ feature must fail loudly rather than silently execute as if supported.
 
 ### The `transactions` profile
 
-Nine cases per mode pin the `commit()` / `rollback()` / `transaction()` contract for every declaring adapter —
-the sync and async inventories share the same case ids, order, and kinds, so both modes are held to one
-contract (the async cases exercise `async with commands.transaction():` and the awaited coroutine twins).
-Every live case first commits the harness baseline (`create_commands()` then `commit()`), so scenarios start
-from a durable, transaction-free state even when a harness seeds inside an open transaction.
+These 11 cases per mode pin the `commit()` / `rollback()` / `transaction()` contract for every declaring
+adapter — the sync and async inventories share the same case ids, order, kinds, and descriptions, so both
+modes are held to one contract (the async cases exercise `async with commands.transaction():` and the awaited
+coroutine twins). Every live case first commits the harness baseline (`create_commands()` then `commit()`), so
+scenarios start from a durable, transaction-free state even when a harness seeds inside an open transaction.
 
 | Case id | Kind | Pins |
 |---|---|---|
@@ -83,6 +83,8 @@ from a durable, transaction-free state even when a harness seeds inside an open 
 | `transactions.context-lifecycle-order` | instrumented | the block's commit comes after the command's full cursor lifecycle |
 | `transactions.context-error-precedence` | instrumented | rollback on error, and the block's error wins over a rollback failure |
 | `transactions.commit-failure-propagates` | instrumented | a failed exit commit propagates unchanged with no rollback attempt |
+| `transactions.context-base-exception-rollback` | instrumented | a `BaseException` that is not an `Exception` rolls back and propagates unchanged too, and an interrupt raised by the rollback itself wins over the block's ordinary error, which survives as its `__context__` |
+| `transactions.context-not-reentrant` | instrumented | nesting blocks on one instance raises `RuntimeError` (rolling the outer block back), and the guard clears so the next sequential block still commits |
 
 ## The harness API
 

@@ -5891,6 +5891,32 @@ class TestTransactions:
                 raise error
         assert exc_info.value is error
 
+    def test_an_interrupt_raised_during_rollback_is_not_swallowed(self, connection):
+        """A Ctrl-C landing inside the driver's rollback must not be lost.
+
+        Only an ordinary ``Exception`` from rollback loses to the block's error. A
+        ``BaseException`` that is not an ``Exception`` is an interpreter-level request to
+        stop, so it propagates and beats the block's error, which survives as its
+        implicit ``__context__``.
+        """
+
+        class RollbackInterruptedCommands(MockCommands):
+            capabilities = frozenset({AdapterCapability.TRANSACTIONS})
+
+        commands = RollbackInterruptedCommands(connection)
+
+        def _interrupted_rollback():
+            # raised here rather than thrown into a generator, so implicit chaining records
+            # the block's error as this interrupt's __context__ the way a real driver would
+            raise KeyboardInterrupt("ctrl-c during rollback")
+
+        connection.rollback = _interrupted_rollback
+        block_error = _TransactionBlockError("boom")
+        with pytest.raises(KeyboardInterrupt) as exc_info:
+            with commands.transaction():
+                raise block_error
+        assert exc_info.value.__context__ is block_error, "the block's error must survive as __context__"
+
     def test_commit_failure_on_clean_exit_propagates_without_rollback(self, commands, connection):
         commit_error = RuntimeError("commit boom")
         connection.commit = lambda: (_ for _ in ()).throw(commit_error)

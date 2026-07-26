@@ -423,11 +423,17 @@ class Commands(BaseCommands, ABC):
             try:
                 yield
             except BaseException:
-                # the active error wins over a rollback failure (same precedence as _cursor_context_proxy)
+                # the active error wins over a rollback failure (same precedence as
+                # _cursor_context_proxy): only an ordinary Exception is discarded, and it is
+                # recorded rather than dropped silently. A BaseException that is not an
+                # Exception -- KeyboardInterrupt, SystemExit, CancelledError -- is an
+                # interpreter-level request to stop, so it propagates and beats the block's
+                # error, which survives as its implicit __context__. Losing a Ctrl-C raised
+                # inside the driver's rollback is worse than reporting it instead.
                 try:
                     self.rollback()
-                except BaseException:
-                    pass
+                except Exception as rollback_error:
+                    _log_discarded_cleanup_error(rollback_error)
                 raise
             else:
                 self.commit()

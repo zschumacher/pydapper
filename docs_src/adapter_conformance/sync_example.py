@@ -67,4 +67,4 @@ print(f"{report.profile_id} for {report.adapter_name!r}: {len(report.results)} c
 report.raise_for_failures()
 # claiming conformance takes both: every case passed *and* every planned case ran
 assert report.passed and report.covers_full_inventory
-# core-sync for 'acmedb': 54 cases, passed=True
+# core-sync for 'acmedb': 58 cases, passed=True

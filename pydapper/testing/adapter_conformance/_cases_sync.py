@@ -398,6 +398,196 @@ def _lifecycle_hook_order(ctx: SyncCaseContext) -> None:
     )
 
 
+#: The driver interactions every command path must perform, in order, before any SQL runs.
+#: Paths whose remaining traffic is adapter-specific (a documented extra drain, for example)
+#: are pinned by this prefix instead of a full event-order assertion.
+_PREPARATION_PREFIX: Tuple[str, ...] = ("cursor", "enter", "prepare_cursor", "prepare_command", "execute")
+
+
+def _check_preparation_prefix(ctx: SyncCaseContext, connection: Any, path: str) -> None:
+    """Framework check: the path enters one cursor and runs both hooks, in order, before executing."""
+    ctx.check(
+        connection.log.kinds()[: len(_PREPARATION_PREFIX)] == _PREPARATION_PREFIX,
+        f"the {path} path must acquire and enter a cursor, run the preparation hooks in order, and only then "
+        f"execute; observed {connection.log.kinds()!r}",
+    )
+
+
+def _check_executed_exactly_once(ctx: SyncCaseContext, connection: Any, path: str) -> None:
+    """Framework check: a single-statement path runs that statement exactly once.
+
+    This is the constraint a path pinned by the preparation prefix would otherwise lose. A
+    path that runs prepare-command plus execute twice and then drains once keeps the prefix
+    intact, keeps one prepare-cursor call, and still pairs one prepare-command call with each
+    execution, so nothing else in the inventory can see the repeated execution. Counting
+    executions catches it without saying anything about how the rows are fetched.
+    """
+    executions = connection.log.count("execute")
+    ctx.check(
+        executions == 1,
+        f"the {path} path must execute its statement exactly once; saw {executions}",
+    )
+
+
+def _check_hooks_prepared_the_entered_cursor(ctx: SyncCaseContext, connection: Any, path: str) -> None:
+    """Framework check: one prepare-cursor call per cursor, and every hook saw the entered cursor.
+
+    The two count assertions come first on purpose: they are what makes the cursor and
+    event lookups below safe, so this helper is self-guarding and may be called in any
+    order relative to the other checks in a case.
+    """
+    log = connection.log
+    ctx.check(
+        len(connection.cursors) == 1,
+        f"the {path} path must acquire exactly one command-owned cursor, saw {len(connection.cursors)}",
+    )
+    ctx.check(
+        log.count("prepare_cursor") == 1,
+        f"the {path} path must run the prepare-cursor hook exactly once per cursor, "
+        f"saw {log.count('prepare_cursor')}",
+    )
+    entered = getattr(connection.cursors[0], "entered_cursor", None)
+    hook_cursor, hook_options = log.of_kind("prepare_cursor")[0].detail
+    ctx.check(hook_cursor is entered, f"the {path} prepare-cursor hook must receive the entered cursor object")
+    ctx.check(
+        hook_options == CommandOptions(),
+        f"the {path} prepare-cursor hook must receive normalized default CommandOptions",
+    )
+    for event in log.of_kind("prepare_command"):
+        command_cursor, _, command_options = event.detail
+        ctx.check(
+            command_cursor is entered,
+            f"the {path} prepare-command hook must receive the entered cursor object",
+        )
+        ctx.check(
+            command_options == CommandOptions(),
+            f"the {path} prepare-command hook must receive normalized default CommandOptions",
+        )
+
+
+def _check_prepared_handlers_reach_the_driver(ctx: SyncCaseContext, connection: Any, path: str) -> None:
+    """Framework check: one prepare-command call per executed handler, each observing the handler
+    whose prepared SQL the driver executes next."""
+    log = connection.log
+    prepared = log.of_kind("prepare_command")
+    executed = log.of_kind("execute")
+    ctx.check(
+        len(prepared) == len(executed),
+        f"the {path} path must run the prepare-command hook exactly once per executed handler; "
+        f"saw {len(prepared)} hook call(s) for {len(executed)} execution(s)",
+    )
+    for prepare_event, execute_event in zip(prepared, executed):
+        _, handler, _ = prepare_event.detail
+        ctx.check(
+            getattr(handler, "prepared_sql", None) == execute_event.sql,
+            f"the {path} prepare-command hook must observe the handler whose prepared SQL is executed next",
+        )
+
+
+@_case(
+    "lifecycle.hook-order-buffered-query",
+    "Buffered query runs both preparation hooks once, in order, on the entered cursor before any row is fetched",
+    "instrumented",
+)
+def _lifecycle_hook_order_buffered_query(ctx: SyncCaseContext) -> None:
+    connection = ctx.recording_connection(CursorScript(rows=((1, "alpha"), (2, "beta"))))
+    commands = ctx.instrumented_commands(connection)
+    ctx.install_hook_recorder(commands, connection.log)
+    rows = commands.query("SELECT id, label FROM t WHERE id = ?id?", params={"id": 1})
+    ctx.check(rows == [{"id": 1, "label": "alpha"}, {"id": 2, "label": "beta"}], f"unexpected projection {rows!r}")
+    ctx.check_event_order(
+        connection.log,
+        ("cursor", "enter", "prepare_cursor", "prepare_command", "execute", "fetchall", "exit"),
+    )
+    _check_hooks_prepared_the_entered_cursor(ctx, connection, "buffered query")
+    _check_prepared_handlers_reach_the_driver(ctx, connection, "buffered query")
+
+
+@_case(
+    "lifecycle.hook-order-unbuffered-query",
+    "Unbuffered query defers both preparation hooks to first consumption, then runs them once, in order, "
+    "on the entered cursor",
+    "instrumented",
+)
+def _lifecycle_hook_order_unbuffered_query(ctx: SyncCaseContext) -> None:
+    connection = ctx.recording_connection(CursorScript(rows=((1, "alpha"), (2, "beta"))))
+    commands = ctx.instrumented_commands(connection)
+    ctx.install_hook_recorder(commands, connection.log)
+    generator = commands.query("SELECT id, label FROM t WHERE id = ?id?", params={"id": 1}, buffered=False)
+    ctx.check(
+        connection.log.kinds() == (),
+        f"an unconsumed unbuffered query must not run the preparation hooks; observed {connection.log.kinds()!r}",
+    )
+    rows = list(generator)
+    ctx.check(rows == [{"id": 1, "label": "alpha"}, {"id": 2, "label": "beta"}], f"unexpected projection {rows!r}")
+    # this case pins the preparation ordering and that the statement runs exactly once; it
+    # deliberately does not pin how the rows are drained, because that (one fetchone per row,
+    # fetchmany batches, a driver-side iterator) is a fetch-strategy choice, and pinning the
+    # whole sequence would fail a conformant adapter for making a different one. The prefix
+    # still proves no row is fetched before both hooks have run, and the helpers below still
+    # bound how often each hook, and the statement itself, may run.
+    _check_preparation_prefix(ctx, connection, "unbuffered query")
+    _check_executed_exactly_once(ctx, connection, "unbuffered query")
+    _check_hooks_prepared_the_entered_cursor(ctx, connection, "unbuffered query")
+    _check_prepared_handlers_reach_the_driver(ctx, connection, "unbuffered query")
+
+
+@_case(
+    "lifecycle.hook-order-single-row-commands",
+    "query_first, query_single, and execute_scalar each run both preparation hooks once, in order, on the "
+    "entered cursor before executing",
+    "instrumented",
+)
+def _lifecycle_hook_order_single_row_commands(ctx: SyncCaseContext) -> None:
+    # every single-row family owns its own cursor block, so each is a distinct preparation path;
+    # the fetch traffic is left unpinned because documented adapter-specific traffic (the MySQL
+    # unread-result drain, for example) legitimately follows the execution, so each leg pins the
+    # preparation prefix plus the execution count instead of the whole event sequence
+    for method_name in ("query_first", "query_single", "execute_scalar"):
+        connection = ctx.recording_connection(CursorScript(rows=((1, "alpha"),)))
+        commands = ctx.instrumented_commands(connection)
+        ctx.install_hook_recorder(commands, connection.log)
+        getattr(commands, method_name)("SELECT id, label FROM t WHERE id = ?id?", params={"id": 1})
+        _check_preparation_prefix(ctx, connection, method_name)
+        _check_executed_exactly_once(ctx, connection, method_name)
+        _check_hooks_prepared_the_entered_cursor(ctx, connection, method_name)
+        _check_prepared_handlers_reach_the_driver(ctx, connection, method_name)
+
+
+@_case(
+    "lifecycle.hook-order-query-multiple",
+    "query_multiple prepares its shared cursor once and prepares each handler immediately before that handler "
+    "executes",
+    "instrumented",
+)
+def _lifecycle_hook_order_query_multiple(ctx: SyncCaseContext) -> None:
+    connection = ctx.recording_connection(CursorScript(rows=((1, "alpha"),)))
+    commands = ctx.instrumented_commands(connection)
+    ctx.install_hook_recorder(commands, connection.log)
+    results = commands.query_multiple(
+        ("SELECT id, label FROM t WHERE id = ?id?", "SELECT id, label FROM t"),
+        params={"id": 1},
+    )
+    ctx.check(len(results) == 2, f"query_multiple must return one result set per query, got {len(results)}")
+    ctx.check_event_order(
+        connection.log,
+        (
+            "cursor",
+            "enter",
+            "prepare_cursor",
+            "prepare_command",
+            "execute",
+            "fetchall",
+            "prepare_command",
+            "execute",
+            "fetchall",
+            "exit",
+        ),
+    )
+    _check_hooks_prepared_the_entered_cursor(ctx, connection, "query_multiple")
+    _check_prepared_handlers_reach_the_driver(ctx, connection, "query_multiple")
+
+
 # --------------------------------------------------------------------------------------
 # parameters and execution
 # --------------------------------------------------------------------------------------

@@ -51,9 +51,8 @@ because that is the name of the actual package that is installed.
     Databases and schemas are synonymous in MySQL.
 
 ### Example - `connect`
-The [mysql-connector-python docs](https://github.com/mysql/mysql-connector-python/blob/90eaeca65a6bbfc1fd9218aad5303957798215c3/lib/mysql/connector/abstracts.py#L142) 
-do not have clear examples of the behavior of the context manager.  For the current version, the context manager 
-simply closes the connection when it is finished.  Handling transactions commits is up to you (see example).
+The connection's context manager **only closes the connection on exit — it never commits**, so handle commits
+yourself (see the example, and [Transactions](#mysql-transactions) below).
 ```python
 {!docs/../docs_src/connections/mysql_connector_python_connect.py!}
 ```
@@ -63,3 +62,19 @@ Use *pydapper* with a `mysql-connector-python` connection pool.
 ```python
 {!docs/../docs_src/connections/mysql_connector_python_using.py!}
 ```
+
+### Transactions {#mysql-transactions}
+
+`mysql-connector-python` connects with `autocommit=False`, so no DML is durable until you commit. Exiting
+`with pydapper.connect(...)` delegates to the driver's context manager, which **only closes the connection —
+uncommitted DML is discarded by the server**. Commit explicitly (`commands.commit()`) or scope the work in a
+[`transaction()`](../transactions.md) block, which commits on clean exit; alternatively pass
+`autocommit=True` to `connect()` to make every statement durable immediately.
+
+One server-side caveat: **MySQL implicitly commits DDL statements** (`CREATE TABLE`, `ALTER`, `DROP`, … —
+`CREATE`/`DROP TEMPORARY TABLE` are the documented exception), and that implicit commit also commits any
+uncommitted DML issued earlier on the same connection — a rollback after DDL cannot undo work the DDL already
+committed.
+
+See [Transactions](../transactions.md) and
+[Context manager semantics](intro.md#context-manager-semantics) for the cross-driver picture.

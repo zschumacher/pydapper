@@ -1,5 +1,22 @@
 ## Latest Changes
 
+* v1: every database-support page now documents its driver's transaction behavior in a dedicated
+  Transactions section — the autocommit default, exactly what exiting `with pydapper.connect(...)` does for
+  that driver, and the server-side surprises. The driver context managers fall into three families: commit on
+  clean exit (`sqlite3`, `psycopg2` — neither closes; `psycopg` commits then closes), close only
+  (`mysql-connector-python` — uncommitted DML is discarded; `aiopg` — everything was already durable), and
+  close with an implicit rollback (`pymssql`, `oracledb`); BigQuery is its own case — its DBAPI connection
+  has no context manager at all, so exit performs no driver call. The pymssql section resolves the long-standing explicit-commit confusion
+  ([#68](https://github.com/zschumacher/pydapper/issues/68)): a non-autocommit pymssql connection holds an
+  always-open `BEGIN TRAN` and `close()` rolls it back, so an insert inside a plain `with connect(...)` block
+  reports success and then silently disappears — commit explicitly or use `transaction()`. MySQL and Oracle
+  implicitly committing DDL statements, sqlite3's legacy `isolation_level` autocommitting DDL issued outside
+  an open implicit transaction, and aiopg's autocommit-only model are likewise documented. The exit-behavior
+  and implicit-commit claims are pinned by new live tests under each backend's marker, the
+  [Transactions](transactions.md) page gained a per-driver summary table, the conformance matrix
+  driver-limits cells carry the same facts, and the sqlite, mysql, pymssql, and oracledb live conformance
+  runs gained the transactions-profile inclusion assert the postgres runs already had — all six declaring
+  adapters now prove the profile actually ran.
 * feat: add async commit, rollback, and transaction APIs. PR [#579](https://github.com/zschumacher/pydapper/pull/579) by [@zschumacher](https://github.com/zschumacher).
 * v1: `CommandsAsync` now exposes the async transaction APIs — `commit()`, `rollback()`, and a
   `transaction()` async context manager — with semantics identical to the sync APIs: commit on clean exit;

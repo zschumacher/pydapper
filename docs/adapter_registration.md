@@ -260,10 +260,10 @@ unrelated objects are all invalid. Arbitrary strings are not an extension mechan
 the enum by pydapper when the corresponding feature ships.
 
 Declare a capability only when the command class actually implements and tests the behavior. Native driver
-potential is not sufficient. The first implemented capability is `TRANSACTIONS` — the sync
-[transaction APIs](transactions.md) — declared by every first-party sync adapter except BigQuery, whose DBAPI
-cannot support it. The feature tickets that implement the remaining optional behaviors (async transactions,
-timeouts, and so on) own enabling their flags.
+potential is not sufficient. The first implemented capability is `TRANSACTIONS` — the
+[transaction APIs](transactions.md) in both modes — declared by every first-party adapter except BigQuery,
+whose DBAPI cannot support it, and aiopg, which is autocommit-only. The feature tickets that implement the
+remaining optional behaviors (timeouts, list expansion, and so on) own enabling their flags.
 
 Users inspect a selected command object with `supports()`:
 
@@ -285,7 +285,7 @@ registrations.
 | `sqlite3` | `Sqlite3Commands` | sync | `transactions` |
 | `psycopg2` | `Psycopg2Commands` | sync | `transactions` |
 | `psycopg` | `Psycopg3Commands` | sync | `transactions` |
-| `psycopg` | `Psycopg3CommandsAsync` | async | *(empty)* |
+| `psycopg` | `Psycopg3CommandsAsync` | async | `transactions` |
 | `aiopg` | `AiopgCommands` | async | *(empty)* |
 | `mysql` | `MySqlConnectorPythonCommands` | sync | `transactions` |
 | `pymssql` | `PymssqlCommands` | sync | `transactions` |
@@ -294,8 +294,8 @@ registrations.
 
 Empty sets are honest: they mean the class does not implement the optional capability, not necessarily that the
 underlying database lacks the feature. `GoogleBigqueryClientCommands` stays empty because the BigQuery DBAPI's
-`commit()` is a no-op and it has no `rollback()` at all; the async classes stay empty because the async
-transaction APIs have not landed yet.
+`commit()` is a no-op and it has no `rollback()` at all; `AiopgCommands` stays empty because aiopg always runs
+in autocommit mode and its connection-level `commit()`/`rollback()` raise.
 
 Adapters prove these contracts — the mandatory per-mode core behavior and, once implemented, each declared
 capability — with the reusable conformance suite; see [Adapter conformance](adapter_conformance.md).

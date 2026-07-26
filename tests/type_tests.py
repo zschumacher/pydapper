@@ -2,6 +2,7 @@ import datetime
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
+from typing import AsyncContextManager
 from typing import AsyncGenerator
 from typing import ContextManager
 from typing import Dict
@@ -190,6 +191,15 @@ def transaction_api_types() -> None:
     assert_type(sync_commands.rollback(), None)
     assert_type(sync_commands.transaction(), ContextManager[None])
     with sync_commands.transaction() as handle:
+        assert_type(handle, None)
+
+
+async def transaction_api_async_types() -> None:
+    async_commands = cast(PydapperCommandsAsync, object())
+    assert_type(await async_commands.commit(), None)
+    assert_type(await async_commands.rollback(), None)
+    assert_type(async_commands.transaction(), AsyncContextManager[None])
+    async with async_commands.transaction() as handle:
         assert_type(handle, None)
 
 

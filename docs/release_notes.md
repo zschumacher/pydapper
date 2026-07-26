@@ -1,21 +1,38 @@
 ## Latest Changes
 
+* feat: add async commit, rollback, and transaction APIs. PR [#579](https://github.com/zschumacher/pydapper/pull/579) by [@zschumacher](https://github.com/zschumacher).
+* v1: `CommandsAsync` now exposes the async transaction APIs — `commit()`, `rollback()`, and a
+  `transaction()` async context manager — with semantics identical to the sync APIs: commit on clean exit;
+  rollback then re-raise on any exception (including `KeyboardInterrupt`) with the block's error winning over
+  an ordinary rollback failure (a `BaseException` that is not an `Exception` — such as a task cancellation —
+  raised during the rollback is never swallowed and propagates in its place); a failed exit commit propagates
+  unchanged with no rollback attempt; no SQL on enter; and
+  `RuntimeError` on nested blocks on the same instance. The methods are deliberately unsuffixed — the class is
+  async-only, so an `_async` suffix would be redundant — and all three are gated behind
+  `AdapterCapability.TRANSACTIONS`, raising `UnsupportedFeatureError` for adapters that do not declare it.
+  `Psycopg3CommandsAsync` declares the capability; `AiopgCommands` does not, because aiopg always runs in
+  autocommit mode and its connection-level `commit()`/`rollback()` raise. The `transactions` conformance
+  profile now ships nine async cases mirroring the sync inventory case-for-case, the runners exercise every
+  declaring async adapter automatically, and the repository's fake async driver gained snapshot
+  transactionality so the async profile has service-free live coverage. See
+  [Transactions](transactions.md).
 * fix: pin every assertion in the `transactions` conformance profile, and cover two behaviors it
   missed. The shipped profile is the third-party-facing definition of "implements transactions
   correctly", but none of its own assertions was under test: deleting all of them left the suite
   green, and deliberately non-conformant adapters still earned a clean certificate. A table of
-  non-conformant adapters now pins every assertion to the one case and the one failure message that
-  must catch it, the profile's inventory is asserted as a literal list of case ids (an expectation
-  derived from `capability_profiles()` can never notice the profile shrinking), and the documented
-  case table is checked against the shipped one. The profile grows from nine sync cases to eleven:
+  non-conformant adapters now pins every assertion — in both modes — to the one case and the one
+  failure message that must catch it, the profile's inventory is asserted as a literal list of case
+  ids (an expectation derived from `capability_profiles()` can never notice the profile shrinking),
+  and the documented case table is checked against the shipped one. The profile grows from nine
+  cases per mode to eleven, sync and async alike:
   `transactions.context-base-exception-rollback` (a `BaseException` that is not an `Exception` — a
   `KeyboardInterrupt`, say — still rolls back, never commits, and propagates as the same object,
   and an interrupt raised by the rollback itself wins over the block's ordinary error, which
   survives as its `__context__`) and
-  `transactions.context-not-reentrant` (nested blocks on one `Commands` instance raise
-  `RuntimeError` and roll the outer block back, and the guard clears so the next sequential block
-  still commits). No runtime behavior changed; every first-party sync adapter already passes both
-  new cases.
+  `transactions.context-not-reentrant` (nested blocks on one command instance raise `RuntimeError`
+  and roll the outer block back, and the guard clears so the next sequential block still commits).
+  No runtime behavior changed; every first-party adapter already passes both new cases in both
+  modes.
 * fix: close five gaps in the owned-resource and adapter-registration contracts. PR [#576](https://github.com/zschumacher/pydapper/pull/576) by [@zschumacher](https://github.com/zschumacher).
 * fix: identify connections by type, not repr, in selection errors. PR [#575](https://github.com/zschumacher/pydapper/pull/575) by [@zschumacher](https://github.com/zschumacher).
 * fix: verify preparation-hook ordering on the conformance query paths. PR [#573](https://github.com/zschumacher/pydapper/pull/573) by [@zschumacher](https://github.com/zschumacher).

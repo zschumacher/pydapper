@@ -31,7 +31,7 @@ class Psycopg3Commands(Commands):
 
 
 class Psycopg3CommandsAsync(CommandsAsync):
-    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset()
+    capabilities: ClassVar[frozenset[AdapterCapability]] = frozenset({AdapterCapability.TRANSACTIONS})
 
     @classmethod
     async def connect_async(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "CommandsAsync":

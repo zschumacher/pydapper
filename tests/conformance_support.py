@@ -13,6 +13,7 @@ This module is test infrastructure, not part of the shipped helper. It provides:
   silently go stale.
 """
 
+import copy
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -58,10 +59,23 @@ class MiniDbError(Exception):
 
 
 class MiniDb:
-    """A tiny pure-Python store understanding the conformance statement shapes."""
+    """A tiny pure-Python store understanding the conformance statement shapes.
+
+    Snapshot transactionality: ``commit()`` makes the current rows the durable state and
+    ``rollback()`` restores it, so the async transactions profile has a service-free live
+    backend. Reads never consult the snapshot — like the real drivers' default isolation,
+    uncommitted work is visible on the same connection until rolled back.
+    """
 
     def __init__(self, rows: Sequence[Tuple[Any, ...]] = ()) -> None:
         self.rows: List[Dict[str, Any]] = [dict(zip(_COLUMNS, row)) for row in rows]
+        self.committed: List[Dict[str, Any]] = copy.deepcopy(self.rows)
+
+    def commit(self) -> None:
+        self.committed = copy.deepcopy(self.rows)
+
+    def rollback(self) -> None:
+        self.rows = copy.deepcopy(self.committed)
 
     def _eval_where(self, where: Optional[str], row: Dict[str, Any], params: Sequence[Any]) -> bool:
         if where is None:
@@ -91,7 +105,9 @@ class MiniDb:
         if match is None:
             raise MiniDbError(f"unsupported INSERT: {sql!r}")
         columns = tuple(part.strip() for part in match.group("cols").split(","))
-        self.rows.append(dict(zip(columns, params)))
+        # copy so a caller mutating its param objects after the insert cannot alias into
+        # rows (and, through a later commit, into the durable snapshot)
+        self.rows.append(copy.deepcopy(dict(zip(columns, params))))
         return 1
 
     def update(self, sql: str, params: Sequence[Any]) -> int:
@@ -217,6 +233,12 @@ class FakeAsyncConnection:
 
     async def cursor(self, *args: Any, **kwargs: Any) -> FakeAsyncCursor:
         return FakeAsyncCursor(self.db)
+
+    async def commit(self) -> None:
+        self.db.commit()
+
+    async def rollback(self) -> None:
+        self.db.rollback()
 
     def close(self) -> None:
         self.closed = True

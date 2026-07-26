@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* fix: verify preparation-hook ordering on the conformance query paths. PR [#573](https://github.com/zschumacher/pydapper/pull/573) by [@zschumacher](https://github.com/zschumacher).
 * docs: document command-owned cursor exits and the #541 behavior change. PR [#574](https://github.com/zschumacher/pydapper/pull/574) by [@zschumacher](https://github.com/zschumacher).
 * feat: add sync commit, rollback, and transaction APIs. PR [#572](https://github.com/zschumacher/pydapper/pull/572) by [@zschumacher](https://github.com/zschumacher).
 * v1: synchronous commands now expose explicit transaction APIs — `commit()`, `rollback()`, and a

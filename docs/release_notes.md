@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* test: make the transactions conformance profile defend itself. PR [#580](https://github.com/zschumacher/pydapper/pull/580) by [@zschumacher](https://github.com/zschumacher).
 * feat: add async commit, rollback, and transaction APIs. PR [#579](https://github.com/zschumacher/pydapper/pull/579) by [@zschumacher](https://github.com/zschumacher).
 * v1: `CommandsAsync` now exposes the async transaction APIs — `commit()`, `rollback()`, and a
   `transaction()` async context manager — with semantics identical to the sync APIs: commit on clean exit;

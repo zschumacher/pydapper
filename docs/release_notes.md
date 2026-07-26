@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* docs: document and test per-driver transaction behavior. PR [#581](https://github.com/zschumacher/pydapper/pull/581) by [@zschumacher](https://github.com/zschumacher).
 * v1: every database-support page now documents its driver's transaction behavior in a dedicated
   Transactions section — the autocommit default, exactly what exiting `with pydapper.connect(...)` does for
   that driver, and the server-side surprises. The driver context managers fall into three families: commit on

@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from collections import UserDict
 from dataclasses import FrozenInstanceError
 from dataclasses import asdict
@@ -30,6 +32,16 @@ from tests.mocks import MockCursor
 from tests.mocks import MockParamHandler
 
 pytestmark = pytest.mark.core
+
+
+def _debug_records(caplog):
+    return [record for record in caplog.records if record.levelno == logging.DEBUG]
+
+
+# a cleanup failure that is a BaseException but not an Exception is never discarded by the shared
+# cursor lifecycle: KeyboardInterrupt/SystemExit are interpreter-level requests to stop and
+# CancelledError/GeneratorExit are the runtime unwinding the command on purpose
+_NON_EXCEPTION_CLEANUP_FAILURES = [KeyboardInterrupt, SystemExit, asyncio.CancelledError, GeneratorExit]
 
 
 class FalsyRow(tuple):
@@ -1366,6 +1378,125 @@ class TestCommands:
             with MockCommands(_CursorConnection(FailingExitCursor()))._cursor_context_proxy():
                 raise ValueError("query failed")
 
+    def test_cursor_context_proxy_closes_the_cursor_when_entry_fails(self):
+        class FailingEnterCursor:
+            def __init__(self):
+                self.close_calls = 0
+                self.exit_calls = 0
+
+            def __enter__(self):
+                raise RuntimeError("entry failed")
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+
+            def close(self):
+                self.close_calls += 1
+
+        cursor = FailingEnterCursor()
+
+        with pytest.raises(RuntimeError, match="entry failed"):
+            with MockCommands(_CursorConnection(cursor))._cursor_context_proxy():
+                raise AssertionError("the body must not run")
+
+        # the command created and solely owns this cursor, so a failed __enter__ closes it exactly
+        # once instead of leaking it, and never exits a cursor that never entered
+        assert cursor.close_calls == 1
+        assert cursor.exit_calls == 0
+
+    def test_cursor_context_proxy_entry_error_survives_a_failing_close(self, caplog):
+        entry_error = RuntimeError("entry failed")
+
+        class FailingEnterAndCloseCursor:
+            def __enter__(self):
+                raise entry_error
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                raise AssertionError("__exit__ must not run for a cursor that never entered")
+
+            def close(self):
+                raise ValueError("close failed")
+
+        with caplog.at_level(logging.DEBUG, logger="pydapper._context"):
+            with pytest.raises(RuntimeError) as exc_info:
+                with MockCommands(_CursorConnection(FailingEnterAndCloseCursor()))._cursor_context_proxy():
+                    raise AssertionError("the body must not run")
+
+        assert exc_info.value is entry_error
+        assert [record.getMessage() for record in _debug_records(caplog)] == [
+            "Discarding ValueError raised while cleaning up a pydapper-owned resource"
+        ]
+
+    def test_cursor_context_proxy_entry_failure_without_close_propagates(self):
+        class FailingEnterCursorWithoutClose:
+            def __enter__(self):
+                raise RuntimeError("entry failed")
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                raise AssertionError("__exit__ must not run for a cursor that never entered")
+
+        with pytest.raises(RuntimeError, match="entry failed"):
+            with MockCommands(_CursorConnection(FailingEnterCursorWithoutClose()))._cursor_context_proxy():
+                raise AssertionError("the body must not run")
+
+    @pytest.mark.parametrize("base_error", _NON_EXCEPTION_CLEANUP_FAILURES)
+    def test_cursor_exit_non_exception_during_cleanup_beats_the_command_error(self, base_error):
+        command_error = ValueError("query failed")
+
+        class InterruptingExitCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                raise base_error()
+
+        with pytest.raises(base_error) as exc_info:
+            with MockCommands(_CursorConnection(InterruptingExitCursor()))._cursor_context_proxy():
+                raise command_error
+
+        # a BaseException that is not an Exception is never a resource problem, so it is never
+        # discarded; the command error survives as its implicit context
+        assert exc_info.value.__context__ is command_error
+
+    @pytest.mark.parametrize("base_error", _NON_EXCEPTION_CLEANUP_FAILURES)
+    def test_plain_cursor_close_non_exception_during_cleanup_beats_the_command_error(self, base_error):
+        command_error = ValueError("query failed")
+        cursor = _PlainQueryCursor()
+        cursor.close_error = base_error()
+
+        with pytest.raises(base_error) as exc_info:
+            with MockCommands(_CursorConnection(cursor))._cursor_context_proxy():
+                raise command_error
+
+        assert exc_info.value.__context__ is command_error
+        assert cursor.close_calls == 1
+
+    def test_discarded_cursor_exit_error_is_recorded_at_debug(self, caplog):
+        command_error = ValueError("query failed")
+        cleanup_error = RuntimeError("cleanup failed")
+
+        class FailingExitCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                raise cleanup_error
+
+        with caplog.at_level(logging.DEBUG, logger="pydapper._context"):
+            with pytest.raises(ValueError) as exc_info:
+                with MockCommands(_CursorConnection(FailingExitCursor()))._cursor_context_proxy():
+                    raise command_error
+
+        # the command error is re-raised as the same object and is never chained to the cleanup
+        # failure, so the debug record is the only place the discarded error survives
+        assert exc_info.value is command_error
+        assert exc_info.value.__context__ is None
+        records = _debug_records(caplog)
+        assert [record.getMessage() for record in records] == [
+            "Discarding RuntimeError raised while cleaning up a pydapper-owned resource"
+        ]
+        assert records[0].exc_info[1] is cleanup_error
+
     def test_execute_error_wins_over_native_cursor_exit_error(self):
         command_error = ValueError("execute failed")
 
@@ -2268,10 +2399,15 @@ class TestCommands:
 
     def test_cursor_context_error_is_not_mistaken_for_plain_cursor(self):
         class FailingContextCursor(_PlainQueryCursor):
+            def __init__(self):
+                super().__init__()
+                self.exit_calls = 0
+
             def __enter__(self):
                 raise AttributeError("query context failed")
 
             def __exit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
                 self.close()
 
         cursor = FailingContextCursor()
@@ -2279,7 +2415,11 @@ class TestCommands:
         with pytest.raises(AttributeError, match="query context failed"):
             MockCommands(_CursorConnection(cursor)).query("select id, name from some_table")
 
-        assert cursor.close_calls == 0
+        # the entry failure propagates instead of falling through to the plain-cursor branch, so the
+        # command body never runs and __exit__ is never called for a cursor that never entered; the
+        # command-owned cursor is still closed exactly once by the best-effort entry cleanup
+        assert cursor.exit_calls == 0
+        assert cursor.close_calls == 1
 
     def test_query_rejects_model_and_mapper(self, connection):
         with MockCommands(connection) as commands:
@@ -3849,6 +3989,40 @@ class TestCommandsAsync:
         assert connection.exit_calls == 1
 
     @pytest.mark.asyncio
+    async def test_a_cancelled_connect_async_awaiter_leaves_the_commands_object_reachable(self):
+        # connect_async() resolves to a CommandsAsync, which exposes no close(), so the wrapper's
+        # discard policy has nothing it can clean up when the awaiting task is cancelled after
+        # acquisition completed. It must not mark itself spent in that case: handing the live commands
+        # object back is the caller's only remaining route to the open connection.
+        connection = MockAsyncConnection()
+        # a bare future stands in for the pending connect_async() coroutine so the test, not the
+        # scheduler, decides when acquisition completes and when the cancellation lands
+        acquisition = asyncio.get_running_loop().create_future()
+        # mirrors CommandFactory.from_dsn_async, which wraps the connection without preserve_active_error
+        wrapper = _AwaitableAsyncContextManager(acquisition)
+
+        async def consume():
+            return await wrapper
+
+        task = asyncio.create_task(consume())
+        await asyncio.sleep(0)
+        assert not task.done()
+
+        acquisition.set_result(MockAsyncCommands(connection))  # acquisition completes...
+        task.cancel()  # ...and only then is its awaiter cancelled
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        commands = await wrapper
+        assert commands.connection is connection
+        assert connection.closed == 0
+
+        async with commands:
+            pass
+        assert connection.closed == 1
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "params, exception_type",
         [
@@ -5157,6 +5331,142 @@ class TestCommandsAsync:
         assert cursor.fetchmany_calls == [2]
 
     @pytest.mark.asyncio
+    async def test_query_single_async_calls_more_than_one_hook_before_raising(self):
+        # async twin of TestCommands.test_query_single_calls_more_than_one_hook_before_raising: an
+        # async adapter that must drain unread rows gets the same drain seam, at the same point
+        calls = []
+
+        class HookedAsyncCommands(MockAsyncCommands):
+            async def _on_query_single_more_than_one_result_async(self, cursor):
+                calls.append(cursor)
+
+        connection = _AsyncQuerySingleConnection(_AsyncQuerySingleFetchOneCursor([(1, "Zach"), (2, "Bob")]))
+
+        with pytest.raises(MoreThanOneResultException):
+            await HookedAsyncCommands(connection).query_single_async("select * from some_table")
+
+        assert calls == [connection.cursor_instance]
+
+    @pytest.mark.asyncio
+    async def test_query_single_async_more_than_one_hook_runs_before_the_cursor_exits(self):
+        calls = []
+
+        class RecordingExitAsyncCursor(_AsyncQuerySingleFetchOneCursor):
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                calls.append("exit")
+
+        class HookedAsyncCommands(MockAsyncCommands):
+            async def _on_query_single_more_than_one_result_async(self, cursor):
+                calls.append("drain")
+
+        connection = _AsyncQuerySingleConnection(RecordingExitAsyncCursor([(1, "Zach"), (2, "Bob")]))
+
+        with pytest.raises(MoreThanOneResultException):
+            await HookedAsyncCommands(connection).query_single_async("select * from some_table")
+
+        assert calls == ["drain", "exit"]
+
+    @pytest.mark.asyncio
+    async def test_query_single_async_more_than_one_hook_is_not_called_for_other_outcomes(self):
+        calls = []
+
+        class HookedAsyncCommands(MockAsyncCommands):
+            async def _on_query_single_more_than_one_result_async(self, cursor):
+                calls.append(cursor)
+
+        connection = _AsyncQuerySingleConnection(_AsyncQuerySingleFetchOneCursor([]))
+
+        with pytest.raises(NoResultException):
+            await HookedAsyncCommands(connection).query_single_async("select * from some_table")
+
+        record = await HookedAsyncCommands(
+            _AsyncQuerySingleConnection(_AsyncQuerySingleFetchOneCursor([(1, "Zach")]))
+        ).query_single_async("select * from some_table")
+
+        assert record == {"id": 1, "name": "Zach"}
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_async_cursor_entry_failure_closes_the_command_owned_cursor(self):
+        class FailingEnterAsyncCursor:
+            def __init__(self):
+                self.close_calls = 0
+                self.exit_calls = 0
+
+            async def __aenter__(self):
+                raise RuntimeError("entry failed")
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                self.exit_calls += 1
+
+            async def close(self):
+                self.close_calls += 1
+
+        cursor = FailingEnterAsyncCursor()
+
+        with pytest.raises(RuntimeError, match="entry failed"):
+            await MockAsyncCommands(_PlainAsyncQueryConnection(cursor)).query_async("select id, name from some_table")
+
+        assert cursor.close_calls == 1
+        assert cursor.exit_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_async_cursor_entry_error_survives_a_failing_close(self, caplog):
+        entry_error = RuntimeError("entry failed")
+
+        class FailingEnterAndCloseAsyncCursor:
+            async def __aenter__(self):
+                raise entry_error
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                raise AssertionError("__aexit__ must not run for a cursor that never entered")
+
+            async def close(self):
+                raise ValueError("close failed")
+
+        with caplog.at_level(logging.DEBUG, logger="pydapper._context"):
+            with pytest.raises(RuntimeError) as exc_info:
+                await MockAsyncCommands(_PlainAsyncQueryConnection(FailingEnterAndCloseAsyncCursor())).execute_async(
+                    "insert into some_table values (1)"
+                )
+
+        assert exc_info.value is entry_error
+        assert [record.getMessage() for record in _debug_records(caplog)] == [
+            "Discarding ValueError raised while cleaning up a pydapper-owned resource"
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("base_error", _NON_EXCEPTION_CLEANUP_FAILURES)
+    async def test_async_cursor_exit_non_exception_during_cleanup_beats_the_command_error(self, base_error):
+        command_error = ValueError("mapper failed")
+
+        class InterruptingExitAsyncCursor:
+            rowcount = 0
+            description = ("id", "int"), ("name", "text")
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                raise base_error()
+
+            async def execute(self, sql, parameters=None):
+                pass
+
+            async def fetchall(self):
+                return ((1, "Zach"),)
+
+        def mapper(row):
+            raise command_error
+
+        with pytest.raises(base_error) as exc_info:
+            await MockAsyncCommands(_PlainAsyncQueryConnection(InterruptingExitAsyncCursor())).query_async(
+                "select id, name from some_table", mapper=mapper
+            )
+
+        assert exc_info.value.__context__ is command_error
+
+    @pytest.mark.asyncio
     async def test_query_single_or_default(self, connection, set_fetchone_to_return_none):
         default = SimpleNamespace(id=10, name="default")
         async with MockAsyncCommands(connection) as commands:
@@ -5580,6 +5890,32 @@ class TestTransactions:
             with commands.transaction():
                 raise error
         assert exc_info.value is error
+
+    def test_an_interrupt_raised_during_rollback_is_not_swallowed(self, connection):
+        """A Ctrl-C landing inside the driver's rollback must not be lost.
+
+        Only an ordinary ``Exception`` from rollback loses to the block's error. A
+        ``BaseException`` that is not an ``Exception`` is an interpreter-level request to
+        stop, so it propagates and beats the block's error, which survives as its
+        implicit ``__context__``.
+        """
+
+        class RollbackInterruptedCommands(MockCommands):
+            capabilities = frozenset({AdapterCapability.TRANSACTIONS})
+
+        commands = RollbackInterruptedCommands(connection)
+
+        def _interrupted_rollback():
+            # raised here rather than thrown into a generator, so implicit chaining records
+            # the block's error as this interrupt's __context__ the way a real driver would
+            raise KeyboardInterrupt("ctrl-c during rollback")
+
+        connection.rollback = _interrupted_rollback
+        block_error = _TransactionBlockError("boom")
+        with pytest.raises(KeyboardInterrupt) as exc_info:
+            with commands.transaction():
+                raise block_error
+        assert exc_info.value.__context__ is block_error, "the block's error must survive as __context__"
 
     def test_commit_failure_on_clean_exit_propagates_without_rollback(self, commands, connection):
         commit_error = RuntimeError("commit boom")

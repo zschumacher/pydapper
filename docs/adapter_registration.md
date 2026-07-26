@@ -399,8 +399,11 @@ Hook restrictions and error behavior:
 * Hooks must not mutate `CommandOptions`; it is immutable.
 * A hook may raise. A preparation failure is an active command error: the cursor is cleaned up through the shared
   lifecycle exactly once, command preparation and execution do not run after a cursor-preparation failure, and the
-  original preparation exception propagates even if cleanup also fails or a native cursor `__exit__` returns a
-  truthy value.
+  original preparation exception propagates even if cleanup fails with an ordinary `Exception` or a native cursor
+  `__exit__` returns a truthy value. A cleanup failure that is a `BaseException` but not an `Exception` —
+  `KeyboardInterrupt`, `SystemExit`, `asyncio.CancelledError`, or `GeneratorExit` — is deliberately never
+  discarded, because swallowing an interrupt or a cancellation is worse than losing the command error: it
+  propagates in place of the preparation failure, which is preserved as its `__context__`.
 
 Drivers with unusual cursor-factory shapes should normalize the cursor factory by overriding `cursor()`, as the
 psycopg3 async commands already do, rather than replacing cursor ownership inside a preparation hook.

@@ -26,6 +26,8 @@ from typing import cast
 from typing import overload
 
 from ._context import _AwaitableAsyncContextManager
+from ._context import _close_quietly
+from ._context import _log_discarded_cleanup_error
 from ._sql_placeholders import PlaceholderSpan
 from ._sql_placeholders import scan_placeholder_spans
 from .capabilities import AdapterCapability
@@ -421,11 +423,17 @@ class Commands(BaseCommands, ABC):
             try:
                 yield
             except BaseException:
-                # the active error wins over a rollback failure (same precedence as _cursor_context_proxy)
+                # the active error wins over a rollback failure (same precedence as
+                # _cursor_context_proxy): only an ordinary Exception is discarded, and it is
+                # recorded rather than dropped silently. A BaseException that is not an
+                # Exception -- KeyboardInterrupt, SystemExit, CancelledError -- is an
+                # interpreter-level request to stop, so it propagates and beats the block's
+                # error, which survives as its implicit __context__. Losing a Ctrl-C raised
+                # inside the driver's rollback is worse than reporting it instead.
                 try:
                     self.rollback()
-                except BaseException:
-                    pass
+                except Exception as rollback_error:
+                    _log_discarded_cleanup_error(rollback_error)
                 raise
             else:
                 self.commit()
@@ -440,7 +448,16 @@ class Commands(BaseCommands, ABC):
         exit = getattr(type(cursor), "__exit__", None)
 
         if callable(enter) and callable(exit):
-            entered_cursor = enter(cursor)
+            try:
+                entered_cursor = enter(cursor)
+            except BaseException:
+                # this cursor was created by the line above and is solely command-owned, so a failed
+                # __enter__ must not leak it: the object exists and still exposes close(). Standard
+                # context-manager semantics -- a manager that fails to enter is not exited -- govern a
+                # manager the caller supplied, which this never is. __exit__ is deliberately not called
+                # for a failed entry, and the close failure loses to the entry error.
+                _close_quietly(cursor)
+                raise
             try:
                 yield entered_cursor
             except BaseException:
@@ -449,8 +466,12 @@ class Commands(BaseCommands, ABC):
                 exc_type, exc_val, exc_tb = sys.exc_info()
                 try:
                     exit(cursor, exc_type, exc_val, exc_tb)
-                except BaseException:
-                    pass
+                except Exception as cleanup_error:
+                    # only an ordinary exception is discarded here; a BaseException that is not an
+                    # Exception (KeyboardInterrupt, SystemExit, asyncio.CancelledError, GeneratorExit) is
+                    # not caught at all and propagates past the command error -- see the rationale on
+                    # _log_discarded_cleanup_error
+                    _log_discarded_cleanup_error(cleanup_error)
                 raise
             else:
                 exit(cursor, None, None, None)
@@ -459,12 +480,7 @@ class Commands(BaseCommands, ABC):
         try:
             yield cursor
         except BaseException:
-            try:
-                close = getattr(cursor, "close", None)
-                if callable(close):
-                    close()
-            except BaseException:
-                pass
+            _close_quietly(cursor)
             raise
         else:
             close = getattr(cursor, "close", None)
@@ -1904,6 +1920,20 @@ class CommandsAsync(BaseCommands, ABC):
     async def _on_duplicate_columns_async(self, cursor: "AsyncCursorType") -> None:
         pass
 
+    async def _on_query_single_more_than_one_result_async(self, cursor: "AsyncCursorType") -> None:
+        # async twin of Commands._on_query_single_more_than_one_result, invoked at the same point of
+        # query_single_async. No first-party async adapter needs it, so the default is a no-op, but an
+        # async driver that cannot close a cursor with unread rows buffered (the async counterpart of
+        # mysql-connector-python) needs this drain seam to exist for the exception timing to match sync.
+        #
+        # Deliberate deferral: unlike the _prepare_* hooks, the four _on_* drain seams stay private and
+        # undocumented for now. docs/compatibility.md names only _prepare_cursor/_prepare_command and
+        # their _async twins as the exception to the underscore rule, so promoting the drain seams to a
+        # documented, compatibility-sensitive extension point is a surface decision for the v1 export
+        # and typing audit (#484), not for this lifecycle fix. Until then a third-party adapter may
+        # override them, but their names and signatures are not covered by the compatibility policy.
+        pass
+
     @overload
     async def query_async(
         self,
@@ -2857,6 +2887,7 @@ class CommandsAsync(BaseCommands, ABC):
             if num_records == 0:
                 raise NoResultException("Expected exactly one record, got zero")
             elif num_records > 1:
+                await self._on_query_single_more_than_one_result_async(cursor)
                 raise MoreThanOneResultException("Expected exactly one record, got at least two")
 
             if not maps_raw_row:

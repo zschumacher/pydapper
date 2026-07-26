@@ -58,6 +58,23 @@ class AsyncConnectionType(Protocol):
     async def cursor(self, *args: Optional[Any], **kwargs: Optional[Any]) -> "AsyncCursorType": ...
 
 
+class AsyncTransactionalConnectionType(Protocol):
+    """Async connections usable by the capability-gated transaction APIs.
+
+    Deliberately not part of ``AsyncConnectionType``: not every async driver can support
+    connection-level transactions (e.g. aiopg is autocommit-only and its ``commit()``/``rollback()``
+    raise), so requiring these members on every async connection would structurally break
+    connections that cannot support them. Command classes gate access behind
+    ``AdapterCapability.TRANSACTIONS`` instead.
+    """
+
+    @abstractmethod
+    async def commit(self) -> Any: ...
+
+    @abstractmethod
+    async def rollback(self) -> Any: ...
+
+
 class CursorType(Protocol):
     rowcount: int
 

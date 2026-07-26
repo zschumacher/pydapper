@@ -23,6 +23,7 @@ from pydapper.exceptions import NoResultException
 from pydapper.exceptions import PyDapperException
 from pydapper.exceptions import RowMappingException
 from pydapper.exceptions import UnsupportedFeatureError
+from pydapper.postgresql import AiopgCommands
 from tests.mocks import MockAsyncCommands
 from tests.mocks import MockAsyncConnection
 from tests.mocks import MockAsyncCursor
@@ -5964,3 +5965,209 @@ class TestTransactions:
         with first:
             with pytest.raises(RuntimeError, match="cannot be nested"):
                 second.__enter__()
+
+
+class TestTransactionsAsync:
+    @pytest.fixture
+    def connection(self):
+        return MockAsyncConnection()
+
+    @pytest.fixture
+    def undeclared_commands(self, connection):
+        return MockAsyncCommands(connection)
+
+    @pytest.fixture
+    def commands(self, connection):
+        class TransactionalCommandsAsync(MockAsyncCommands):
+            capabilities = frozenset({AdapterCapability.TRANSACTIONS})
+
+        return TransactionalCommandsAsync(connection)
+
+    # -- unsupported adapters -----------------------------------------------------
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["commit", "rollback"])
+    async def test_undeclared_adapter_raises_on_await_before_touching_the_connection(
+        self, undeclared_commands, connection, method
+    ):
+        with pytest.raises(UnsupportedFeatureError) as exc_info:
+            await getattr(undeclared_commands, method)()
+        assert "transactions" in str(exc_info.value)
+        assert connection.commits == 0
+        assert connection.rollbacks == 0
+
+    def test_undeclared_adapter_transaction_raises_at_call_time_without_entering(self, undeclared_commands):
+        # the error comes from the bare call, before any context manager exists to enter
+        with pytest.raises(UnsupportedFeatureError):
+            undeclared_commands.transaction()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["commit", "rollback"])
+    async def test_aiopg_is_a_first_party_unsupported_adapter(self, connection, method):
+        # aiopg is autocommit-only (its connection commit/rollback raise), so its command
+        # class must reject the whole API before the connection is touched
+        commands = AiopgCommands(connection)
+        with pytest.raises(UnsupportedFeatureError) as exc_info:
+            await getattr(commands, method)()
+        assert "transactions" in str(exc_info.value)
+        assert connection.commits == 0
+        assert connection.rollbacks == 0
+
+    def test_aiopg_transaction_raises_at_call_time(self, connection):
+        with pytest.raises(UnsupportedFeatureError):
+            AiopgCommands(connection).transaction()
+
+    # -- commit / rollback delegation ---------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_commit_delegates_to_the_connection(self, commands, connection):
+        assert await commands.commit() is None
+        assert connection.commits == 1
+        assert connection.rollbacks == 0
+
+    @pytest.mark.asyncio
+    async def test_rollback_delegates_to_the_connection(self, commands, connection):
+        assert await commands.rollback() is None
+        assert connection.rollbacks == 1
+        assert connection.commits == 0
+
+    # -- transaction() context manager ---------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_transaction_commits_on_clean_exit(self, commands, connection):
+        async with commands.transaction():
+            pass
+        assert connection.commits == 1
+        assert connection.rollbacks == 0
+
+    @pytest.mark.asyncio
+    async def test_transaction_yields_none(self, commands):
+        async with commands.transaction() as value:
+            assert value is None
+
+    @pytest.mark.asyncio
+    async def test_transaction_rolls_back_and_reraises_the_same_exception(self, commands, connection):
+        error = _TransactionBlockError("boom")
+        with pytest.raises(_TransactionBlockError) as exc_info:
+            async with commands.transaction():
+                raise error
+        assert exc_info.value is error
+        assert connection.rollbacks == 1
+        assert connection.commits == 0
+
+    @pytest.mark.asyncio
+    async def test_transaction_rolls_back_on_base_exceptions(self, commands, connection):
+        with pytest.raises(KeyboardInterrupt):
+            async with commands.transaction():
+                raise KeyboardInterrupt
+        assert connection.rollbacks == 1
+        assert connection.commits == 0
+
+    @pytest.mark.asyncio
+    async def test_block_error_wins_over_a_rollback_failure(self, commands, connection):
+        async def failing_rollback():
+            raise RuntimeError("rollback boom")
+
+        connection.rollback = failing_rollback
+        error = _TransactionBlockError("boom")
+        with pytest.raises(_TransactionBlockError) as exc_info:
+            async with commands.transaction():
+                raise error
+        assert exc_info.value is error
+
+    @pytest.mark.asyncio
+    async def test_an_interrupt_raised_during_rollback_is_not_swallowed(self, commands, connection):
+        """The async twin of the sync policy: only an ordinary Exception from rollback
+        loses to the block's error; a BaseException propagates and beats it."""
+
+        async def interrupted_rollback():
+            raise KeyboardInterrupt("ctrl-c during rollback")
+
+        connection.rollback = interrupted_rollback
+        block_error = _TransactionBlockError("boom")
+        with pytest.raises(KeyboardInterrupt) as exc_info:
+            async with commands.transaction():
+                raise block_error
+        assert exc_info.value.__context__ is block_error, "the block's error must survive as __context__"
+
+    @pytest.mark.asyncio
+    async def test_a_cancellation_landing_during_rollback_is_not_swallowed(self, commands, connection):
+        """A task.cancel() that lands while the rollback await is suspended must cancel the
+        task — swallowing the CancelledError would make the task look like it ignored the
+        cancel and re-raise the block's error instead."""
+        rollback_started = asyncio.Event()
+
+        async def slow_rollback():
+            rollback_started.set()
+            await asyncio.sleep(10)
+
+        connection.rollback = slow_rollback
+
+        async def work():
+            async with commands.transaction():
+                raise _TransactionBlockError("boom")
+
+        task = asyncio.create_task(work())
+        await rollback_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert task.cancelled(), "the cancellation must win over the block's error"
+
+    @pytest.mark.asyncio
+    async def test_commit_failure_on_clean_exit_propagates_without_rollback(self, commands, connection):
+        commit_error = RuntimeError("commit boom")
+
+        async def failing_commit():
+            raise commit_error
+
+        connection.commit = failing_commit
+        with pytest.raises(RuntimeError) as exc_info:
+            async with commands.transaction():
+                pass
+        assert exc_info.value is commit_error
+        assert connection.rollbacks == 0
+
+    @pytest.mark.asyncio
+    async def test_explicit_commit_inside_a_block_is_allowed(self, commands, connection):
+        async with commands.transaction():
+            await commands.commit()
+        assert connection.commits == 2
+
+    # -- nesting -------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_nested_transaction_blocks_raise(self, commands, connection):
+        with pytest.raises(RuntimeError, match="cannot be nested"):
+            async with commands.transaction():
+                async with commands.transaction():
+                    pass  # pragma: no cover
+        # the failed inner enter is not a block error: the outer block still rolls back
+        # because the RuntimeError propagates through it
+        assert connection.rollbacks == 1
+
+    @pytest.mark.asyncio
+    async def test_nesting_guard_resets_after_the_block_exits(self, commands, connection):
+        async with commands.transaction():
+            pass
+        async with commands.transaction():
+            pass
+        assert connection.commits == 2
+
+    @pytest.mark.asyncio
+    async def test_nesting_guard_resets_after_a_failed_block(self, commands, connection):
+        with pytest.raises(_TransactionBlockError):
+            async with commands.transaction():
+                raise _TransactionBlockError("boom")
+        async with commands.transaction():
+            pass
+        assert connection.commits == 1
+        assert connection.rollbacks == 1
+
+    @pytest.mark.asyncio
+    async def test_two_unentered_context_managers_cannot_both_enter(self, commands):
+        first = commands.transaction()
+        second = commands.transaction()
+        async with first:
+            with pytest.raises(RuntimeError, match="cannot be nested"):
+                await second.__aenter__()

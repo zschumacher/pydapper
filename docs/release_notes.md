@@ -1,5 +1,20 @@
 ## Latest Changes
 
+* v1: `CommandsAsync` now exposes the async transaction APIs — `commit()`, `rollback()`, and a
+  `transaction()` async context manager — with semantics identical to the sync APIs: commit on clean exit;
+  rollback then re-raise on any exception (including `KeyboardInterrupt`) with the block's error winning over
+  an ordinary rollback failure (a `BaseException` such as a task cancellation raised during the rollback is
+  never swallowed and propagates in its place); a failed exit commit propagates unchanged with no rollback
+  attempt; no SQL on enter; and
+  `RuntimeError` on nested blocks on the same instance. The methods are deliberately unsuffixed — the class is
+  async-only, so an `_async` suffix would be redundant — and all three are gated behind
+  `AdapterCapability.TRANSACTIONS`, raising `UnsupportedFeatureError` for adapters that do not declare it.
+  `Psycopg3CommandsAsync` declares the capability; `AiopgCommands` does not, because aiopg always runs in
+  autocommit mode and its connection-level `commit()`/`rollback()` raise. The `transactions` conformance
+  profile now ships nine async cases mirroring the sync inventory case-for-case, the runners exercise every
+  declaring async adapter automatically, and the repository's fake async driver gained snapshot
+  transactionality so the async profile has service-free live coverage. See
+  [Transactions](transactions.md).
 * fix: close five gaps in the owned-resource and adapter-registration contracts. PR [#576](https://github.com/zschumacher/pydapper/pull/576) by [@zschumacher](https://github.com/zschumacher).
 * fix: identify connections by type, not repr, in selection errors. PR [#575](https://github.com/zschumacher/pydapper/pull/575) by [@zschumacher](https://github.com/zschumacher).
 * fix: verify preparation-hook ordering on the conformance query paths. PR [#573](https://github.com/zschumacher/pydapper/pull/573) by [@zschumacher](https://github.com/zschumacher).

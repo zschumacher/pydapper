@@ -104,6 +104,10 @@ class _Psycopg3AsyncConformanceHarness(AsyncAdapterHarness):
     async def teardown_commands(self, commands: CommandsAsync) -> None:
         try:
             await commands.connection.rollback()
+            # transaction-profile cases commit durable state; don't leave the table behind
+            with suppress(Exception):
+                await commands.execute_async(_DROP)
+                await commands.connection.commit()
         finally:
             await commands.connection.close()
 

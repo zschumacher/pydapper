@@ -109,10 +109,10 @@ class MockAsyncConnection:
     async def cursor(self, *args, **kwargs):
         return MockAsyncCursor()
 
-    def commit(self):
+    async def commit(self):
         self.commits += 1
 
-    def rollback(self):
+    async def rollback(self):
         self.rollbacks += 1
 
     async def close(self):

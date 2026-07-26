@@ -127,17 +127,17 @@ def core_async_profile() -> ConformanceProfile:
 def transactions_profile() -> ConformanceProfile:
     """Build the optional ``transactions`` capability profile.
 
-    Sync cases only: the async transaction APIs are a separate feature, and the async
-    inventory ships with them. Until then an async command class may not declare
-    :attr:`AdapterCapability.TRANSACTIONS` — ``capabilities.declared-profile-populated``
-    rejects a declaration with no cases for its mode.
+    Both modes ship the same nine case ids in the same order, so sync and async
+    declaring adapters are held to one contract.
     """
     from ._cases_transactions import transactions_sync_cases
+    from ._cases_transactions_async import transactions_async_cases
 
     return ConformanceProfile(
         profile_id=TRANSACTIONS_PROFILE,
         capability=AdapterCapability.TRANSACTIONS,
         sync_cases=transactions_sync_cases(),
+        async_cases=transactions_async_cases(),
     )
 
 

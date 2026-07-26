@@ -406,7 +406,8 @@ class RecordingAsyncConnection:
     """An async connection whose ``cursor()`` returns an awaitable (the base contract).
 
     ``cursor_style`` is ``"context"`` or ``"plain"``; ``close_style`` selects sync vs
-    awaitable ``close()`` for plain cursors.
+    awaitable ``close()`` for plain cursors. ``commit_error``/``rollback_error`` inject a
+    failure at the named connection-level transaction interaction.
     """
 
     def __init__(
@@ -414,6 +415,8 @@ class RecordingAsyncConnection:
         scripts: Union[CursorScript, Sequence[CursorScript], None] = None,
         cursor_style: str = "context",
         close_style: str = "sync",
+        commit_error: Optional[BaseException] = None,
+        rollback_error: Optional[BaseException] = None,
     ) -> None:
         if scripts is None:
             scripts = CursorScript()
@@ -422,10 +425,26 @@ class RecordingAsyncConnection:
         self._scripts = list(scripts)
         self._cursor_style = cursor_style
         self._close_style = close_style
+        self._commit_error = commit_error
+        self._rollback_error = rollback_error
         self.log = RecordingLog()
         self.cursor_calls = 0
+        self.commit_calls = 0
+        self.rollback_calls = 0
         self.recorders: List[CursorRecorder] = []
         self.cursors: List[_AsyncCursorFacade] = []
+
+    async def commit(self) -> None:
+        self.commit_calls += 1
+        self.log.add(RecordedEvent(kind="commit"))
+        if self._commit_error is not None:
+            raise self._commit_error
+
+    async def rollback(self) -> None:
+        self.rollback_calls += 1
+        self.log.add(RecordedEvent(kind="rollback"))
+        if self._rollback_error is not None:
+            raise self._rollback_error
 
     def _build_cursor(self) -> _AsyncCursorFacade:
         self.cursor_calls += 1

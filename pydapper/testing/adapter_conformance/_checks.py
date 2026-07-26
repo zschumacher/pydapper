@@ -279,12 +279,24 @@ class AsyncCaseContext(_BaseCaseContext):
         scripts: Union[CursorScript, Sequence[CursorScript], None] = None,
         cursor_style: str = "context",
         close_style: str = "sync",
+        commit_error: Optional[BaseException] = None,
+        rollback_error: Optional[BaseException] = None,
     ) -> RecordingAsyncConnection:
         if self.harness.cursor_factory_style == "synchronous":
             return SynchronousCursorRecordingAsyncConnection(
-                scripts, cursor_style=cursor_style, close_style=close_style
+                scripts,
+                cursor_style=cursor_style,
+                close_style=close_style,
+                commit_error=commit_error,
+                rollback_error=rollback_error,
             )
-        return RecordingAsyncConnection(scripts, cursor_style=cursor_style, close_style=close_style)
+        return RecordingAsyncConnection(
+            scripts,
+            cursor_style=cursor_style,
+            close_style=close_style,
+            commit_error=commit_error,
+            rollback_error=rollback_error,
+        )
 
     def instrumented_commands(self, connection: RecordingAsyncConnection) -> CommandsAsync:
         return self.command_class(cast("AsyncConnectionType", connection))  # type: ignore[abstract]

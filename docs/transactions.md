@@ -51,12 +51,17 @@ The exact semantics:
   the block on the same connection belongs to the same connection-level transaction.
 * **Clean exit commits.** If the commit itself fails, the error propagates unchanged and no rollback is
   attempted — connection state after a failed commit is driver-defined.
-* **An exception rolls back and re-raises.** The original exception always wins: if the rollback also fails,
-  the rollback failure is suppressed and the block's exception propagates.
-* **Blocks cannot be nested on the same `Commands` instance.** Re-entry raises `RuntimeError`. The guard is
-  per instance, not per connection: a second `Commands` object over the same connection (for example from a
-  second `using()` call) shares the same single connection-level transaction, and a `transaction()` block on
-  one instance is not protected against `commit()`/`rollback()`/`transaction()` calls made through another.
+* **An exception rolls back and re-raises.** The block's exception is re-raised as the same object, and it wins
+  over an ordinary rollback failure: an `Exception` raised by the rollback is logged and discarded. A rollback
+  failure that is *not* an `Exception` — a `KeyboardInterrupt`, `SystemExit`, or `CancelledError` — is an
+  interpreter-level request to stop, so that one propagates instead and the block's exception survives as its
+  `__context__`; losing a Ctrl-C raised inside the driver's rollback is worse than reporting it.
+* **Blocks cannot be nested on the same `Commands` instance.** Re-entry raises `RuntimeError`, which rolls the
+  outer block back like any other error, and the guard clears on exit so the next block on the same instance
+  works normally. The guard is per instance, not per connection: a second `Commands` object over the same
+  connection (for example from a second `using()` call) shares the same single connection-level transaction,
+  and a `transaction()` block on one instance is not protected against `commit()`/`rollback()`/`transaction()`
+  calls made through another.
   Use one `Commands` instance per connection when working with transactions. Savepoint-based nesting may
   arrive later as a separate, adapter-gated feature.
 * **Explicit `commit()` / `rollback()` inside a block is allowed.** They operate on the same single

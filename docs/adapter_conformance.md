@@ -66,11 +66,11 @@ feature must fail loudly rather than silently execute as if supported.
 
 ### The `transactions` profile
 
-Nine sync cases pin the sync `commit()` / `rollback()` / `transaction()` contract for every declaring adapter.
-Every live case first commits the harness baseline (`create_commands()` then `commit()`), so scenarios start
-from a durable, transaction-free state even when a harness seeds inside an open transaction. The profile has no
-async cases yet — the async transaction APIs are a separate feature — so an async command class may not declare
-`TRANSACTIONS` until they land.
+These 11 sync cases pin the sync `commit()` / `rollback()` / `transaction()` contract for every declaring
+adapter. Every live case first commits the harness baseline (`create_commands()` then `commit()`), so scenarios
+start from a durable, transaction-free state even when a harness seeds inside an open transaction. The profile
+has no async cases yet — the async transaction APIs are a separate feature — so an async command class may not
+declare `TRANSACTIONS` until they land.
 
 | Case id | Kind | Pins |
 |---|---|---|
@@ -83,6 +83,8 @@ async cases yet — the async transaction APIs are a separate feature — so an 
 | `transactions.context-lifecycle-order` | instrumented | the block's commit comes after the command's full cursor lifecycle |
 | `transactions.context-error-precedence` | instrumented | rollback on error, and the block's error wins over a rollback failure |
 | `transactions.commit-failure-propagates` | instrumented | a failed exit commit propagates unchanged with no rollback attempt |
+| `transactions.context-base-exception-rollback` | instrumented | a `BaseException` that is not an `Exception` rolls back and propagates unchanged too, and an interrupt raised by the rollback itself wins over the block's ordinary error |
+| `transactions.context-not-reentrant` | instrumented | nesting blocks on one instance raises `RuntimeError` (rolling the outer block back), and the guard clears so the next sequential block still commits |
 
 ## The harness API
 

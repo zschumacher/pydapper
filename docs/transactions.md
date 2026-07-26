@@ -76,17 +76,20 @@ The exact semantics, identical in both modes:
   the block on the same connection belongs to the same connection-level transaction.
 * **Clean exit commits.** If the commit itself fails, the error propagates unchanged and no rollback is
   attempted — connection state after a failed commit is driver-defined.
-* **An exception rolls back and re-raises.** If the rollback also fails with an ordinary `Exception`, that
-  failure is suppressed (recorded at `DEBUG`) and the block's exception propagates. A `BaseException` that is
-  not an `Exception` — `KeyboardInterrupt`, `SystemExit`, a task cancellation — raised during the rollback is
-  never swallowed: it propagates in place of the block's exception, which survives as its `__context__` (the
-  same policy as command-owned cursor cleanup).
-* **Blocks cannot be nested on the same command instance.** Re-entry raises `RuntimeError`. The guard is per
-  `Commands`/`CommandsAsync` instance, not per connection: a second instance over the same connection (for
-  example from a second `using()`/`using_async()` call) shares the same single connection-level transaction,
-  and a `transaction()` block on one instance is not protected against `commit()`/`rollback()`/`transaction()`
-  calls made through another. Use one command instance per connection when working with transactions.
-  Savepoint-based nesting may arrive later as a separate, adapter-gated feature.
+* **An exception rolls back and re-raises.** The block's exception is re-raised as the same object, and it wins
+  over an ordinary rollback failure: an `Exception` raised by the rollback is suppressed (recorded at `DEBUG`).
+  A rollback failure that is *not* an `Exception` — a `KeyboardInterrupt`, `SystemExit`, a task cancellation —
+  is an interpreter-level request to stop, so that one propagates in place of the block's exception, which
+  survives as its `__context__` (the same policy as command-owned cursor cleanup); losing a Ctrl-C raised
+  inside the driver's rollback is worse than reporting it.
+* **Blocks cannot be nested on the same command instance.** Re-entry raises `RuntimeError`, which rolls the
+  outer block back like any other error, and the guard clears on exit so the next block on the same instance
+  works normally. The guard is per `Commands`/`CommandsAsync` instance, not per connection: a second instance
+  over the same connection (for example from a second `using()`/`using_async()` call) shares the same single
+  connection-level transaction, and a `transaction()` block on one instance is not protected against
+  `commit()`/`rollback()`/`transaction()` calls made through another. Use one command instance per connection
+  when working with transactions. Savepoint-based nesting may arrive later as a separate, adapter-gated
+  feature.
 * **Explicit `commit()` / `rollback()` inside a block is allowed.** They operate on the same single
   connection-level transaction: an inner `commit()` makes the work so far durable, and the block's exit commit
   covers the remainder.

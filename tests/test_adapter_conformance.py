@@ -6,17 +6,21 @@ in-memory SQLite harness, instrumented concrete first-party classes, negative
 broken-adapter tests, packaging/drift invariants, and import hygiene.
 """
 
+import asyncio
 import dataclasses
 import importlib.metadata
 import re
+import sqlite3
 import subprocess
 import sys
 import tarfile
 import textwrap
 import zipfile
+from contextlib import asynccontextmanager
 from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
+from typing import Optional
 
 import pytest
 
@@ -55,6 +59,7 @@ from pydapper.testing.adapter_conformance import core_async_profile
 from pydapper.testing.adapter_conformance import core_sync_profile
 from pydapper.testing.adapter_conformance import run_core_async
 from pydapper.testing.adapter_conformance import run_core_sync
+from pydapper.testing.adapter_conformance._cases_transactions import _InjectedTransactionInterrupt
 from pydapper.testing.adapter_conformance._checks import SyncCaseContext
 from pydapper.testing.adapter_conformance._instrumentation import CursorScript
 from pydapper.testing.adapter_conformance._instrumentation import RecordingAsyncConnection
@@ -62,6 +67,7 @@ from pydapper.testing.adapter_conformance._instrumentation import RecordingConne
 from pydapper.testing.adapter_conformance._instrumentation import SynchronousCursorRecordingAsyncConnection
 from pydapper.testing.adapter_conformance._profiles import validate_capability_catalog
 from pydapper.testing.adapter_conformance._results import CaseCheckError
+from pydapper.testing.adapter_conformance._runner import _PROPAGATED
 from pydapper.testing.adapter_conformance._sqlspec import render_statement
 from pydapper.testing.adapter_conformance._sqlspec import statement_ids
 from tests.conformance_support import FIRST_PARTY_CONFORMANCE_ENTRIES
@@ -74,12 +80,31 @@ from tests.conformance_support import MockAsyncConformanceHarness
 from tests.conformance_support import MockSyncConformanceCommands
 from tests.conformance_support import MockSyncConformanceHarness
 from tests.conformance_support import Sqlite3ConformanceHarness
+from tests.conformance_support import seed_sqlite_connection
 from tests.conformance_support import seeded_mini_db
 
 pytestmark = pytest.mark.core
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GROUP = "pydapper.adapters"
+
+#: The shipped ``transactions`` inventory, in declared order. This is deliberately a literal
+#: rather than something derived from ``capability_profiles()``: an expectation computed from
+#: the profile can never notice the profile shrinking, and this profile is the third-party
+#: contract for "implements transactions correctly".
+TRANSACTION_CASE_IDS = (
+    "transactions.commit-persists",
+    "transactions.rollback-discards",
+    "transactions.context-commits-on-exit",
+    "transactions.context-rolls-back-on-error",
+    "transactions.commit-delegates-once",
+    "transactions.rollback-delegates-once",
+    "transactions.context-lifecycle-order",
+    "transactions.context-error-precedence",
+    "transactions.commit-failure-propagates",
+    "transactions.context-base-exception-rollback",
+    "transactions.context-not-reentrant",
+)
 
 
 def _canonicalize(name: str) -> str:
@@ -215,10 +240,10 @@ def test_sqlite_in_memory_core_sync_harness_passes(isolated_registry, tmp_path):
     assert report.adapter_name == "sqlite3"
     assert report.command_class_name.endswith("Sqlite3Commands")
     # Sqlite3Commands declares TRANSACTIONS, so the runner appends the production
-    # transactions profile after the core inventory — live supported-adapter coverage
+    # transactions profile after the core inventory — live supported-adapter coverage.
+    # The expectation is the literal inventory, never one derived from the profile itself.
     transaction_results = [result for result in report.results if result.profile_id == "transactions"]
-    expected_ids = [case.case_id for case in capability_profiles()[AdapterCapability.TRANSACTIONS].sync_cases]
-    assert [result.case_id for result in transaction_results] == expected_ids
+    assert [result.case_id for result in transaction_results] == list(TRANSACTION_CASE_IDS)
     assert all(result.passed for result in transaction_results)
 
 
@@ -1336,6 +1361,1273 @@ async def test_async_query_path_hook_ordering_mutant_fails_its_named_case(isolat
     _assert_only_the_named_hook_case_failed(await run_core_async(_Harness()), mutant)
 
 
+# ------------------------------------------------------------------ transactions profile mutants
+#
+# The `transactions` profile is the shipped, third-party-facing definition of "implements
+# transactions correctly". Everything below exists so that definition cannot be weakened
+# silently: every assertion the profile makes is pinned by a deliberately non-conformant
+# adapter that must fail one named case on one named assertion.
+
+
+class _ProxyMutantCommands(Sqlite3Commands):
+    """Base for mutants that replace the ``transaction()`` block body itself.
+
+    It reimplements the real proxy — nesting guard, rollback-on-error, commit-on-clean-exit,
+    discarded rollback failure — behind three seams, so each subclass changes exactly one thing
+    and nothing incidental can be what fails a case. The base is itself run against the whole
+    profile below, which is what makes that claim checkable.
+    """
+
+    #: cleared to leave the nesting guard out entirely
+    _guards_nesting = True
+    #: cleared to leak the guard past the end of the block
+    _clears_guard = True
+
+    def _on_entry(self) -> None:
+        """Runs when the block is entered. The contract is: emit no SQL."""
+
+    def _on_error(self, error: BaseException) -> None:
+        """Runs while the block's error is being handled; the error is re-raised after."""
+        try:
+            self.rollback()
+        except Exception:
+            pass
+
+    def _on_clean_exit(self) -> None:
+        self.commit()
+
+    @contextmanager
+    def _transaction_proxy(self):
+        if self._guards_nesting and self._in_transaction:
+            raise RuntimeError("transaction() blocks cannot be nested")
+        self._in_transaction = True
+        try:
+            self._on_entry()
+            try:
+                yield
+            except BaseException as error:
+                self._on_error(error)
+                raise
+            else:
+                self._on_clean_exit()
+        finally:
+            if self._clears_guard:
+                self._in_transaction = False
+
+
+class _NoOpCommitCommands(Sqlite3Commands):
+    """commit() never reaches the connection."""
+
+    def commit(self) -> None:
+        pass
+
+
+class _NoOpRollbackCommands(Sqlite3Commands):
+    """rollback() never reaches the connection."""
+
+    def rollback(self) -> None:
+        pass
+
+
+class _CommitReturnsValueCommands(Sqlite3Commands):
+    """commit() delegates correctly but returns a value the contract pins to None."""
+
+    def commit(self):
+        super().commit()
+        return True
+
+
+class _RollbackReturnsValueCommands(Sqlite3Commands):
+    """rollback() delegates correctly but returns a value the contract pins to None."""
+
+    def rollback(self):
+        super().rollback()
+        return True
+
+
+class _CommitAlsoRollsBackCommands(Sqlite3Commands):
+    """commit() rolls back first, discarding work the caller asked to keep."""
+
+    def commit(self) -> None:
+        self.connection.rollback()
+        super().commit()
+
+
+class _RollbackAlsoCommitsCommands(Sqlite3Commands):
+    """rollback() commits first, making work durable the caller asked to discard."""
+
+    def rollback(self) -> None:
+        self.connection.commit()
+        super().rollback()
+
+
+class _CommitAcquiresCursorCommands(Sqlite3Commands):
+    """commit() takes a cursor it does not need."""
+
+    def commit(self) -> None:
+        self.connection.cursor()
+        super().commit()
+
+
+class _RollbackAcquiresCursorCommands(Sqlite3Commands):
+    """rollback() takes a cursor it does not need."""
+
+    def rollback(self) -> None:
+        self.connection.cursor()
+        super().rollback()
+
+
+class _CommitTranslatesFailureCommands(Sqlite3Commands):
+    """A driver commit failure is re-raised as an equal-but-different exception object."""
+
+    def commit(self) -> None:
+        try:
+            super().commit()
+        except Exception as error:
+            raise type(error)(*error.args) from None
+
+
+class _RollbackTranslatesFailureCommands(Sqlite3Commands):
+    """A driver rollback failure is re-raised as an equal-but-different exception object."""
+
+    def rollback(self) -> None:
+        try:
+            super().rollback()
+        except Exception as error:
+            raise type(error)(*error.args) from None
+
+
+class _CommitRetriesOnFailureCommands(Sqlite3Commands):
+    """A failed commit is retried against a connection in a driver-defined state."""
+
+    def commit(self) -> None:
+        try:
+            super().commit()
+        except Exception:
+            super().commit()
+
+
+class _RollbackRetriesOnFailureCommands(Sqlite3Commands):
+    """A failed rollback is retried against a connection in a driver-defined state."""
+
+    def rollback(self) -> None:
+        try:
+            super().rollback()
+        except Exception:
+            super().rollback()
+
+
+class _CommitRollsBackOnFailureCommands(Sqlite3Commands):
+    """A failed commit triggers a rollback the contract forbids."""
+
+    def commit(self) -> None:
+        try:
+            super().commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+
+class _RollbackCommitsOnFailureCommands(Sqlite3Commands):
+    """A failed rollback falls back to a commit — the worst possible recovery."""
+
+    def rollback(self) -> None:
+        try:
+            super().rollback()
+        except Exception:
+            self.connection.commit()
+            raise
+
+
+class _RollbackDiscardsCommittedRowsCommands(Sqlite3Commands):
+    """rollback() discards the uncommitted work *and* the durable baseline."""
+
+    def rollback(self) -> None:
+        super().rollback()
+        execute = getattr(self.connection, "execute", None)
+        if execute is not None:  # a live DBAPI connection; the recording connection has none
+            execute("DELETE FROM pydapper_conformance")
+            super().commit()
+
+
+class _NoCommitOnExitCommands(_ProxyMutantCommands):
+    """A block that forgets to commit on clean exit."""
+
+    def _on_clean_exit(self) -> None:
+        pass
+
+
+class _CommitsTwiceOnExitCommands(_ProxyMutantCommands):
+    """A block that commits twice on clean exit."""
+
+    def _on_clean_exit(self) -> None:
+        self.commit()
+        self.commit()
+
+
+class _RollsBackAfterCommitCommands(_ProxyMutantCommands):
+    """A block that rolls back after committing on clean exit."""
+
+    def _on_clean_exit(self) -> None:
+        self.commit()
+        self.rollback()
+
+
+class _EmitsBeginOnEntryCommands(_ProxyMutantCommands):
+    """A block that emits explicit BEGIN SQL on entry instead of relying on the DBAPI."""
+
+    def _on_entry(self) -> None:
+        self.execute("BEGIN")
+
+
+class _ReRaisesACopyCommands(_ProxyMutantCommands):
+    """A block that rolls back correctly but re-raises a copy of the caller's exception."""
+
+    def _on_error(self, error: BaseException) -> None:
+        super()._on_error(error)
+        raise type(error)(*error.args)
+
+
+class _NeverRollsBackCommands(_ProxyMutantCommands):
+    """A block that re-raises without rolling anything back."""
+
+    def _on_error(self, error: BaseException) -> None:
+        pass
+
+
+class _CommitsAfterRollbackOnErrorCommands(_ProxyMutantCommands):
+    """A block that rolls back and then commits anyway when its body raised."""
+
+    def _on_error(self, error: BaseException) -> None:
+        super()._on_error(error)
+        self.commit()
+
+
+class _TranslatesRollbackFailureCommands(_ProxyMutantCommands):
+    """A rollback failure replaces the block's error with a copy of it."""
+
+    def _on_error(self, error: BaseException) -> None:
+        try:
+            self.rollback()
+        except Exception:
+            raise type(error)(*error.args) from None
+
+
+class _RetriesRollbackOnFailureCommands(_ProxyMutantCommands):
+    """A failed rollback inside the block is retried."""
+
+    def _on_error(self, error: BaseException) -> None:
+        try:
+            self.rollback()
+        except Exception:
+            try:
+                self.rollback()
+            except Exception:
+                pass
+
+
+class _TranslatesExitCommitFailureCommands(_ProxyMutantCommands):
+    """A failed exit commit is re-raised as an equal-but-different exception object."""
+
+    def _on_clean_exit(self) -> None:
+        try:
+            self.commit()
+        except Exception as error:
+            raise type(error)(*error.args) from None
+
+
+class _RetriesExitCommitCommands(_ProxyMutantCommands):
+    """A failed exit commit is retried."""
+
+    def _on_clean_exit(self) -> None:
+        try:
+            self.commit()
+        except Exception:
+            self.commit()
+
+
+class _RollsBackAfterFailedExitCommitCommands(_ProxyMutantCommands):
+    """A failed exit commit triggers a rollback against a driver-defined connection state."""
+
+    def _on_clean_exit(self) -> None:
+        try:
+            self.commit()
+        except Exception:
+            self.rollback()
+            raise
+
+
+class _RollsBackOnlyOrdinaryErrorsCommands(_ProxyMutantCommands):
+    """The #572 defect class: a BaseException that is not an Exception skips the rollback."""
+
+    def _on_error(self, error: BaseException) -> None:
+        if isinstance(error, Exception):
+            super()._on_error(error)
+
+
+class _TranslatesInterruptedRollbackCommands(_ProxyMutantCommands):
+    """An interrupt raised by rollback propagates as a copy, losing the original object."""
+
+    def _on_error(self, error: BaseException) -> None:
+        try:
+            self.rollback()
+        except Exception:
+            pass
+        except BaseException as interrupt:
+            raise type(interrupt)(*interrupt.args)
+
+
+class _CommitsAfterInterruptedRollbackCommands(_ProxyMutantCommands):
+    """An interrupt raised by rollback is answered with a commit before it propagates."""
+
+    def _on_error(self, error: BaseException) -> None:
+        try:
+            self.rollback()
+        except Exception:
+            pass
+        except BaseException:
+            self.commit()
+            raise
+
+
+class _DetachesTheInterruptContextCommands(_ProxyMutantCommands):
+    """An interrupt raised by rollback wins, but with the block's own error detached from its
+    ``__context__``, so the report no longer says what the block was doing when it stopped.
+
+    Note that ``raise interrupt from None`` would *not* do this: it sets
+    ``__suppress_context__`` for display and leaves ``__context__`` in place. Detaching takes
+    an explicit assignment.
+    """
+
+    def _on_error(self, error: BaseException) -> None:
+        try:
+            self.rollback()
+        except Exception:
+            pass
+        except BaseException as interrupt:
+            interrupt.__context__ = None
+            raise
+
+
+class _ShutsDownOnInterruptedRollbackCommands(_ProxyMutantCommands):
+    """Commits after an interrupted rollback, and answers a ``KeyboardInterrupt`` from the
+    rollback with a plain ``KeyboardInterrupt`` of its own — an adapter-side Ctrl-C shutdown
+    path layered on a real defect.
+
+    This exists for the runner's benefit, not the profile's: the runner propagates
+    :class:`KeyboardInterrupt` as a shutdown signal rather than recording it, so if the
+    framework's injected interrupt were itself a ``KeyboardInterrupt`` this adapter would
+    abort the entire conformance run instead of failing one case.
+    """
+
+    def _on_error(self, error: BaseException) -> None:
+        try:
+            self.rollback()
+        except Exception:
+            pass
+        except BaseException as interrupt:
+            self.commit()
+            if isinstance(interrupt, KeyboardInterrupt):
+                raise KeyboardInterrupt("shutting down") from None
+            raise
+
+
+class _CommitSwallowsFailureCommands(Sqlite3Commands):
+    """commit() reports success after the driver refused to commit."""
+
+    def commit(self) -> None:
+        try:
+            super().commit()
+        except Exception:
+            pass
+
+
+class _RollbackSwallowsFailureCommands(Sqlite3Commands):
+    """rollback() reports success after the driver refused to roll back."""
+
+    def rollback(self) -> None:
+        try:
+            super().rollback()
+        except Exception:
+            pass
+
+
+class _SuppressesExitCommitFailureCommands(_ProxyMutantCommands):
+    """A block that exits normally after its exit commit failed."""
+
+    def _on_clean_exit(self) -> None:
+        try:
+            self.commit()
+        except Exception:
+            pass
+
+
+class _SuppressesTheBlockErrorCommands(Sqlite3Commands):
+    """A block that rolls back and then swallows the caller's exception."""
+
+    @contextmanager
+    def _transaction_proxy(self):
+        if self._in_transaction:
+            raise RuntimeError("transaction() blocks cannot be nested")
+        self._in_transaction = True
+        try:
+            try:
+                yield
+            except BaseException:
+                try:
+                    self.rollback()
+                except Exception:
+                    pass
+                return
+            self.commit()
+        finally:
+            self._in_transaction = False
+
+
+class _SuppressesAfterFailedRollbackCommands(Sqlite3Commands):
+    """A block that gives up and swallows the caller's exception when its rollback fails."""
+
+    @contextmanager
+    def _transaction_proxy(self):
+        if self._in_transaction:
+            raise RuntimeError("transaction() blocks cannot be nested")
+        self._in_transaction = True
+        try:
+            try:
+                yield
+            except BaseException:
+                try:
+                    self.rollback()
+                except BaseException:
+                    return
+                raise
+            else:
+                self.commit()
+        finally:
+            self._in_transaction = False
+
+
+class _ReentrantTransactionCommands(_ProxyMutantCommands):
+    """No nesting guard at all: a nested block on the same instance is entered."""
+
+    _guards_nesting = False
+
+
+class _LeakedTransactionGuardCommands(_ProxyMutantCommands):
+    """The nesting guard never clears, so the instance can only ever run one block."""
+
+    _clears_guard = False
+
+
+# ------------------------------------------------------------------ the async half of the table
+#
+# The async inventory (#579) is the same eleven cases against `async with commands.transaction():`,
+# so the same defects have to be caught there. There is no first-party async sqlite adapter, so the
+# async mutants are built on the repository's mock async adapter over its fake driver, whose MiniDb
+# has snapshot transactionality — that is what gives the async `live` cases a real durable/discarded
+# distinction without a service.
+
+
+class _AsyncTransactionMutantBase(MockAsyncConformanceCommands):
+    """Base of the async half of the mutant table: the mock async adapter, declaring TRANSACTIONS
+    so the profile actually runs for it. The async equivalent of the sync half's ``Sqlite3Commands``,
+    and, like it, run against the whole profile below and required to pass.
+    """
+
+    capabilities = frozenset({AdapterCapability.TRANSACTIONS})
+
+
+class _AsyncProxyMutantCommands(_AsyncTransactionMutantBase):
+    """The async twin of :class:`_ProxyMutantCommands`; see its rationale.
+
+    Same three seams, same defaults, so an async row and its sync row express one defect twice.
+    """
+
+    #: cleared to leave the nesting guard out entirely
+    _guards_nesting = True
+    #: cleared to leak the guard past the end of the block
+    _clears_guard = True
+
+    async def _on_entry(self) -> None:
+        """Runs when the block is entered. The contract is: emit no SQL."""
+
+    async def _on_error(self, error: BaseException) -> None:
+        """Runs while the block's error is being handled; the error is re-raised after."""
+        try:
+            await self.rollback()
+        except Exception:
+            pass
+
+    async def _on_clean_exit(self) -> None:
+        await self.commit()
+
+    @asynccontextmanager
+    async def _transaction_proxy(self):
+        if self._guards_nesting and self._in_transaction:
+            raise RuntimeError("transaction() blocks cannot be nested")
+        self._in_transaction = True
+        try:
+            await self._on_entry()
+            try:
+                yield
+            except BaseException as error:
+                await self._on_error(error)
+                raise
+            else:
+                await self._on_clean_exit()
+        finally:
+            if self._clears_guard:
+                self._in_transaction = False
+
+
+class _AsyncNoCommitOnExitCommands(_AsyncProxyMutantCommands):
+    """A block that forgets to commit on clean exit."""
+
+    async def _on_clean_exit(self) -> None:
+        pass
+
+
+class _AsyncRollsBackAfterCommitCommands(_AsyncProxyMutantCommands):
+    """A block that rolls back after committing on clean exit."""
+
+    async def _on_clean_exit(self) -> None:
+        await self.commit()
+        await self.rollback()
+
+
+class _AsyncReRaisesACopyCommands(_AsyncProxyMutantCommands):
+    """A block that rolls back correctly but re-raises a copy of the caller's exception."""
+
+    async def _on_error(self, error: BaseException) -> None:
+        await super()._on_error(error)
+        raise type(error)(*error.args)
+
+
+class _AsyncNeverRollsBackCommands(_AsyncProxyMutantCommands):
+    """A block that re-raises without rolling anything back."""
+
+    async def _on_error(self, error: BaseException) -> None:
+        pass
+
+
+class _AsyncCommitsAfterRollbackOnErrorCommands(_AsyncProxyMutantCommands):
+    """A block that rolls back and then commits anyway when its body raised."""
+
+    async def _on_error(self, error: BaseException) -> None:
+        await super()._on_error(error)
+        await self.commit()
+
+
+class _AsyncRollsBackOnlyOrdinaryErrorsCommands(_AsyncProxyMutantCommands):
+    """The #572 defect class: a BaseException that is not an Exception skips the rollback."""
+
+    async def _on_error(self, error: BaseException) -> None:
+        if isinstance(error, Exception):
+            await super()._on_error(error)
+
+
+class _AsyncTranslatesInterruptedRollbackCommands(_AsyncProxyMutantCommands):
+    """An interrupt raised by rollback propagates as a copy, losing the original object."""
+
+    async def _on_error(self, error: BaseException) -> None:
+        try:
+            await self.rollback()
+        except Exception:
+            pass
+        except BaseException as interrupt:
+            raise type(interrupt)(*interrupt.args)
+
+
+class _AsyncCommitsAfterInterruptedRollbackCommands(_AsyncProxyMutantCommands):
+    """An interrupt raised by rollback is answered with a commit before it propagates."""
+
+    async def _on_error(self, error: BaseException) -> None:
+        try:
+            await self.rollback()
+        except Exception:
+            pass
+        except BaseException:
+            await self.commit()
+            raise
+
+
+class _AsyncDetachesTheInterruptContextCommands(_AsyncProxyMutantCommands):
+    """The async twin of :class:`_DetachesTheInterruptContextCommands`: the interrupt wins, but
+    with the block's own error detached from its ``__context__``."""
+
+    async def _on_error(self, error: BaseException) -> None:
+        try:
+            await self.rollback()
+        except Exception:
+            pass
+        except BaseException as interrupt:
+            interrupt.__context__ = None
+            raise
+
+
+class _AsyncShutsDownOnInterruptedRollbackCommands(_AsyncProxyMutantCommands):
+    """The async twin of :class:`_ShutsDownOnInterruptedRollbackCommands`: it commits after an
+    interrupted rollback, and answers an interrupt its own shutdown path recognises with a
+    cancellation of its own.
+
+    ``asyncio.CancelledError`` is in the runner's ``_PROPAGATED`` set for the same reason
+    ``KeyboardInterrupt`` is, which is why the async injection may not be a cancellation either:
+    an adapter that turns the injected interrupt into a ``CancelledError`` would abort the whole
+    conformance run instead of failing one case — and, worse than the sync twin, would be lying
+    about the task's cancellation state to everything upstream.
+    """
+
+    async def _on_error(self, error: BaseException) -> None:
+        try:
+            await self.rollback()
+        except Exception:
+            pass
+        except BaseException as interrupt:
+            await self.commit()
+            if isinstance(interrupt, (KeyboardInterrupt, asyncio.CancelledError)):
+                raise asyncio.CancelledError("shutting down") from None
+            raise
+
+
+class _AsyncSuppressesTheBlockErrorCommands(_AsyncTransactionMutantBase):
+    """A block that rolls back and then swallows the caller's exception."""
+
+    @asynccontextmanager
+    async def _transaction_proxy(self):
+        if self._in_transaction:
+            raise RuntimeError("transaction() blocks cannot be nested")
+        self._in_transaction = True
+        try:
+            try:
+                yield
+            except BaseException:
+                try:
+                    await self.rollback()
+                except Exception:
+                    pass
+                return
+            await self.commit()
+        finally:
+            self._in_transaction = False
+
+
+class _AsyncSuppressesAfterFailedRollbackCommands(_AsyncTransactionMutantBase):
+    """A block that gives up and swallows the caller's exception when its rollback fails."""
+
+    @asynccontextmanager
+    async def _transaction_proxy(self):
+        if self._in_transaction:
+            raise RuntimeError("transaction() blocks cannot be nested")
+        self._in_transaction = True
+        try:
+            try:
+                yield
+            except BaseException:
+                try:
+                    await self.rollback()
+                except BaseException:
+                    return
+                raise
+            else:
+                await self.commit()
+        finally:
+            self._in_transaction = False
+
+
+class _AsyncReentrantTransactionCommands(_AsyncProxyMutantCommands):
+    """No nesting guard at all: a nested block on the same instance is entered."""
+
+    _guards_nesting = False
+
+
+class _AsyncLeakedTransactionGuardCommands(_AsyncProxyMutantCommands):
+    """The nesting guard never clears, so the instance can only ever run one block."""
+
+    _clears_guard = False
+
+
+class _TransactionMutant(NamedTuple):
+    """One non-conformant adapter, the profile case it must fail, and the assertion inside
+    that case which must be the one to fail it.
+
+    ``fragment`` is what makes ``assertion`` a checked claim rather than a comment: the test
+    requires that text in the failure message, so a mutant caught by some *other* assertion
+    of the same case is not credited with a catch it did not cause. The same fragment serves
+    both modes, because the two inventories ship the same assertions with the same messages.
+    """
+
+    slug: str
+    case_id: str
+    assertion: str
+    fragment: str
+    commands: type
+    #: the async twin of ``commands``: the same defect expressed against ``async with
+    #: commands.transaction():``, pinning the same assertion of the same case in the async
+    #: inventory. Every row of the two cases this change adds carries one; the nine cases
+    #: inherited from #579 are pinned through their sync twins only, and mirroring the rest of
+    #: the table into async mode is the natural follow-up.
+    async_commands: Optional[type] = None
+
+
+#: Every assertion in ``_cases_transactions.py`` is pinned by a row below: neuter any one of
+#: them and the row naming it stops seeing its failure. That includes the framework's own
+#: ``expect_raises`` assertions, pinned by the rows whose fragment is ExpectedRaise's "nothing
+#: was raised" text; where a case makes two of them, the *mutant* is what distinguishes the
+#: two rows, since the two messages are identical. Two assertions are deliberately *not*
+#: pinned here, because no adapter behavior can reach them:
+#:
+#: * the ``check_event_order(log, ("commit",))`` in ``transactions.commit-delegates-once`` and
+#:   its ``("rollback",)`` twin in ``transactions.rollback-delegates-once``. The recording
+#:   connection logs an event only when it counts one, so with `commit_calls == 1`,
+#:   `rollback_calls == 0` and `cursor_calls == 0` already asserted, the observed log is
+#:   necessarily exactly that one event. They are defence-in-depth against a future
+#:   instrumentation change that records something those counters do not cover.
+_TRANSACTION_MUTANTS = (
+    _TransactionMutant(
+        slug="no-op-commit-loses-the-write",
+        case_id="transactions.commit-persists",
+        assertion="committed work survives a later rollback",
+        fragment="a committed insert must survive a subsequent rollback()",
+        commands=_NoOpCommitCommands,
+    ),
+    _TransactionMutant(
+        slug="no-op-rollback-keeps-the-write",
+        case_id="transactions.rollback-discards",
+        assertion="uncommitted work is discarded",
+        fragment="rollback() must discard the uncommitted insert",
+        commands=_NoOpRollbackCommands,
+    ),
+    _TransactionMutant(
+        slug="rollback-discards-committed-rows",
+        case_id="transactions.rollback-discards",
+        assertion="committed rows survive a rollback",
+        fragment="committed baseline rows intact",
+        commands=_RollbackDiscardsCommittedRowsCommands,
+    ),
+    _TransactionMutant(
+        slug="block-never-commits-on-exit",
+        case_id="transactions.context-commits-on-exit",
+        assertion="a clean block commits",
+        fragment="a clean transaction() exit must commit",
+        commands=_NoCommitOnExitCommands,
+    ),
+    _TransactionMutant(
+        slug="block-re-raises-a-copy",
+        case_id="transactions.context-rolls-back-on-error",
+        assertion="the block's exception propagates unchanged",
+        fragment="the block's exception must propagate as the same exception object",
+        commands=_ReRaisesACopyCommands,
+    ),
+    _TransactionMutant(
+        slug="block-never-rolls-back",
+        case_id="transactions.context-rolls-back-on-error",
+        assertion="a raising block undoes its write",
+        fragment="must roll its insert back",
+        commands=_NeverRollsBackCommands,
+    ),
+    _TransactionMutant(
+        slug="block-swallows-the-error",
+        case_id="transactions.context-rolls-back-on-error",
+        assertion="the block re-raises at all",
+        fragment="to be raised, but nothing was raised",
+        commands=_SuppressesTheBlockErrorCommands,
+    ),
+    _TransactionMutant(
+        slug="commit-returns-a-value",
+        case_id="transactions.commit-delegates-once",
+        assertion="commit() returns None",
+        fragment="commit() must return None",
+        commands=_CommitReturnsValueCommands,
+    ),
+    _TransactionMutant(
+        slug="commit-does-not-delegate",
+        case_id="transactions.commit-delegates-once",
+        assertion="commit() delegates exactly once",
+        fragment="expected exactly one connection commit",
+        commands=_NoOpCommitCommands,
+    ),
+    _TransactionMutant(
+        slug="commit-also-rolls-back",
+        case_id="transactions.commit-delegates-once",
+        assertion="commit() does not roll back",
+        fragment="commit() must not roll back",
+        commands=_CommitAlsoRollsBackCommands,
+    ),
+    _TransactionMutant(
+        slug="commit-acquires-a-cursor",
+        case_id="transactions.commit-delegates-once",
+        assertion="commit() acquires no cursor",
+        fragment="commit() must not acquire a cursor",
+        commands=_CommitAcquiresCursorCommands,
+    ),
+    _TransactionMutant(
+        slug="commit-translates-its-failure",
+        case_id="transactions.commit-delegates-once",
+        assertion="a commit failure propagates unchanged",
+        fragment="must propagate from commit() unchanged",
+        commands=_CommitTranslatesFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="commit-retries-after-failure",
+        case_id="transactions.commit-delegates-once",
+        assertion="exactly one commit attempt on failure",
+        fragment="expected exactly one commit attempt",
+        commands=_CommitRetriesOnFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="failed-commit-rolls-back",
+        case_id="transactions.commit-delegates-once",
+        assertion="a failed commit triggers no rollback",
+        fragment="a failed commit() must not trigger a rollback",
+        commands=_CommitRollsBackOnFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="commit-swallows-its-failure",
+        case_id="transactions.commit-delegates-once",
+        assertion="a commit failure is raised at all",
+        fragment="to be raised, but nothing was raised",
+        commands=_CommitSwallowsFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="rollback-returns-a-value",
+        case_id="transactions.rollback-delegates-once",
+        assertion="rollback() returns None",
+        fragment="rollback() must return None",
+        commands=_RollbackReturnsValueCommands,
+    ),
+    _TransactionMutant(
+        slug="rollback-does-not-delegate",
+        case_id="transactions.rollback-delegates-once",
+        assertion="rollback() delegates exactly once",
+        fragment="expected exactly one connection rollback",
+        commands=_NoOpRollbackCommands,
+    ),
+    _TransactionMutant(
+        slug="rollback-also-commits",
+        case_id="transactions.rollback-delegates-once",
+        assertion="rollback() does not commit",
+        fragment="rollback() must not commit",
+        commands=_RollbackAlsoCommitsCommands,
+    ),
+    _TransactionMutant(
+        slug="rollback-acquires-a-cursor",
+        case_id="transactions.rollback-delegates-once",
+        assertion="rollback() acquires no cursor",
+        fragment="rollback() must not acquire a cursor",
+        commands=_RollbackAcquiresCursorCommands,
+    ),
+    _TransactionMutant(
+        slug="rollback-translates-its-failure",
+        case_id="transactions.rollback-delegates-once",
+        assertion="a rollback failure propagates unchanged",
+        fragment="must propagate from rollback() unchanged",
+        commands=_RollbackTranslatesFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="rollback-retries-after-failure",
+        case_id="transactions.rollback-delegates-once",
+        assertion="exactly one rollback attempt on failure",
+        fragment="expected exactly one rollback attempt",
+        commands=_RollbackRetriesOnFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="failed-rollback-commits",
+        case_id="transactions.rollback-delegates-once",
+        assertion="a failed rollback triggers no commit",
+        fragment="a failed rollback() must not trigger a commit",
+        commands=_RollbackCommitsOnFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="rollback-swallows-its-failure",
+        case_id="transactions.rollback-delegates-once",
+        assertion="a rollback failure is raised at all",
+        fragment="to be raised, but nothing was raised",
+        commands=_RollbackSwallowsFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="block-commits-twice",
+        case_id="transactions.context-lifecycle-order",
+        assertion="a clean block commits exactly once",
+        fragment="expected exactly one commit,",
+        commands=_CommitsTwiceOnExitCommands,
+    ),
+    _TransactionMutant(
+        slug="clean-block-also-rolls-back",
+        case_id="transactions.context-lifecycle-order",
+        assertion="a clean block does not roll back",
+        fragment="a clean transaction() block must not roll back",
+        commands=_RollsBackAfterCommitCommands,
+    ),
+    _TransactionMutant(
+        slug="block-emits-begin-on-entry",
+        case_id="transactions.context-lifecycle-order",
+        assertion="the block's driver interaction order",
+        fragment="expected driver interaction order",
+        commands=_EmitsBeginOnEntryCommands,
+    ),
+    _TransactionMutant(
+        slug="block-re-raises-a-copy-instrumented",
+        case_id="transactions.context-error-precedence",
+        assertion="the block's exception propagates unchanged",
+        fragment="the block's exception must propagate as the same exception object",
+        commands=_ReRaisesACopyCommands,
+    ),
+    _TransactionMutant(
+        slug="block-never-rolls-back-instrumented",
+        case_id="transactions.context-error-precedence",
+        assertion="a raising block rolls back exactly once",
+        fragment="expected exactly one connection rollback",
+        commands=_NeverRollsBackCommands,
+    ),
+    _TransactionMutant(
+        slug="failed-block-commits-anyway",
+        case_id="transactions.context-error-precedence",
+        assertion="a raising block never commits",
+        fragment="a failed transaction() block must not commit",
+        commands=_CommitsAfterRollbackOnErrorCommands,
+    ),
+    _TransactionMutant(
+        slug="rollback-failure-masks-the-block-error",
+        case_id="transactions.context-error-precedence",
+        assertion="the block's error beats a rollback failure",
+        fragment="the block's exception must win over a rollback failure",
+        commands=_TranslatesRollbackFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="block-retries-a-failed-rollback",
+        case_id="transactions.context-error-precedence",
+        assertion="exactly one rollback attempt on failure",
+        fragment="expected exactly one rollback attempt",
+        commands=_RetriesRollbackOnFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="block-swallows-the-error-instrumented",
+        case_id="transactions.context-error-precedence",
+        assertion="the block re-raises at all",
+        fragment="to be raised, but nothing was raised",
+        commands=_SuppressesTheBlockErrorCommands,
+    ),
+    _TransactionMutant(
+        slug="failed-rollback-swallows-the-block-error",
+        case_id="transactions.context-error-precedence",
+        assertion="the block re-raises even when its rollback failed",
+        fragment="to be raised, but nothing was raised",
+        commands=_SuppressesAfterFailedRollbackCommands,
+    ),
+    _TransactionMutant(
+        slug="exit-commit-failure-translated",
+        case_id="transactions.commit-failure-propagates",
+        assertion="the exit commit failure propagates unchanged",
+        fragment="the commit failure must propagate as the same exception object",
+        commands=_TranslatesExitCommitFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="exit-commit-retried",
+        case_id="transactions.commit-failure-propagates",
+        assertion="exactly one exit commit attempt",
+        fragment="expected exactly one commit attempt",
+        commands=_RetriesExitCommitCommands,
+    ),
+    _TransactionMutant(
+        slug="failed-exit-commit-rolls-back",
+        case_id="transactions.commit-failure-propagates",
+        assertion="no rollback after a failed exit commit",
+        fragment="no rollback may be attempted after a failed commit",
+        commands=_RollsBackAfterFailedExitCommitCommands,
+    ),
+    _TransactionMutant(
+        slug="exit-commit-failure-swallowed",
+        case_id="transactions.commit-failure-propagates",
+        assertion="an exit commit failure is raised at all",
+        fragment="to be raised, but nothing was raised",
+        commands=_SuppressesExitCommitFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="base-exception-re-raised-as-a-copy",
+        case_id="transactions.context-base-exception-rollback",
+        assertion="a BaseException propagates unchanged",
+        fragment="must propagate as the same exception object",
+        commands=_ReRaisesACopyCommands,
+        async_commands=_AsyncReRaisesACopyCommands,
+    ),
+    _TransactionMutant(
+        slug="base-exception-skips-the-rollback",
+        case_id="transactions.context-base-exception-rollback",
+        assertion="a BaseException still rolls back",
+        fragment="a block abandoned by a BaseException must roll back exactly once",
+        commands=_RollsBackOnlyOrdinaryErrorsCommands,
+        async_commands=_AsyncRollsBackOnlyOrdinaryErrorsCommands,
+    ),
+    _TransactionMutant(
+        slug="base-exception-commits-anyway",
+        case_id="transactions.context-base-exception-rollback",
+        assertion="a BaseException never commits",
+        fragment="a block abandoned by a BaseException must not commit",
+        commands=_CommitsAfterRollbackOnErrorCommands,
+        async_commands=_AsyncCommitsAfterRollbackOnErrorCommands,
+    ),
+    _TransactionMutant(
+        slug="interrupted-rollback-loses-the-interrupt",
+        case_id="transactions.context-base-exception-rollback",
+        assertion="an interrupt from rollback wins, unchanged",
+        fragment="an interrupt raised by rollback must win over the block's ordinary error",
+        commands=_TranslatesInterruptedRollbackCommands,
+        async_commands=_AsyncTranslatesInterruptedRollbackCommands,
+    ),
+    _TransactionMutant(
+        slug="interrupted-rollback-detaches-the-block-error",
+        case_id="transactions.context-base-exception-rollback",
+        assertion="the block's error survives as the interrupt's __context__",
+        fragment="the block's error must survive as the interrupt's __context__",
+        commands=_DetachesTheInterruptContextCommands,
+        async_commands=_AsyncDetachesTheInterruptContextCommands,
+    ),
+    _TransactionMutant(
+        slug="interrupted-rollback-commits",
+        case_id="transactions.context-base-exception-rollback",
+        assertion="an interrupted rollback never commits",
+        fragment="a block whose rollback was interrupted must not commit",
+        commands=_CommitsAfterInterruptedRollbackCommands,
+        async_commands=_AsyncCommitsAfterInterruptedRollbackCommands,
+    ),
+    _TransactionMutant(
+        slug="base-exception-swallowed",
+        case_id="transactions.context-base-exception-rollback",
+        assertion="a BaseException is re-raised at all",
+        fragment="to be raised, but nothing was raised",
+        commands=_SuppressesTheBlockErrorCommands,
+        async_commands=_AsyncSuppressesTheBlockErrorCommands,
+    ),
+    _TransactionMutant(
+        slug="interrupted-rollback-swallows-the-error",
+        case_id="transactions.context-base-exception-rollback",
+        assertion="an interrupted rollback still lets something propagate",
+        fragment="to be raised, but nothing was raised",
+        commands=_SuppressesAfterFailedRollbackCommands,
+        async_commands=_AsyncSuppressesAfterFailedRollbackCommands,
+    ),
+    _TransactionMutant(
+        slug="nested-block-is-entered",
+        case_id="transactions.context-not-reentrant",
+        assertion="a nested block is refused",
+        fragment="a nested transaction() block on the same Commands instance must not be entered",
+        commands=_ReentrantTransactionCommands,
+        async_commands=_AsyncReentrantTransactionCommands,
+    ),
+    _TransactionMutant(
+        slug="nesting-error-commits-anyway",
+        case_id="transactions.context-not-reentrant",
+        assertion="a block abandoned by a nesting error never commits",
+        fragment="a block abandoned by a nesting error must not commit",
+        commands=_CommitsAfterRollbackOnErrorCommands,
+        async_commands=_AsyncCommitsAfterRollbackOnErrorCommands,
+    ),
+    _TransactionMutant(
+        slug="nesting-error-skips-the-rollback",
+        case_id="transactions.context-not-reentrant",
+        assertion="a block abandoned by a nesting error rolls back",
+        fragment="a block abandoned by a nesting error must roll back exactly once",
+        commands=_NeverRollsBackCommands,
+        async_commands=_AsyncNeverRollsBackCommands,
+    ),
+    _TransactionMutant(
+        slug="nesting-guard-never-clears",
+        case_id="transactions.context-not-reentrant",
+        assertion="the guard clears when the block exits",
+        fragment="the nesting guard must clear when a block exits",
+        commands=_LeakedTransactionGuardCommands,
+        async_commands=_AsyncLeakedTransactionGuardCommands,
+    ),
+    _TransactionMutant(
+        slug="sequential-block-never-commits",
+        case_id="transactions.context-not-reentrant",
+        assertion="the next sequential block still commits",
+        fragment="a sequential transaction() block must commit on clean exit",
+        commands=_NoCommitOnExitCommands,
+        async_commands=_AsyncNoCommitOnExitCommands,
+    ),
+    _TransactionMutant(
+        slug="sequential-block-also-rolls-back",
+        case_id="transactions.context-not-reentrant",
+        assertion="the next sequential block does not roll back",
+        fragment="a clean sequential transaction() block must not roll back again",
+        commands=_RollsBackAfterCommitCommands,
+        async_commands=_AsyncRollsBackAfterCommitCommands,
+    ),
+    _TransactionMutant(
+        slug="nesting-error-swallowed",
+        case_id="transactions.context-not-reentrant",
+        assertion="the nesting error reaches the caller",
+        fragment="to be raised, but nothing was raised",
+        commands=_SuppressesTheBlockErrorCommands,
+        async_commands=_AsyncSuppressesTheBlockErrorCommands,
+    ),
+)
+
+
+_TRANSACTION_MUTANT_IDS = [f"{mutant.slug}::{mutant.case_id.split('.', 1)[1]}" for mutant in _TRANSACTION_MUTANTS]
+
+#: the rows whose defect is also expressed against the async inventory
+_ASYNC_TRANSACTION_MUTANTS = tuple(mutant for mutant in _TRANSACTION_MUTANTS if mutant.async_commands is not None)
+_ASYNC_TRANSACTION_MUTANT_IDS = [
+    f"{mutant.slug}::{mutant.case_id.split('.', 1)[1]}" for mutant in _ASYNC_TRANSACTION_MUTANTS
+]
+
+
+def _run_transactions_profile(commands_class, workdir):
+    """Run only the ``transactions`` profile against a live sqlite3 harness.
+
+    ``case_ids`` keeps the run to the profile under test — and doubles as a tripwire, since
+    a deleted or renamed case makes every mutant test fail with ``CaseSelectionError``.
+    """
+
+    class _Harness(Sqlite3ConformanceHarness):
+        command_class = commands_class
+
+        def create_commands(self):
+            connection = sqlite3.connect(":memory:")
+            seed_sqlite_connection(connection)
+            return commands_class(connection)
+
+    return run_core_sync(_Harness(workdir), case_ids=list(TRANSACTION_CASE_IDS))
+
+
+async def _run_transactions_profile_async(commands_class, name):
+    """The async twin of :func:`_run_transactions_profile`.
+
+    The mock async adapter over the repository's fake driver stands in for the sync half's live
+    sqlite3 harness — there is no first-party async sqlite adapter, and MiniDb's snapshot
+    transactionality makes the ``live`` cases a real durable/discarded distinction without a
+    service. Callers must take the ``isolated_registry`` fixture: each mutant is registered
+    under its own adapter name, which the fixture then rolls back.
+    """
+    _register_mock_async(name=name, async_commands=commands_class)
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = name
+        command_class = commands_class
+        connect_dsn = f"sqlite+{name}://mock"
+
+        async def create_commands(self):
+            return commands_class(FakeAsyncConnection(seeded_mini_db()))
+
+    return await run_core_async(_Harness(), case_ids=list(TRANSACTION_CASE_IDS))
+
+
+@pytest.mark.parametrize("base", [_ProxyMutantCommands, Sqlite3Commands], ids=["proxy-mutant-base", "sqlite3"])
+def test_transaction_mutant_base_is_itself_conformant(base, tmp_path):
+    """Both bases the mutants subclass pass the whole profile unmodified under this very
+    harness, so each mutant's failure is attributable to the single behavior it overrides.
+
+    ``Sqlite3Commands`` is here for the same reason ``_ProxyMutantCommands`` is: roughly half
+    the mutant table derives from it directly, and a row can only be credited to its mutation
+    if the unmutated base certifies clean.
+    """
+    report = _run_transactions_profile(base, tmp_path)
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+    assert [result.case_id for result in report.results] == list(TRANSACTION_CASE_IDS)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("base", "name"),
+    [
+        (_AsyncProxyMutantCommands, "conformance-mock-async-proxy-base"),
+        (_AsyncTransactionMutantBase, "conformance-mock-async-declaring-base"),
+    ],
+    ids=["async-proxy-mutant-base", "declaring-mock-async"],
+)
+async def test_async_transaction_mutant_base_is_itself_conformant(base, name, isolated_registry):
+    """The async twin of the control above: both bases the async mutants subclass pass the whole
+    profile unmodified under this very harness, so each async row's failure is attributable to the
+    single behavior it overrides."""
+    report = await _run_transactions_profile_async(base, name)
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+    assert [result.case_id for result in report.results] == list(TRANSACTION_CASE_IDS)
+
+
+def test_a_misbehaving_adapter_cannot_abort_the_conformance_run(tmp_path):
+    """An adapter with a Ctrl-C shutdown path must fail a case, not take the runner down.
+
+    The runner re-raises :class:`KeyboardInterrupt` instead of recording it, so the framework
+    must never hand an adapter something its shutdown path recognises. This is what keeps
+    ``_InjectedTransactionInterrupt`` off the ``KeyboardInterrupt`` branch: revert that and
+    this adapter aborts the whole session rather than failing one case.
+    """
+    assert not issubclass(_InjectedTransactionInterrupt, _PROPAGATED), (
+        "the framework's injected interrupt must not be a type the runner propagates as a "
+        "shutdown signal, or an escaping one would abort the run instead of failing a case"
+    )
+    report = _run_transactions_profile(_ShutsDownOnInterruptedRollbackCommands, tmp_path)
+    failed = {failure.case_id: failure.message for failure in report.failures}
+    assert list(failed) == ["transactions.context-base-exception-rollback"], sorted(failed)
+    assert "a block whose rollback was interrupted must not commit" in failed[list(failed)[0]]
+
+
+@pytest.mark.asyncio
+async def test_a_misbehaving_async_adapter_cannot_abort_the_conformance_run(isolated_registry):
+    """The async twin of the guarantee above, for the async injection.
+
+    The async runner propagates :class:`asyncio.CancelledError` alongside
+    :class:`KeyboardInterrupt`, so an adapter that answers an interrupt with a cancellation of its
+    own is the async shape of a shutdown path. The framework's injected interrupt is neither, so
+    this adapter's shutdown branch never fires and its real defect — committing after an
+    interrupted rollback — is what fails, on one case.
+    """
+    assert not issubclass(_InjectedTransactionInterrupt, _PROPAGATED), (
+        "the framework's injected interrupt must not be a type the runner propagates as a "
+        "shutdown signal, or an escaping one would abort the run instead of failing a case"
+    )
+    report = await _run_transactions_profile_async(
+        _AsyncShutsDownOnInterruptedRollbackCommands, "conformance-mock-async-shutdown"
+    )
+    failed = {failure.case_id: failure.message for failure in report.failures}
+    assert list(failed) == ["transactions.context-base-exception-rollback"], sorted(failed)
+    assert "a block whose rollback was interrupted must not commit" in failed[list(failed)[0]]
+
+
+def _assert_mutant_failed_its_named_case(report, mutant, mode):
+    failed = {failure.case_id: failure.message for failure in report.failures}
+    assert mutant.case_id in failed, (
+        f"{mutant.slug} must be caught by {mutant.case_id} in {mode} mode, which passed; "
+        f"the cases it did fail were {sorted(failed)}"
+    )
+    # failing the right case on the *wrong* assertion proves nothing about the assertion the
+    # table says this row pins, so the failure message has to match it too
+    assert mutant.fragment in failed[mutant.case_id], (
+        f"{mutant.slug} must fail {mutant.case_id} in {mode} mode on the {mutant.assertion!r} "
+        f"assertion the table names for it: expected {mutant.fragment!r} in {failed[mutant.case_id]!r}"
+    )
+
+
+@pytest.mark.parametrize("mutant", _TRANSACTION_MUTANTS, ids=_TRANSACTION_MUTANT_IDS)
+def test_transaction_mutant_fails_its_named_case_on_its_named_assertion(mutant, tmp_path):
+    _assert_mutant_failed_its_named_case(_run_transactions_profile(mutant.commands, tmp_path), mutant, "sync")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutant", _ASYNC_TRANSACTION_MUTANTS, ids=_ASYNC_TRANSACTION_MUTANT_IDS)
+async def test_async_transaction_mutant_fails_its_named_case_on_its_named_assertion(mutant, isolated_registry):
+    """The same defect, the same case, the same assertion text — proving the two inventories are
+    one contract rather than two files that happen to share case ids."""
+    report = await _run_transactions_profile_async(mutant.async_commands, f"conformance-mock-async-{mutant.slug}")
+    _assert_mutant_failed_its_named_case(report, mutant, "async")
+
+
+def test_every_transactions_case_is_pinned_by_a_mutant():
+    """No case may ship without a mutant proving at least one of its assertions bites."""
+    pinned = {mutant.case_id for mutant in _TRANSACTION_MUTANTS}
+    assert pinned == set(TRANSACTION_CASE_IDS)
+    # the async half of the table pins the two cases this change adds, so neither async twin can
+    # be gutted without a red row; the rest of the async inventory (#579) is pinned through its
+    # sync twins only, and mirroring the remaining rows is the natural follow-up
+    async_pinned = {mutant.case_id for mutant in _ASYNC_TRANSACTION_MUTANTS}
+    assert async_pinned >= {
+        "transactions.context-base-exception-rollback",
+        "transactions.context-not-reentrant",
+    }, sorted(async_pinned)
+
+
 class _InvalidCapabilityCommands(MockSyncConformanceCommands):
     capabilities = {"transactions"}  # type: ignore[assignment]  # deliberately wrong: set of str
 
@@ -1478,6 +2770,30 @@ def test_production_capability_catalog_ships_transactions_and_is_immutable():
     validate_capability_catalog(catalog)
     with pytest.raises(TypeError):
         catalog[AdapterCapability.TRANSACTIONS] = None  # type: ignore[index]
+
+
+def test_transactions_profile_inventory_is_exactly_the_named_cases():
+    """The inventory is spelled out, so deleting, renaming, or reordering a shipped case has
+    to fail here instead of quietly redefining what the capability certifies.
+
+    Both modes are checked against the same literal: the parity test proves the two inventories
+    agree with each other, and this proves what they agree *on* — parity alone is satisfied by
+    two identically gutted inventories.
+    """
+    profile = capability_profiles()[AdapterCapability.TRANSACTIONS]
+    for mode, cases in (("sync", profile.sync_cases), ("async", profile.async_cases)):
+        assert tuple(case.case_id for case in cases) == TRANSACTION_CASE_IDS, mode
+        assert len(cases) == 11, mode
+        assert {case.kind for case in cases} == {"live", "instrumented"}, mode
+        assert all(case.description for case in cases), mode
+
+
+def test_documented_transactions_cases_match_the_shipped_profile():
+    """The docs table is the public contract; it may not drift from the shipped inventory."""
+    text = (REPO_ROOT / "docs" / "adapter_conformance.md").read_text(encoding="utf-8")
+    documented = tuple(re.findall(r"^\| `(transactions\.[a-z-]+)` \|", text, flags=re.MULTILINE))
+    assert documented == TRANSACTION_CASE_IDS
+    assert f"{len(TRANSACTION_CASE_IDS)} cases per mode" in text
 
 
 def test_sync_case_run_must_not_be_a_coroutine_function():
@@ -2834,8 +4150,8 @@ def test_core_sync_and_async_case_inventories_stay_in_parity():
 
 def test_transactions_profile_case_inventories_stay_in_parity():
     """The core parity guard above covers only the mandatory profiles; the transactions
-    capability profile promises the same nine case ids, order, kinds, and descriptions in
-    both modes."""
+    capability profile promises the same eleven case ids, order, kinds, and descriptions in
+    both modes. What those eleven *are* is pinned separately, by the literal inventory."""
     profile = capability_profiles()[AdapterCapability.TRANSACTIONS]
     assert [(case.case_id, case.kind, case.description) for case in profile.sync_cases] == [
         (case.case_id, case.kind, case.description) for case in profile.async_cases

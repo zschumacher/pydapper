@@ -45,6 +45,22 @@ class _InjectedTransactionCleanupFault(Exception):
     """Framework-injected connection commit/rollback failure."""
 
 
+class _InjectedTransactionInterrupt(BaseException):
+    """Framework-injected ``BaseException`` that is deliberately not an ``Exception``.
+
+    It derives straight from :class:`BaseException` rather than from
+    :class:`KeyboardInterrupt`, which is all the cases need: the split a ``transaction()``
+    block must honour is ``except Exception`` versus everything else, and this takes the
+    non-``Exception`` side of it identically.
+
+    Deriving from :class:`KeyboardInterrupt` would additionally hand the adapter under test
+    something its own Ctrl-C shutdown path recognises, and the runner propagates real
+    interrupts instead of recording them, so an adapter answering one with a plain
+    ``KeyboardInterrupt`` would tear down the whole conformance run. A misbehaving adapter
+    must fail a case, never take the harness with it.
+    """
+
+
 _TX_ROW: Dict[str, Any] = {"id": 100, "label": "tx", "score": 7, "note": "tx-note"}
 
 
@@ -241,6 +257,90 @@ def _transactions_commit_failure(ctx: SyncCaseContext) -> None:
     ctx.check(caught.exception is commit_fault, "the commit failure must propagate as the same exception object")
     ctx.check(connection.commit_calls == 1, f"expected exactly one commit attempt, saw {connection.commit_calls}")
     ctx.check(connection.rollback_calls == 0, "no rollback may be attempted after a failed commit")
+
+
+@_case(
+    "transactions.context-base-exception-rollback",
+    "A transaction() block rolls back a non-Exception BaseException too, and an interrupted "
+    "rollback wins over the block's own error",
+    "instrumented",
+)
+def _transactions_context_base_exception(ctx: SyncCaseContext) -> None:
+    interrupt = _InjectedTransactionInterrupt("interrupt")
+    connection = ctx.recording_connection()
+    commands = ctx.instrumented_commands(connection)
+    with ctx.expect_raises(_InjectedTransactionInterrupt) as caught:
+        with commands.transaction():
+            raise interrupt
+    ctx.check(
+        caught.exception is interrupt,
+        "a BaseException that is not an Exception must propagate as the same exception object",
+    )
+    ctx.check(
+        connection.rollback_calls == 1,
+        f"a block abandoned by a BaseException must roll back exactly once, saw {connection.rollback_calls}",
+    )
+    ctx.check(connection.commit_calls == 0, "a block abandoned by a BaseException must not commit")
+
+    # an interrupt raised by the rollback itself is an interpreter-level request to stop, so it
+    # beats the block's ordinary error rather than being discarded like a failed cleanup
+    rollback_interrupt = _InjectedTransactionInterrupt("rollback")
+    failing = ctx.recording_connection(rollback_error=rollback_interrupt)
+    commands = ctx.instrumented_commands(failing)
+    fault = _InjectedTransactionFault("boom")
+    with ctx.expect_raises(_InjectedTransactionInterrupt) as interrupted:
+        with commands.transaction():
+            raise fault
+    ctx.check(
+        interrupted.exception is rollback_interrupt,
+        "an interrupt raised by rollback must win over the block's ordinary error",
+    )
+    # winning must not mean erasing: the block's own error is what says *what was being done*
+    # when the interrupt arrived, and implicit chaining is the only place it survives
+    ctx.check(
+        getattr(interrupted.exception, "__context__", None) is fault,
+        "the block's error must survive as the interrupt's __context__",
+    )
+    ctx.check(failing.commit_calls == 0, "a block whose rollback was interrupted must not commit")
+
+
+@_case(
+    "transactions.context-not-reentrant",
+    "transaction() blocks do not nest on one instance, and the guard clears for the next block",
+    "instrumented",
+)
+def _transactions_context_not_reentrant(ctx: SyncCaseContext) -> None:
+    connection = ctx.recording_connection()
+    commands = ctx.instrumented_commands(connection)
+    with ctx.expect_raises(RuntimeError):
+        with commands.transaction():
+            with commands.transaction():
+                ctx.fail("a nested transaction() block on the same Commands instance must not be entered")
+    ctx.check(connection.commit_calls == 0, "a block abandoned by a nesting error must not commit")
+    ctx.check(
+        connection.rollback_calls == 1,
+        f"a block abandoned by a nesting error must roll back exactly once, saw {connection.rollback_calls}",
+    )
+
+    # the guard belongs to the block, not to the instance's lifetime
+    try:
+        with commands.transaction():
+            commands.execute("UPDATE t SET label = 'x'")
+    except RuntimeError as error:
+        ctx.fail(
+            "the nesting guard must clear when a block exits: a later sequential transaction() block "
+            "on the same Commands instance must be enterable",
+            cause=error,
+        )
+    ctx.check(
+        connection.commit_calls == 1,
+        f"a sequential transaction() block must commit on clean exit, saw {connection.commit_calls} commits",
+    )
+    ctx.check(
+        connection.rollback_calls == 1,
+        "a clean sequential transaction() block must not roll back again, saw "
+        f"{connection.rollback_calls} rollbacks (1 expected, from the nesting error above)",
+    )
 
 
 #: The production inventory is frozen once at import; later mutation of the private

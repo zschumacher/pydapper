@@ -300,6 +300,54 @@ transaction APIs have not landed yet.
 Adapters prove these contracts — the mandatory per-mode core behavior and, once implemented, each declared
 capability — with the reusable conformance suite; see [Adapter conformance](adapter_conformance.md).
 
+## Command-owned cursor lifecycle
+
+A command method that reaches the DBAPI acquires exactly one cursor and owns it for the whole call. pydapper — not
+the driver — decides what that cursor's disposal is allowed to do to the outcome of the call:
+
+* All result work happens inside the lifecycle. Execution, fetching, cardinality checks, duplicate-column
+  validation, scalar extraction, and row projection run while the cursor is still open, so a failure in any of them
+  is the active exception when cleanup runs.
+* Once the cursor has been entered, cleanup runs exactly once, on both the success and the failure path. A cursor
+  that implements `__enter__` / `__exit__` (or `__aenter__` / `__aexit__`) is entered and exited through them; a
+  cursor that does not is closed through `close()` when it has one. A cursor whose `__enter__` / `__aenter__`
+  raises is never entered, so — as in a plain Python `with` block — neither the exit nor `close()` runs and the
+  acquisition error propagates.
+* **A command-owned cursor exit may not suppress the command error.** A truthy `__exit__` / `__aexit__` return
+  value is ignored while a command error is active, and the original exception propagates as the same object.
+* **A cleanup failure never replaces an active command error.** If cleanup itself raises while a command error is
+  active, the cleanup exception is discarded and the command error propagates. With no active error there is
+  nothing to preserve, so a cleanup failure propagates normally.
+
+Two public shapes qualify "one cursor per call". `execute()` with an empty parameter list returns `0` without
+touching the DBAPI, so it acquires no cursor at all. An unbuffered `query()` (`buffered=False`) returns a generator
+instead of rows, so it acquires its cursor on the first iteration and disposes of it when the generator is
+exhausted or closed; the cursor outlives the call that produced it, but the rules above still govern it.
+
+Together these mean a failing command always raises. A driver cursor cannot turn an internal failure into a
+returned value, so callers never receive a partial or invalid result in place of an exception — a
+`query_multiple()` tuple shorter than the batch it was given, `None` from a `query()` that promises a list of rows,
+or an unrelated error from work the swallowed failure never completed.
+
+### Command-owned cursors vs. user-visible connection context managers
+
+This non-suppression rule is deliberately scoped to the cursors pydapper owns. It is not the rule for the
+connection context manager the caller writes:
+
+| | Command-owned cursor exit | User-visible connection context manager |
+|---|---|---|
+| What it wraps | one command call's own cursor | the dbapi connection the caller entered |
+| Who owns it | pydapper, for one command call | the caller and the driver, for the caller's block |
+| Truthy exit return value | ignored while a command error is active | honored, as in a plain Python `with` block |
+| Exit itself raises | discarded while a command error is active | propagates |
+
+The user-visible form is the one used throughout these docs: `with pydapper.connect(...) as commands:` and
+`async with pydapper.connect_async(...) as commands:`. `Commands.__enter__` / `__exit__` proxy to the connection's
+own context manager when the connection implements one, and `CommandsAsync.__aenter__` / `__aexit__` proxy
+unconditionally because `AsyncConnectionType` requires `__aenter__` / `__aexit__`. Either way a driver that
+commits, rolls back, or suppresses on exit behaves exactly as it would without pydapper. Adapter authors should
+keep that proxying intact: pass the exception triple through and return what the connection returns.
+
 ## Preparation hooks
 
 Command classes may override four protected, documented adapter-author hooks. They are extension points for

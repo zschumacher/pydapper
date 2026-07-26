@@ -827,14 +827,14 @@ def test_connect_rejects_an_adapter_without_sync_support(adapter_registry):
     assert "sync" in str(exc_info.value)
 
 
-#: The exact capability set every first-party command class must declare. Sync classes
-#: implement the transaction APIs; the async transaction feature has not landed, and
-#: BigQuery's DBAPI cannot support transactions (commit() is a no-op, rollback() is absent).
+#: The exact capability set every first-party command class must declare. Sync classes and
+#: psycopg-async implement the transaction APIs; aiopg cannot (autocommit-only — its connection
+#: commit/rollback raise), and BigQuery's DBAPI cannot (commit() is a no-op, rollback() is absent).
 FIRST_PARTY_CAPABILITY_DECLARATIONS = {
     Sqlite3Commands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
     Psycopg2Commands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
     Psycopg3Commands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
-    Psycopg3CommandsAsync: frozenset(),
+    Psycopg3CommandsAsync: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
     AiopgCommands: frozenset(),
     MySqlConnectorPythonCommands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),
     PymssqlCommands: frozenset({pydapper.AdapterCapability.TRANSACTIONS}),

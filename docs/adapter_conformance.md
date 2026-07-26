@@ -45,8 +45,8 @@ inferred from return values).
 
 Optional behaviors are independent profiles keyed to `pydapper.AdapterCapability` members — there is no linear
 "better adapter" tier, and no adapter is required to support any optional capability. The production catalog is
-returned by `capability_profiles()` and currently ships one profile: `transactions`, covering the sync
-[transaction APIs](transactions.md). The runners automatically append the profile cases for every capability the
+returned by `capability_profiles()` and currently ships one profile: `transactions`, covering the
+[transaction APIs](transactions.md) in both modes. The runners automatically append the profile cases for every capability the
 command class under test declares, so a declaring adapter is exercised against its capability profiles in the
 same `run_core_sync()` / `run_core_async()` call as the core inventory — there is no separate capability runner
 to invoke. The framework enforces honesty in both directions:
@@ -66,11 +66,11 @@ feature must fail loudly rather than silently execute as if supported.
 
 ### The `transactions` profile
 
-Nine sync cases pin the sync `commit()` / `rollback()` / `transaction()` contract for every declaring adapter.
+Nine cases per mode pin the `commit()` / `rollback()` / `transaction()` contract for every declaring adapter —
+the sync and async inventories share the same case ids, order, and kinds, so both modes are held to one
+contract (the async cases exercise `async with commands.transaction():` and the awaited coroutine twins).
 Every live case first commits the harness baseline (`create_commands()` then `commit()`), so scenarios start
-from a durable, transaction-free state even when a harness seeds inside an open transaction. The profile has no
-async cases yet — the async transaction APIs are a separate feature — so an async command class may not declare
-`TRANSACTIONS` until they land.
+from a durable, transaction-free state even when a harness seeds inside an open transaction.
 
 | Case id | Kind | Pins |
 |---|---|---|
@@ -310,8 +310,8 @@ service or emulator is available.
 | `sqlite3` | `Sqlite3Commands` | sync | `transactions` | `tests/test_sqlite/test_conformance.py` | live, service-free (runs in the core and sqlite suites) | [SQLite](database_support/sqlite.md) |
 | `psycopg2` | `Psycopg2Commands` | sync | `transactions` | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md) |
 | `psycopg` | `Psycopg3Commands` | sync | `transactions` | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md) |
-| `psycopg` | `Psycopg3CommandsAsync` | async | *(none)* | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage (including its synchronous cursor-factory normalization); live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md) |
-| `aiopg` | `AiopgCommands` | async | *(none)* | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md); aiopg is autocommit-only and emulates `executemany` by looping `execute`; its connection-level commit/rollback raise, so `transactions` is not declared (the async transaction APIs are a separate feature) |
+| `psycopg` | `Psycopg3CommandsAsync` | async | `transactions` | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage (including its synchronous cursor-factory normalization); live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md) |
+| `aiopg` | `AiopgCommands` | async | *(none)* | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md); aiopg is autocommit-only and emulates `executemany` by looping `execute`; its connection-level commit/rollback raise, so `transactions` is not declared even though the async APIs exist |
 | `mysql` | `MySqlConnectorPythonCommands` | sync | `transactions` | `tests/test_mysql/test_conformance.py` | service-free instrumented + mock coverage (including its `query_first` unread-result drain); live suite under the `mysql` marker when Docker is available | [MySQL](database_support/mysql.md); unread results must be drained before a cursor closes |
 | `pymssql` | `PymssqlCommands` | sync | `transactions` | `tests/test_mssql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `mssql` marker when Docker is available | [Microsoft SQL Server](database_support/mssql.md) |
 | `oracledb` | `OracledbCommands` | sync | `transactions` | `tests/test_oracle/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `oracle` marker when Docker is available | [Oracle](database_support/oracle.md); unquoted identifiers fold to uppercase (`column_case="upper"`), and `''` is stored as NULL (`supports_empty_strings=False`) |

@@ -3,12 +3,14 @@ import typing
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Mapping
+from contextlib import asynccontextmanager
 from contextlib import contextmanager
 from dataclasses import is_dataclass
 from functools import cached_property
 from inspect import signature
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import AsyncContextManager
 from typing import AsyncGenerator
 from typing import Callable
 from typing import ClassVar
@@ -49,6 +51,7 @@ if TYPE_CHECKING:
     from .dsn_parser import PydapperParseResult
     from .types import AsyncConnectionType
     from .types import AsyncCursorType
+    from .types import AsyncTransactionalConnectionType
     from .types import ConnectionType
     from .types import CursorType
     from .types import ListParamType
@@ -351,6 +354,66 @@ class BaseCommands(ABC):
         return options
 
 
+_TRANSACTION_CONTEXT_REUSED = "transaction() context managers are single-use; call transaction() again for a new block"
+_TRANSACTION_CONTEXT_NOT_ACTIVE = (
+    "transaction() context manager is not active; it was never entered or has already exited"
+)
+
+
+class _TransactionContext:
+    """Single-use wrapper enforcing enter-before-exit for sync ``transaction()`` blocks.
+
+    Without it, ``__exit__`` on a never-entered context manager would start the underlying
+    generator — setting the nesting guard as a side effect — and reusing an exhausted one
+    would surface as contextlib's bare ``AttributeError`` instead of a clear error.
+    """
+
+    __slots__ = ("_inner", "_state")
+
+    def __init__(self, inner: ContextManager[None]) -> None:
+        self._inner = inner
+        self._state = "new"
+
+    def __enter__(self) -> None:
+        if self._state != "new":
+            raise RuntimeError(_TRANSACTION_CONTEXT_REUSED)
+        self._state = "entered"
+        return self._inner.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> Optional[bool]:
+        if self._state != "entered":
+            raise RuntimeError(_TRANSACTION_CONTEXT_NOT_ACTIVE)
+        self._state = "exited"
+        return self._inner.__exit__(exc_type, exc_val, exc_tb)
+
+
+class _AsyncTransactionContext:
+    """The async twin of :class:`_TransactionContext`; see its rationale.
+
+    The never-entered ``__aexit__`` misuse is worse in async mode: on Python 3.10 the
+    started-but-abandoned generator leaves the nesting guard set until finalization runs,
+    which may be arbitrarily late or never.
+    """
+
+    __slots__ = ("_inner", "_state")
+
+    def __init__(self, inner: AsyncContextManager[None]) -> None:
+        self._inner = inner
+        self._state = "new"
+
+    async def __aenter__(self) -> None:
+        if self._state != "new":
+            raise RuntimeError(_TRANSACTION_CONTEXT_REUSED)
+        self._state = "entered"
+        return await self._inner.__aenter__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> Optional[bool]:
+        if self._state != "entered":
+            raise RuntimeError(_TRANSACTION_CONTEXT_NOT_ACTIVE)
+        self._state = "exited"
+        return await self._inner.__aexit__(exc_type, exc_val, exc_tb)
+
+
 class Commands(BaseCommands, ABC):
     # class-level default so a subclass that overrides __init__ without calling super() still
     # gets a working transaction guard; entering a block shadows it per instance
@@ -399,17 +462,21 @@ class Commands(BaseCommands, ABC):
         ``UnsupportedFeatureError`` at call time, before the returned context manager is entered.
         Entering the block emits no SQL — the DBAPI's implicit transaction start is the contract.
         On a clean exit the block commits; on any exception (``BaseException`` included) it rolls
-        back and re-raises, with a rollback failure losing to the active exception. A commit
-        failure on clean exit propagates unchanged and no rollback is attempted, because
+        back and re-raises, with an ordinary ``Exception`` from the rollback losing to the active
+        exception (recorded at ``DEBUG``, never raised); a ``BaseException`` that is not an
+        ``Exception`` — ``KeyboardInterrupt``, ``SystemExit``, a cancellation — propagates in its
+        place with the block's error as its ``__context__``. A commit failure on clean exit
+        propagates unchanged and no rollback is attempted, because
         connection state after a failed commit is driver-defined. Blocks cannot be nested on the
         same instance; re-entry raises ``RuntimeError``. The guard is per ``Commands`` instance:
         a second instance over the same connection (for example from a second ``using()`` call)
-        shares the same single connection-level transaction and is not guarded against. Entering
-        the returned context manager manually without exiting it leaves the rollback to generator
-        finalization at a nondeterministic time; always use ``with``.
+        shares the same single connection-level transaction and is not guarded against. The
+        returned context manager is single-use and must be entered before it is exited; misuse
+        raises ``RuntimeError``. Entering it manually without exiting it leaves the rollback to
+        generator finalization at a nondeterministic time; always use ``with``.
         """
         self._require_capability(AdapterCapability.TRANSACTIONS)
-        return self._transaction_proxy()
+        return _TransactionContext(self._transaction_proxy())
 
     @contextmanager
     def _transaction_proxy(self) -> Generator[None, None, None]:
@@ -1795,6 +1862,10 @@ class Commands(BaseCommands, ABC):
 
 
 class CommandsAsync(BaseCommands, ABC):
+    # class-level default so a subclass that overrides __init__ without calling super() still
+    # gets a working transaction guard; entering a block shadows it per instance
+    _in_transaction: bool = False
+
     def __init__(self, connection: "AsyncConnectionType"):
         self.connection = connection
 
@@ -1808,6 +1879,83 @@ class CommandsAsync(BaseCommands, ABC):
     @classmethod
     @abstractmethod
     async def connect_async(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "CommandsAsync": ...
+
+    async def commit(self) -> None:
+        """Commit the connection's current transaction.
+
+        Requires ``AdapterCapability.TRANSACTIONS``; an adapter that does not declare it raises
+        ``UnsupportedFeatureError`` before the connection is touched. Because this is a coroutine,
+        the gate fires when the call is awaited. May be called inside an open ``transaction()``
+        block: there is only the single connection-level PEP 249 transaction, so this commits the
+        work so far and the block's exit commit covers the remainder.
+        """
+        self._require_capability(AdapterCapability.TRANSACTIONS)
+        await cast("AsyncTransactionalConnectionType", self.connection).commit()
+
+    async def rollback(self) -> None:
+        """Roll back the connection's current transaction.
+
+        Requires ``AdapterCapability.TRANSACTIONS``; an adapter that does not declare it raises
+        ``UnsupportedFeatureError`` before the connection is touched. Because this is a coroutine,
+        the gate fires when the call is awaited.
+        """
+        self._require_capability(AdapterCapability.TRANSACTIONS)
+        await cast("AsyncTransactionalConnectionType", self.connection).rollback()
+
+    def transaction(self) -> AsyncContextManager[None]:
+        """Return an async context manager that commits on normal exit and rolls back on exception.
+
+        Requires ``AdapterCapability.TRANSACTIONS``; an adapter that does not declare it raises
+        ``UnsupportedFeatureError`` at call time, before the returned context manager is entered.
+        Entering the block emits no SQL — the DBAPI's implicit transaction start is the contract.
+        On a clean exit the block commits; on any exception (``BaseException`` included) it rolls
+        back and re-raises, with an ordinary ``Exception`` from the rollback losing to the active
+        exception (recorded at ``DEBUG``, never raised); a ``BaseException`` that is not an
+        ``Exception`` — ``KeyboardInterrupt``, ``SystemExit``, a cancellation — propagates in its
+        place with the block's error as its ``__context__``. A commit failure on clean exit
+        propagates unchanged and no rollback is attempted, because
+        connection state after a failed commit is driver-defined. Blocks cannot be nested on the
+        same instance; re-entry raises ``RuntimeError``. The guard is per ``CommandsAsync``
+        instance: a second instance over the same connection (for example from a second
+        ``using_async()`` call) shares the same single connection-level transaction and is not
+        guarded against. The returned context manager is single-use and must be entered before it
+        is exited; misuse raises ``RuntimeError``. Entering it manually without exiting it leaves
+        the rollback to async-generator finalization at a nondeterministic time — and unlike the
+        sync twin, if the event loop is closed before that finalization runs, the rollback never
+        happens and the nesting guard stays set on this instance; if the surrounding connection
+        context manager exits first, a driver whose connection commits on clean exit (for example
+        psycopg) commits the abandoned block's work before finalization can roll it back. Always
+        use ``async with``.
+        """
+        self._require_capability(AdapterCapability.TRANSACTIONS)
+        return _AsyncTransactionContext(self._transaction_proxy())
+
+    @asynccontextmanager
+    async def _transaction_proxy(self) -> AsyncGenerator[None, None]:
+        if self._in_transaction:
+            raise RuntimeError(
+                "transaction() blocks cannot be nested; a transaction block is already active on this "
+                "CommandsAsync instance"
+            )
+        self._in_transaction = True
+        try:
+            try:
+                yield
+            except BaseException:
+                # the active block error wins over an ordinary rollback failure; a BaseException
+                # that is not an Exception (KeyboardInterrupt, SystemExit, asyncio.CancelledError,
+                # GeneratorExit) is not caught at all and propagates past it — a cancellation
+                # landing inside the rollback await must never be swallowed. Same cleanup policy
+                # as the sync proxy and command-owned cursor cleanup, see _log_discarded_cleanup_error
+                try:
+                    await self.rollback()
+                except Exception as rollback_error:
+                    _log_discarded_cleanup_error(rollback_error)
+                raise
+            else:
+                await self.commit()
+        finally:
+            self._in_transaction = False
 
     def cursor(self, *args, **kwargs) -> "_AwaitableAsyncContextManager[AsyncCursorType, AsyncCursorType]":
         return _AwaitableAsyncContextManager(self.connection.cursor(*args, **kwargs), preserve_active_error=True)

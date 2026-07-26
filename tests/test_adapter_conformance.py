@@ -233,6 +233,17 @@ def test_non_declaring_adapter_is_never_run_against_the_transactions_profile(iso
     assert len(report.results) == len(core_sync_profile().sync_cases)
 
 
+@pytest.mark.asyncio
+async def test_async_non_declaring_adapter_is_never_run_against_the_transactions_profile(isolated_registry):
+    """The async twin of the exclusion proof above."""
+    _register_mock_async()
+    report = await run_core_async(MockAsyncConformanceHarness())
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+    assert MockAsyncConformanceCommands.capabilities == frozenset()
+    assert [result for result in report.results if result.profile_id == "transactions"] == []
+    assert len(report.results) == len(core_async_profile().async_cases)
+
+
 def test_pass_fail_ordering_is_deterministic(isolated_registry):
     _register_mock_sync()
     first = run_core_sync(MockSyncConformanceHarness())
@@ -1463,11 +1474,36 @@ def test_production_capability_catalog_ships_transactions_and_is_immutable():
     assert profile.profile_id == "transactions"
     assert profile.capability is AdapterCapability.TRANSACTIONS
     assert profile.sync_cases, "the transactions profile must ship real sync cases"
-    # async transaction APIs have not landed; async cases arrive with that feature
-    assert profile.async_cases == ()
+    assert profile.async_cases, "the transactions profile must ship real async cases"
     validate_capability_catalog(catalog)
     with pytest.raises(TypeError):
         catalog[AdapterCapability.TRANSACTIONS] = None  # type: ignore[index]
+
+
+def test_sync_case_run_must_not_be_a_coroutine_function():
+    async def _async_body(ctx):
+        return None
+
+    with pytest.raises(ProfileDefinitionError) as exc_info:
+        ConformanceProfile(
+            profile_id="mode-mismatch",
+            capability=None,
+            sync_cases=(SyncCase("mismatch.sync", "d", "instrumented", _async_body),),
+        )
+    assert "must not be a coroutine function" in str(exc_info.value)
+
+
+def test_async_case_run_must_be_a_coroutine_function():
+    def _sync_body(ctx):
+        return None
+
+    with pytest.raises(ProfileDefinitionError) as exc_info:
+        ConformanceProfile(
+            profile_id="mode-mismatch",
+            capability=None,
+            async_cases=(AsyncCase("mismatch.async", "d", "instrumented", _sync_body),),
+        )
+    assert "must be a coroutine function" in str(exc_info.value)
 
 
 def test_zero_case_profile_is_rejected():
@@ -2186,6 +2222,38 @@ def test_recording_connection_injects_commit_and_rollback_faults():
     assert connection.log.kinds() == ("commit", "rollback")
 
 
+@pytest.mark.asyncio
+async def test_recording_async_connection_records_commit_and_rollback():
+    connection = RecordingAsyncConnection()
+    assert connection.commit_calls == 0
+    assert connection.rollback_calls == 0
+
+    await connection.commit()
+    await connection.rollback()
+    await connection.rollback()
+    assert connection.commit_calls == 1
+    assert connection.rollback_calls == 2
+    assert connection.log.kinds() == ("commit", "rollback", "rollback")
+
+
+@pytest.mark.asyncio
+async def test_recording_async_connection_injects_commit_and_rollback_faults():
+    commit_fault = RuntimeError("commit boom")
+    rollback_fault = RuntimeError("rollback boom")
+    connection = RecordingAsyncConnection(commit_error=commit_fault, rollback_error=rollback_fault)
+
+    with pytest.raises(RuntimeError) as commit_info:
+        await connection.commit()
+    assert commit_info.value is commit_fault
+    with pytest.raises(RuntimeError) as rollback_info:
+        await connection.rollback()
+    assert rollback_info.value is rollback_fault
+    # the interaction is recorded even when it fails
+    assert connection.commit_calls == 1
+    assert connection.rollback_calls == 1
+    assert connection.log.kinds() == ("commit", "rollback")
+
+
 # ------------------------------------------------------------------ connect() cleanup tolerance
 
 
@@ -2664,10 +2732,11 @@ async def test_async_declared_capability_without_profile_fails_clearly(isolated_
 
 
 @pytest.mark.asyncio
-async def test_async_transactions_declaration_requires_async_cases(isolated_registry):
-    """Pins the #464 sequencing contract: the production transactions profile is
-    sync-only, so an async class may not declare TRANSACTIONS before the async
-    transaction APIs land with their async case inventory."""
+async def test_async_transactions_declaring_mock_harness_passes(isolated_registry):
+    """A TRANSACTIONS-declaring async adapter passes core conformance plus the production
+    transactions profile's async cases — the service-free live async coverage (MiniDb has
+    snapshot transactionality). The declared-with-no-cases-for-mode branch stays covered
+    capability-agnostically by the RAW_READER tests."""
     name = "conformance-mock-declared-txn-async"
     _register_mock_async(name=name, async_commands=_DeclaredTransactionsAsyncCommands)
 
@@ -2680,10 +2749,11 @@ async def test_async_transactions_declaration_requires_async_cases(isolated_regi
             return _DeclaredTransactionsAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
 
     report = await run_core_async(_Harness())
-    failed_ids = [failure.case_id for failure in report.failures]
-    assert failed_ids == ["capabilities.declared-profile-populated"], failed_ids
-    assert "has no async conformance cases" in report.failures[0].message
-    assert report.failures[0].profile_id == CORE_ASYNC
+    assert report.passed, [(f.case_id, f.message) for f in report.failures]
+    transaction_results = [result for result in report.results if result.profile_id == "transactions"]
+    expected_ids = [case.case_id for case in capability_profiles()[AdapterCapability.TRANSACTIONS].async_cases]
+    assert [result.case_id for result in transaction_results] == expected_ids
+    assert all(result.passed for result in transaction_results)
 
 
 @pytest.mark.asyncio
@@ -2760,6 +2830,16 @@ def test_core_sync_and_async_case_inventories_stay_in_parity():
         f"  documented sync-only ids no longer sync-only: {sorted(DOCUMENTED_SYNC_ONLY_CASE_IDS - sync_only)}\n"
         f"  documented async-only ids no longer async-only: {sorted(DOCUMENTED_ASYNC_ONLY_CASE_IDS - async_only)}"
     )
+
+
+def test_transactions_profile_case_inventories_stay_in_parity():
+    """The core parity guard above covers only the mandatory profiles; the transactions
+    capability profile promises the same nine case ids, order, kinds, and descriptions in
+    both modes."""
+    profile = capability_profiles()[AdapterCapability.TRANSACTIONS]
+    assert [(case.case_id, case.kind, case.description) for case in profile.sync_cases] == [
+        (case.case_id, case.kind, case.description) for case in profile.async_cases
+    ]
 
 
 # ------------------------------------------------------------------ case_ids filtering

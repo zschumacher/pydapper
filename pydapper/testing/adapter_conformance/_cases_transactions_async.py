@@ -18,6 +18,8 @@ from typing import Tuple
 from pydapper.commands import CommandsAsync
 
 from ._cases_transactions import _TX_ROW
+from ._cases_transactions import _InjectedTransactionCleanupFault
+from ._cases_transactions import _InjectedTransactionFault
 from ._cases_transactions import _InjectedTransactionInterrupt
 from ._checks import AsyncCaseContext
 from ._profiles import AsyncCase
@@ -36,14 +38,6 @@ def _case(case_id: str, description: str, kind: str) -> Callable[[Callable], Cal
 def transactions_async_cases() -> Tuple[AsyncCase, ...]:
     """Return the full, ordered, immutable async ``transactions`` case inventory."""
     return _FROZEN_CASES
-
-
-class _InjectedTransactionFault(Exception):
-    """Framework-injected failure raised inside a transaction block."""
-
-
-class _InjectedTransactionCleanupFault(Exception):
-    """Framework-injected connection commit/rollback failure."""
 
 
 async def _row_count(ctx: AsyncCaseContext, commands: CommandsAsync, row_id: int) -> int:
@@ -198,7 +192,8 @@ async def _transactions_context_lifecycle(ctx: AsyncCaseContext) -> None:
 
 @_case(
     "transactions.context-error-precedence",
-    "A transaction() block rolls back on error, re-raises it, and the error wins over a rollback failure",
+    "A transaction() block rolls back on error, re-raises it, the error wins over a rollback failure, "
+    "and a failed rollback never becomes a commit",
     "instrumented",
 )
 async def _transactions_context_error_precedence(ctx: AsyncCaseContext) -> None:
@@ -222,6 +217,8 @@ async def _transactions_context_error_precedence(ctx: AsyncCaseContext) -> None:
             raise fault
     ctx.check(caught_again.exception is fault, "the block's exception must win over a rollback failure")
     ctx.check(failing.rollback_calls == 1, f"expected exactly one rollback attempt, saw {failing.rollback_calls}")
+    # losing the rollback must not silently become durability: the caller's work was discarded
+    ctx.check(failing.commit_calls == 0, "a block whose rollback failed must not commit")
 
 
 @_case(

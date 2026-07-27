@@ -84,7 +84,11 @@ The exact semantics, identical in both modes:
   inside the driver's rollback is worse than reporting it.
 * **Blocks cannot be nested on the same command instance.** Re-entry raises `RuntimeError`, which rolls the
   outer block back like any other error, and the guard clears on exit so the next block on the same instance
-  works normally. The guard is per `Commands`/`CommandsAsync` instance, not per connection: a second instance
+  works normally. The same guard rejects *concurrent* entry from another asyncio task sharing the instance
+  (the check and the set happen with no `await` between them), and the `RuntimeError` surfaces in that task
+  while the open block is untouched. The flag is unsynchronized — it is not a thread-safety mechanism — so
+  do not share a command instance across threads or any other concurrent work.
+  The guard is per `Commands`/`CommandsAsync` instance, not per connection: a second instance
   over the same connection (for example from a second `using()`/`using_async()` call) shares the same single
   connection-level transaction, and a `transaction()` block on one instance is not protected against
   `commit()`/`rollback()`/`transaction()` calls made through another. Use one command instance per connection

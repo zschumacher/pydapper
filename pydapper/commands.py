@@ -473,7 +473,10 @@ class Commands(BaseCommands, ABC):
         shares the same single connection-level transaction and is not guarded against. The
         returned context manager is single-use and must be entered before it is exited; misuse
         raises ``RuntimeError``. Entering it manually without exiting it leaves the rollback to
-        generator finalization at a nondeterministic time; always use ``with``.
+        generator finalization at a nondeterministic time, and if the surrounding connection
+        context manager exits first, a driver whose connection commits on clean exit (``sqlite3``,
+        ``psycopg2``, ``psycopg``) makes the abandoned block's work durable before finalization can
+        roll it back. Always use ``with``.
         """
         self._require_capability(AdapterCapability.TRANSACTIONS)
         return _TransactionContext(self._transaction_proxy())
@@ -482,8 +485,8 @@ class Commands(BaseCommands, ABC):
     def _transaction_proxy(self) -> Generator[None, None, None]:
         if self._in_transaction:
             raise RuntimeError(
-                "transaction() blocks cannot be nested; a transaction block is already active on this "
-                "Commands instance"
+                "transaction() blocks cannot be nested or entered concurrently; a transaction block is "
+                "already active on this Commands instance"
             )
         self._in_transaction = True
         try:
@@ -1920,12 +1923,12 @@ class CommandsAsync(BaseCommands, ABC):
         ``using_async()`` call) shares the same single connection-level transaction and is not
         guarded against. The returned context manager is single-use and must be entered before it
         is exited; misuse raises ``RuntimeError``. Entering it manually without exiting it leaves
-        the rollback to async-generator finalization at a nondeterministic time — and unlike the
-        sync twin, if the event loop is closed before that finalization runs, the rollback never
-        happens and the nesting guard stays set on this instance; if the surrounding connection
-        context manager exits first, a driver whose connection commits on clean exit (for example
-        psycopg) commits the abandoned block's work before finalization can roll it back. Always
-        use ``async with``.
+        the rollback to async-generator finalization at a nondeterministic time, and if the
+        surrounding connection context manager exits first, a driver whose connection commits on
+        clean exit (for example ``psycopg``) commits the abandoned block's work before finalization
+        can roll it back. Unlike the sync twin, if the event loop is closed before that
+        finalization runs, the rollback never happens and the nesting guard stays set on this
+        instance. Always use ``async with``.
         """
         self._require_capability(AdapterCapability.TRANSACTIONS)
         return _AsyncTransactionContext(self._transaction_proxy())
@@ -1934,8 +1937,8 @@ class CommandsAsync(BaseCommands, ABC):
     async def _transaction_proxy(self) -> AsyncGenerator[None, None]:
         if self._in_transaction:
             raise RuntimeError(
-                "transaction() blocks cannot be nested; a transaction block is already active on this "
-                "CommandsAsync instance"
+                "transaction() blocks cannot be nested or entered concurrently; a transaction block is "
+                "already active on this CommandsAsync instance"
             )
         self._in_transaction = True
         try:

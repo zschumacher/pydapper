@@ -81,7 +81,7 @@ scenarios start from a durable, transaction-free state even when a harness seeds
 | `transactions.commit-delegates-once` | instrumented | one connection `commit`, no cursor acquired, returns `None`, failures propagate unchanged |
 | `transactions.rollback-delegates-once` | instrumented | one connection `rollback`, no cursor acquired, returns `None`, failures propagate unchanged |
 | `transactions.context-lifecycle-order` | instrumented | the block's commit comes after the command's full cursor lifecycle |
-| `transactions.context-error-precedence` | instrumented | rollback on error, and the block's error wins over a rollback failure |
+| `transactions.context-error-precedence` | instrumented | rollback on error, the block's error wins over a rollback failure, and a failed rollback never commits |
 | `transactions.commit-failure-propagates` | instrumented | a failed exit commit propagates unchanged with no rollback attempt |
 | `transactions.context-base-exception-rollback` | instrumented | a `BaseException` that is not an `Exception` rolls back and propagates unchanged too, and an interrupt raised by the rollback itself wins over the block's ordinary error, which survives as its `__context__` |
 | `transactions.context-not-reentrant` | instrumented | nesting blocks on one instance raises `RuntimeError` (rolling the outer block back), and the guard clears so the next sequential block still commits |

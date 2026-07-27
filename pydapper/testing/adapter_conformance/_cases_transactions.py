@@ -216,7 +216,8 @@ def _transactions_context_lifecycle(ctx: SyncCaseContext) -> None:
 
 @_case(
     "transactions.context-error-precedence",
-    "A transaction() block rolls back on error, re-raises it, and the error wins over a rollback failure",
+    "A transaction() block rolls back on error, re-raises it, the error wins over a rollback failure, "
+    "and a failed rollback never becomes a commit",
     "instrumented",
 )
 def _transactions_context_error_precedence(ctx: SyncCaseContext) -> None:
@@ -240,6 +241,8 @@ def _transactions_context_error_precedence(ctx: SyncCaseContext) -> None:
             raise fault
     ctx.check(caught_again.exception is fault, "the block's exception must win over a rollback failure")
     ctx.check(failing.rollback_calls == 1, f"expected exactly one rollback attempt, saw {failing.rollback_calls}")
+    # losing the rollback must not silently become durability: the caller's work was discarded
+    ctx.check(failing.commit_calls == 0, "a block whose rollback failed must not commit")
 
 
 @_case(

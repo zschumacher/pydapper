@@ -5880,17 +5880,31 @@ class TestTransactions:
         assert connection.rollbacks == 1
         assert connection.commits == 0
 
-    def test_block_error_wins_over_a_rollback_failure(self, connection):
+    def test_block_error_wins_over_a_rollback_failure(self, connection, caplog):
         class RollbackFailingCommands(MockCommands):
             capabilities = frozenset({AdapterCapability.TRANSACTIONS})
 
         commands = RollbackFailingCommands(connection)
-        connection.rollback = lambda: (_ for _ in ()).throw(RuntimeError("rollback boom"))
+        rollback_error = RuntimeError("rollback boom")
+
+        def failing_rollback():
+            raise rollback_error
+
+        connection.rollback = failing_rollback
         error = _TransactionBlockError("boom")
-        with pytest.raises(_TransactionBlockError) as exc_info:
-            with commands.transaction():
-                raise error
+        with caplog.at_level(logging.DEBUG, logger="pydapper._context"):
+            with pytest.raises(_TransactionBlockError) as exc_info:
+                with commands.transaction():
+                    raise error
         assert exc_info.value is error
+        # losing the rollback must not silently become durability
+        assert connection.commits == 0
+        # the discarded rollback failure is never chained, so the debug record is its only trace
+        records = _debug_records(caplog)
+        assert [record.getMessage() for record in records] == [
+            "Discarding RuntimeError raised while cleaning up a pydapper-owned resource"
+        ]
+        assert records[0].exc_info[1] is rollback_error
 
     def test_an_interrupt_raised_during_rollback_is_not_swallowed(self, connection):
         """A Ctrl-C landing inside the driver's rollback must not be lost.
@@ -5959,12 +5973,19 @@ class TestTransactions:
         assert connection.commits == 1
         assert connection.rollbacks == 1
 
-    def test_two_unentered_context_managers_cannot_both_enter(self, commands):
+    def test_two_unentered_context_managers_cannot_both_enter(self, commands, connection):
         first = commands.transaction()
         second = commands.transaction()
         with first:
             with pytest.raises(RuntimeError, match="cannot be nested"):
                 second.__enter__()
+            # the rejection must not clear the guard the open block owns — it would if the
+            # nesting check sat inside the try/finally that resets the flag
+            with pytest.raises(RuntimeError, match="cannot be nested"):
+                commands.transaction().__enter__()
+        # the rejections left the open block untouched: it still commits exactly once on exit
+        assert connection.commits == 1
+        assert connection.rollbacks == 0
 
     def test_exiting_a_never_entered_context_manager_raises_without_touching_state(self, commands, connection):
         # e.g. an ExitStack.push(...) where enter_context(...) was intended
@@ -6085,16 +6106,27 @@ class TestTransactionsAsync:
         assert connection.commits == 0
 
     @pytest.mark.asyncio
-    async def test_block_error_wins_over_a_rollback_failure(self, commands, connection):
+    async def test_block_error_wins_over_a_rollback_failure(self, commands, connection, caplog):
+        rollback_error = RuntimeError("rollback boom")
+
         async def failing_rollback():
-            raise RuntimeError("rollback boom")
+            raise rollback_error
 
         connection.rollback = failing_rollback
         error = _TransactionBlockError("boom")
-        with pytest.raises(_TransactionBlockError) as exc_info:
-            async with commands.transaction():
-                raise error
+        with caplog.at_level(logging.DEBUG, logger="pydapper._context"):
+            with pytest.raises(_TransactionBlockError) as exc_info:
+                async with commands.transaction():
+                    raise error
         assert exc_info.value is error
+        # losing the rollback must not silently become durability
+        assert connection.commits == 0
+        # the discarded rollback failure is never chained, so the debug record is its only trace
+        records = _debug_records(caplog)
+        assert [record.getMessage() for record in records] == [
+            "Discarding RuntimeError raised while cleaning up a pydapper-owned resource"
+        ]
+        assert records[0].exc_info[1] is rollback_error
 
     @pytest.mark.asyncio
     async def test_an_interrupt_raised_during_rollback_is_not_swallowed(self, commands, connection):
@@ -6186,12 +6218,19 @@ class TestTransactionsAsync:
         assert connection.rollbacks == 1
 
     @pytest.mark.asyncio
-    async def test_two_unentered_context_managers_cannot_both_enter(self, commands):
+    async def test_two_unentered_context_managers_cannot_both_enter(self, commands, connection):
         first = commands.transaction()
         second = commands.transaction()
         async with first:
             with pytest.raises(RuntimeError, match="cannot be nested"):
                 await second.__aenter__()
+            # the rejection must not clear the guard the open block owns — it would if the
+            # nesting check sat inside the try/finally that resets the flag
+            with pytest.raises(RuntimeError, match="cannot be nested"):
+                await commands.transaction().__aenter__()
+        # the rejections left the open block untouched: it still commits exactly once on exit
+        assert connection.commits == 1
+        assert connection.rollbacks == 0
 
     @pytest.mark.asyncio
     async def test_exiting_a_never_entered_context_manager_raises_without_touching_state(self, commands, connection):

@@ -145,6 +145,7 @@ def test_psycopg2_core_sync_conformance(server, db_port, database_name):
     assert harness.command_class is entry.command_class
     report = run_core_sync(harness)
     report.raise_for_failures()
+    assert report.covers_full_inventory
     # profile planning is declaration-driven: prove the live run actually included it
     assert any(result.profile_id == "transactions" for result in report.results)
 
@@ -156,6 +157,7 @@ def test_psycopg3_core_sync_conformance(server, db_port, database_name):
     assert harness.command_class is entry.command_class
     report = run_core_sync(harness)
     report.raise_for_failures()
+    assert report.covers_full_inventory
     assert any(result.profile_id == "transactions" for result in report.results)
 
 
@@ -167,6 +169,7 @@ async def test_psycopg3_core_async_conformance(server, db_port, database_name):
     assert harness.command_class is entry.command_class
     report = await run_core_async(harness)
     report.raise_for_failures()
+    assert report.covers_full_inventory
     assert any(result.profile_id == "transactions" for result in report.results)
 
 
@@ -178,3 +181,4 @@ async def test_aiopg_core_async_conformance(server, db_port, database_name):
     assert harness.command_class is entry.command_class
     report = await run_core_async(harness)
     report.raise_for_failures()
+    assert report.covers_full_inventory

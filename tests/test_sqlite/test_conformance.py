@@ -14,5 +14,6 @@ def test_core_sync_conformance(tmp_path):
     assert harness.command_class is entry.command_class
     report = run_core_sync(harness)
     report.raise_for_failures()
+    assert report.covers_full_inventory
     # profile planning is declaration-driven: prove the live run actually included it
     assert any(result.profile_id == "transactions" for result in report.results)

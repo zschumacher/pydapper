@@ -1,5 +1,23 @@
 ## Latest Changes
 
+* fix: close three block-exit gaps in the `transactions` conformance profile found by an adversarial
+  sweep of the milestone. Each was confirmed by mutating the runtime and watching the suite stay
+  green. The profile now asserts that a block whose rollback *failed* does not then commit — losing
+  the rollback must not silently become durability — and the mutant table pins that the block's exit
+  routes through the adapter's own `commit()`/`rollback()` rather than straight to the connection, so
+  an adapter override is honored there too. No runtime behavior changed, and every first-party
+  adapter still passes both modes.
+  The nesting `RuntimeError` now reads "cannot be nested or entered concurrently", because
+  the per-instance guard also rejects a second asyncio task sharing the instance — it is not a
+  synchronization primitive, and [Transactions](transactions.md) now says so rather than implying
+  thread safety. The sync `transaction()` docstring gained the abandoned-block hazard its async twin
+  already documented (a driver that commits on connection-context-manager exit makes the abandoned
+  work durable before generator finalization can roll it back), and the async twin's "unlike the sync
+  twin" now scopes only to the closed-event-loop clause it actually describes. Docs fixes: the `#465`
+  release-notes paragraph was truncated mid-sentence by a merge and is restored, the `execute` /
+  `execute_async` pages now warn that neither commits and link the per-driver table (closing the
+  funnel behind [#68](https://github.com/zschumacher/pydapper/issues/68)), and the aiopg section
+  states its connection-context-manager exit behavior like every other driver page.
 * docs: document and test per-driver transaction behavior. PR [#581](https://github.com/zschumacher/pydapper/pull/581) by [@zschumacher](https://github.com/zschumacher).
 * v1: every database-support page now documents its driver's transaction behavior in a dedicated
   Transactions section — the autocommit default, exactly what exiting `with pydapper.connect(...)` does for
@@ -16,6 +34,8 @@
   and implicit-commit claims are pinned by new live tests under each backend's marker, the
   [Transactions](transactions.md) page gained a per-driver summary table, the conformance matrix
   driver-limits cells carry the same facts, and the sqlite, mysql, pymssql, and oracledb live conformance
+  runs gained the transactions-profile inclusion assert the postgres runs already had — all six declaring
+  adapters now prove the profile actually ran.
 * test: make the transactions conformance profile defend itself. PR [#580](https://github.com/zschumacher/pydapper/pull/580) by [@zschumacher](https://github.com/zschumacher).
 * feat: add async commit, rollback, and transaction APIs. PR [#579](https://github.com/zschumacher/pydapper/pull/579) by [@zschumacher](https://github.com/zschumacher).
 * v1: `CommandsAsync` now exposes the async transaction APIs — `commit()`, `rollback()`, and a

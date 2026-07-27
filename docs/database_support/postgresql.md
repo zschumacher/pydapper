@@ -198,6 +198,9 @@ executes, and there is no connection-level transaction to manage:
   `rollback()`, and `transaction()` raise `UnsupportedFeatureError` before the connection is touched.
 * The driver's own connection-level `commit()`/`rollback()` raise `psycopg2.ProgrammingError` ("cannot be
   used in asynchronous mode").
+* Exiting `async with pydapper.connect_async(...)` **closes** the connection and nothing else — in autocommit
+  mode there is no pydapper-managed transaction for it to commit or roll back (a transaction you open
+  yourself with an explicit `BEGIN` is simply discarded by that close).
 * aiopg ships its own SQL-emitting `Transaction` helper (`BEGIN`/`COMMIT` through a cursor); pydapper does
   not use it. If you need real async transactions on PostgreSQL, use the `psycopg` driver
   ([above](#psycopg3-transactions)) instead.

@@ -1603,6 +1603,21 @@ class _CommitsAfterRollbackOnErrorCommands(_ProxyMutantCommands):
         self.commit()
 
 
+class _CommitsAfterFailedRollbackCommands(_ProxyMutantCommands):
+    """A block that answers a *failed* rollback by committing the work it was told to discard.
+
+    Distinct from :class:`_CommitsAfterRollbackOnErrorCommands`, which commits after every error:
+    this one is well-behaved whenever the rollback succeeds, so only the rollback-failing half of
+    ``transactions.context-error-precedence`` can catch it.
+    """
+
+    def _on_error(self, error: BaseException) -> None:
+        try:
+            self.rollback()
+        except Exception:
+            self.commit()
+
+
 class _TranslatesRollbackFailureCommands(_ProxyMutantCommands):
     """A rollback failure replaces the block's error with a copy of it."""
 
@@ -1880,6 +1895,20 @@ class _AsyncProxyMutantCommands(_AsyncTransactionMutantBase):
                 self._in_transaction = False
 
 
+class _AsyncNoOpCommitCommands(_AsyncTransactionMutantBase):
+    """commit() never reaches the connection."""
+
+    async def commit(self) -> None:
+        pass
+
+
+class _AsyncNoOpRollbackCommands(_AsyncTransactionMutantBase):
+    """rollback() never reaches the connection."""
+
+    async def rollback(self) -> None:
+        pass
+
+
 class _AsyncNoCommitOnExitCommands(_AsyncProxyMutantCommands):
     """A block that forgets to commit on clean exit."""
 
@@ -1916,6 +1945,16 @@ class _AsyncCommitsAfterRollbackOnErrorCommands(_AsyncProxyMutantCommands):
     async def _on_error(self, error: BaseException) -> None:
         await super()._on_error(error)
         await self.commit()
+
+
+class _AsyncCommitsAfterFailedRollbackCommands(_AsyncProxyMutantCommands):
+    """The async twin of :class:`_CommitsAfterFailedRollbackCommands`; see its rationale."""
+
+    async def _on_error(self, error: BaseException) -> None:
+        try:
+            await self.rollback()
+        except Exception:
+            await self.commit()
 
 
 class _AsyncRollsBackOnlyOrdinaryErrorsCommands(_AsyncProxyMutantCommands):
@@ -2063,9 +2102,10 @@ class _TransactionMutant(NamedTuple):
     commands: type
     #: the async twin of ``commands``: the same defect expressed against ``async with
     #: commands.transaction():``, pinning the same assertion of the same case in the async
-    #: inventory. Every row of the two cases this change adds carries one; the nine cases
-    #: inherited from #579 are pinned through their sync twins only, and mirroring the rest of
-    #: the table into async mode is the natural follow-up.
+    #: inventory. Carried by every row of ``context-base-exception-rollback`` and
+    #: ``context-not-reentrant``, plus the rows pinning block-exit routing and the commit after a
+    #: failed rollback; the remaining rows inherited from #579 are pinned through their sync twins
+    #: only, and mirroring the rest of the table into async mode is the natural follow-up.
     async_commands: Optional[type] = None
 
 
@@ -2111,6 +2151,18 @@ _TRANSACTION_MUTANTS = (
         fragment="a clean transaction() exit must commit",
         commands=_NoCommitOnExitCommands,
     ),
+    # the two block-exit-bypasses-adapter-* rows (this one and its rollback twin under
+    # context-rolls-back-on-error) pin the block exit's *routing*: the proxy commits through the
+    # adapter's own commit()/rollback(), so an adapter override is honored there too. Without them,
+    # changing the proxy to call self.connection.commit()/rollback() directly is invisible.
+    _TransactionMutant(
+        slug="block-exit-bypasses-adapter-commit",
+        case_id="transactions.context-commits-on-exit",
+        assertion="the exit commit goes through the adapter's own commit()",
+        fragment="a clean transaction() exit must commit",
+        commands=_NoOpCommitCommands,
+        async_commands=_AsyncNoOpCommitCommands,
+    ),
     _TransactionMutant(
         slug="block-re-raises-a-copy",
         case_id="transactions.context-rolls-back-on-error",
@@ -2124,6 +2176,14 @@ _TRANSACTION_MUTANTS = (
         assertion="a raising block undoes its write",
         fragment="must roll its insert back",
         commands=_NeverRollsBackCommands,
+    ),
+    _TransactionMutant(
+        slug="block-exit-bypasses-adapter-rollback",
+        case_id="transactions.context-rolls-back-on-error",
+        assertion="the error rollback goes through the adapter's own rollback()",
+        fragment="must roll its insert back",
+        commands=_NoOpRollbackCommands,
+        async_commands=_AsyncNoOpRollbackCommands,
     ),
     _TransactionMutant(
         slug="block-swallows-the-error",
@@ -2299,6 +2359,14 @@ _TRANSACTION_MUTANTS = (
         assertion="exactly one rollback attempt on failure",
         fragment="expected exactly one rollback attempt",
         commands=_RetriesRollbackOnFailureCommands,
+    ),
+    _TransactionMutant(
+        slug="failed-rollback-commits-the-block",
+        case_id="transactions.context-error-precedence",
+        assertion="a block whose rollback failed never commits",
+        fragment="a block whose rollback failed must not commit",
+        commands=_CommitsAfterFailedRollbackCommands,
+        async_commands=_AsyncCommitsAfterFailedRollbackCommands,
     ),
     _TransactionMutant(
         slug="block-swallows-the-error-instrumented",
@@ -2618,13 +2686,16 @@ def test_every_transactions_case_is_pinned_by_a_mutant():
     """No case may ship without a mutant proving at least one of its assertions bites."""
     pinned = {mutant.case_id for mutant in _TRANSACTION_MUTANTS}
     assert pinned == set(TRANSACTION_CASE_IDS)
-    # the async half of the table pins the two cases this change adds, so neither async twin can
-    # be gutted without a red row; the rest of the async inventory (#579) is pinned through its
-    # sync twins only, and mirroring the remaining rows is the natural follow-up
+    # these cases are pinned in async mode too, so neither async twin can be gutted without a red
+    # row; the rest of the async inventory (#579) is pinned through its sync twins only, and
+    # mirroring the remaining rows is the natural follow-up
     async_pinned = {mutant.case_id for mutant in _ASYNC_TRANSACTION_MUTANTS}
     assert async_pinned >= {
         "transactions.context-base-exception-rollback",
         "transactions.context-not-reentrant",
+        "transactions.context-commits-on-exit",
+        "transactions.context-rolls-back-on-error",
+        "transactions.context-error-precedence",
     }, sorted(async_pinned)
 
 

@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* fix: close block-exit gaps in the transactions conformance profile. PR [#582](https://github.com/zschumacher/pydapper/pull/582) by [@zschumacher](https://github.com/zschumacher).
 * fix: close three block-exit gaps in the `transactions` conformance profile found by an adversarial
   sweep of the milestone. Each was confirmed by mutating the runtime and watching the suite stay
   green. The profile now asserts that a block whose rollback *failed* does not then commit — losing

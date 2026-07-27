@@ -23,8 +23,19 @@ def scratch_table():
 def _admin_conn(server, db_port, database_name):
     from pymssql import _pymssql
 
+    # an explicit query timeout guards the counts below: if a regression left the work
+    # connection's transaction open (e.g. autocommit(True) no longer rolling back), a count
+    # through this connection would sit behind the insert's X lock forever on pymssql's default
+    # timeout=0, stalling the whole mssql job instead of failing the test. pymssql routes
+    # timeout= to FreeTDS dbsettime(), which is process-global — this caps every pymssql query
+    # in the run, not just this connection's.
     conn = _pymssql.connect(
-        server=server, port=str(db_port), password="pydapper!PYDAPPER", user="sa", database=database_name
+        server=server,
+        port=str(db_port),
+        password="pydapper!PYDAPPER",
+        user="sa",
+        database=database_name,
+        timeout=15,
     )
     conn.autocommit(True)
     try:

@@ -1,5 +1,4 @@
 import sqlite3
-from sqlite3 import Cursor
 from typing import TYPE_CHECKING
 from typing import ClassVar
 

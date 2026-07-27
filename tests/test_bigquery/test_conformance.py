@@ -65,4 +65,6 @@ def test_google_core_sync_conformance(client):
     harness = _BigQueryConformanceHarness(client)
     assert harness.adapter_name == entry.adapter_name
     assert harness.command_class is entry.command_class
-    run_core_sync(harness).raise_for_failures()
+    report = run_core_sync(harness)
+    report.raise_for_failures()
+    assert report.covers_full_inventory

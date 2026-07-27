@@ -2,6 +2,14 @@
 `execute` can execute a command one or multiple times and return the number of affected rows. This method is usually used
 to execute insert, update or delete operations.
 
+!!! warning "`execute` does not commit"
+    A non-zero return value means the statement affected that many rows, not that the write is durable.
+    Whether the examples below persist depends entirely on your driver: `sqlite3`, `psycopg2`, and `psycopg`
+    commit when the `connect(...)` block exits, but `pymssql` and `oracledb` roll uncommitted work back and
+    `mysql-connector-python` discards it; BigQuery has no connection-level transaction at all, so every
+    statement is already durable. See [Transactions](../transactions.md) for the per-driver table
+    and for `commit()` / `transaction()`.
+
 ## Parameters
 All command methods also accept keyword-only `options=`; see [Command options](../command_options.md).
 

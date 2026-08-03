@@ -12,6 +12,8 @@ import pytest
 import pydapper
 from pydapper import RawRow
 from pydapper._context import _AwaitableAsyncContextManager
+from pydapper._sql_placeholders import find_statement_separator
+from pydapper._sql_placeholders import scan_placeholder_spans
 from pydapper.bigquery import GoogleBigqueryClientCommands
 from pydapper.capabilities import AdapterCapability
 from pydapper.command_options import CommandKind
@@ -19,11 +21,14 @@ from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
 from pydapper.exceptions import MoreThanOneResultException
+from pydapper.exceptions import MultipleStatementsError
 from pydapper.exceptions import NoResultException
 from pydapper.exceptions import PyDapperException
 from pydapper.exceptions import RowMappingException
 from pydapper.exceptions import UnsupportedFeatureError
 from pydapper.postgresql import AiopgCommands
+from pydapper.testing.adapter_conformance._instrumentation import RecordingAsyncConnection
+from pydapper.testing.adapter_conformance._instrumentation import RecordingConnection
 from tests.mocks import MockAsyncCommands
 from tests.mocks import MockAsyncConnection
 from tests.mocks import MockAsyncCursor
@@ -6255,3 +6260,377 @@ class TestTransactionsAsync:
             async with cm:
                 pass  # pragma: no cover
         assert connection.commits == 1
+
+
+MULTI_STATEMENT_SQL = "select 1 as a; select 2 as b"
+MULTI_STATEMENT_SEPARATOR_INDEX = 13
+
+# every string the separator scanner is pinned against, reused by the placeholder-drift assertion
+_SINGLE_STATEMENT_CORPUS = (
+    "select 1",
+    "select 1;",
+    "select 1;   ",
+    "select 1; -- trailing",
+    "select 1; /* trailing */",
+    "select 1;\n\t ",
+    "select 1; /* a */ -- b",
+    "select ';' as a",
+    'select ";" as a',
+    "select 'it''s ; here' as a",
+    'select "a "" ; b" as a',
+    "select 1 as a -- ; drop table t",
+    "select 1 as a /* ; drop table t */",
+)
+
+_MULTI_STATEMENT_CORPUS = (
+    (MULTI_STATEMENT_SQL, MULTI_STATEMENT_SEPARATOR_INDEX),
+    ("select 1; select 2", 8),
+    ("select 1;;", 8),
+    ("; select 1", 0),
+    ("select 1 /* c */ ; select 2", 17),
+    ("select 1; -- a\nselect 2", 8),
+    ("select 1; /* a */ select 2", 8),
+)
+
+
+class TestFindStatementSeparator:
+    @pytest.mark.parametrize("sql", _SINGLE_STATEMENT_CORPUS)
+    def test_one_statement_has_no_separator(self, sql):
+        assert find_statement_separator(sql) is None
+
+    @pytest.mark.parametrize(("sql", "expected"), _MULTI_STATEMENT_CORPUS)
+    def test_returns_the_index_of_the_first_offending_separator(self, sql, expected):
+        assert find_statement_separator(sql) == expected
+        assert sql[expected] == ";"
+
+    @pytest.mark.parametrize("char", [" ", "\t", "\n", "\r", "\f"])
+    def test_real_sql_whitespace_after_a_trailing_semicolon_is_accepted(self, char):
+        assert find_statement_separator(f"select 1 as a;{char}") is None
+
+    @pytest.mark.parametrize(
+        "char",
+        ["\v", "\x1c", "\x1d", "\x1e", "\x1f", "\x85", "\xa0", " ", " ", " ", " ", "　"],
+    )
+    def test_unicode_whitespace_after_a_trailing_semicolon_is_not_whitespace(self, char):
+        """``str.isspace()`` is far wider than SQL whitespace and using it let a statement through.
+
+        SQLite treats every one of these as the start of a second statement and raises
+        ``sqlite3.Warning`` -- which is not a ``sqlite3.Error`` -- so scanning them as trailing
+        whitespace reintroduced the exact bug this guard exists to eliminate.
+        """
+        assert char.isspace()
+        assert find_statement_separator(f"select 1 as a;{char}") == 13
+
+    def test_no_isspace_character_is_treated_as_trailing_whitespace_unless_sqlite_agrees(self):
+        # exhaustive over Unicode: the guard must never accept a trailer sqlite3 rejects
+        import sqlite3
+
+        for code_point in range(0x110000):
+            char = chr(code_point)
+            if not char.isspace():
+                continue
+            sql = f"select 1 as a;{char}"
+            connection = sqlite3.connect(":memory:")
+            try:
+                connection.execute(sql)
+            except BaseException:
+                assert find_statement_separator(sql) == 13, f"U+{code_point:04X} must not count as whitespace"
+            else:
+                assert find_statement_separator(sql) is None, f"U+{code_point:04X} must count as whitespace"
+            finally:
+                connection.close()
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            r"select 'a\'; drop table t",
+            r'select "a\"; drop table t',
+            r"select 'it\'s ; here' as a",
+        ],
+    )
+    def test_backslash_before_a_quote_is_a_known_false_negative(self, sql):
+        """KNOWN DEFECT, tracked in #590 -- this pins current behavior, not correct behavior.
+
+        ``_skip_quoted_sql_text`` treats ``\\`` as a string escape unconditionally. That is MySQL
+        semantics; PostgreSQL (``standard_conforming_strings=on``, the default since 9.1), SQLite,
+        Oracle, and T-SQL all treat it as an ordinary character, so ``'a\\'`` is a *complete* literal
+        and the following ``;`` really does start a second statement. The scanner instead runs to
+        end-of-string inside a literal that already closed and reports nothing.
+
+        Verified live: this shape drops a real table through ``query()`` on psycopg2. It is the
+        headline defect of #590; when that lands, this test flips to asserting an index.
+        """
+        assert find_statement_separator(sql) is None
+
+    @pytest.mark.parametrize("sql", ["select ';", 'select ";', "select 1 /* ;", "select 1 --;"])
+    def test_unterminated_quotes_and_comments_swallow_the_separator(self, sql):
+        # the placeholder scanner runs to end-of-string on these too; the two must not diverge
+        assert find_statement_separator(sql) is None
+
+    @pytest.mark.parametrize("sql", _SINGLE_STATEMENT_CORPUS + tuple(s for s, _ in _MULTI_STATEMENT_CORPUS))
+    def test_the_separator_corpus_holds_no_placeholders(self, sql):
+        assert scan_placeholder_spans(sql) == ()
+
+    @pytest.mark.parametrize(
+        ("sql", "expected_spans"),
+        [
+            ("select ?id?;", ((7, 11, "id"),)),
+            ("select ?id?; select ?name?", ((7, 11, "id"), (20, 26, "name"))),
+            ("select '?ignored?' as a; select ?id?", ((32, 36, "id"),)),
+            ("select ?id? -- ; ?ignored?", ((7, 11, "id"),)),
+        ],
+    )
+    def test_placeholder_scanning_is_unchanged_around_separators(self, sql, expected_spans):
+        # the guard is a sibling of scan_placeholder_spans; they share helpers, not behavior
+        assert scan_placeholder_spans(sql) == expected_spans
+
+
+def _sync_entry_points(commands, sql):
+    return {
+        "execute": lambda: commands.execute(sql),
+        "execute_list_params": lambda: commands.execute(sql, params=[{"id": 1}]),
+        "execute_empty_list_params": lambda: commands.execute(sql, params=[]),
+        "query_buffered": lambda: commands.query(sql),
+        "query_unbuffered": lambda: commands.query(sql, buffered=False),
+        "query_first": lambda: commands.query_first(sql),
+        "query_first_or_default": lambda: commands.query_first_or_default(sql, None),
+        "query_single": lambda: commands.query_single(sql),
+        "query_single_or_default": lambda: commands.query_single_or_default(sql, None),
+        "execute_scalar": lambda: commands.execute_scalar(sql),
+        "query_multiple": lambda: commands.query_multiple((sql,)),
+    }
+
+
+def _async_entry_points(commands, sql):
+    return {
+        "execute_async": lambda: commands.execute_async(sql),
+        "execute_async_list_params": lambda: commands.execute_async(sql, params=[{"id": 1}]),
+        "execute_async_empty_list_params": lambda: commands.execute_async(sql, params=[]),
+        "query_async_buffered": lambda: commands.query_async(sql),
+        "query_async_unbuffered": lambda: commands.query_async(sql, buffered=False),
+        "query_first_async": lambda: commands.query_first_async(sql),
+        "query_first_or_default_async": lambda: commands.query_first_or_default_async(sql, None),
+        "query_single_async": lambda: commands.query_single_async(sql),
+        "query_single_or_default_async": lambda: commands.query_single_or_default_async(sql, None),
+        "execute_scalar_async": lambda: commands.execute_scalar_async(sql),
+        "query_multiple_async": lambda: commands.query_multiple_async((sql,)),
+    }
+
+
+# Pinned literally rather than derived from the dicts above: deriving the parametrize list from the
+# very table under test means deleting an entry point silently shrinks the sweep instead of failing.
+SYNC_ENTRY_POINTS = (
+    "execute",
+    "execute_list_params",
+    "execute_empty_list_params",
+    "query_buffered",
+    "query_unbuffered",
+    "query_first",
+    "query_first_or_default",
+    "query_single",
+    "query_single_or_default",
+    "execute_scalar",
+    "query_multiple",
+)
+
+ASYNC_ENTRY_POINTS = (
+    "execute_async",
+    "execute_async_list_params",
+    "execute_async_empty_list_params",
+    "query_async_buffered",
+    "query_async_unbuffered",
+    "query_first_async",
+    "query_first_or_default_async",
+    "query_single_async",
+    "query_single_or_default_async",
+    "execute_scalar_async",
+    "query_multiple_async",
+)
+
+
+def test_the_entry_point_sweeps_cover_exactly_the_pinned_methods():
+    assert tuple(_sync_entry_points(None, "").keys()) == SYNC_ENTRY_POINTS
+    assert tuple(_async_entry_points(None, "").keys()) == ASYNC_ENTRY_POINTS
+
+
+class TestMultipleStatementsError:
+    def test_is_a_pydapper_exception_but_not_a_capability_gap(self):
+        error = MultipleStatementsError(MULTI_STATEMENT_SQL, MULTI_STATEMENT_SEPARATOR_INDEX)
+        assert isinstance(error, PyDapperException)
+        # #480 separates "pydapper refused" from "this adapter cannot"; the split is by type alone
+        assert not isinstance(error, UnsupportedFeatureError)
+
+    def test_carries_the_sql_and_the_separator_index(self):
+        error = MultipleStatementsError(MULTI_STATEMENT_SQL, MULTI_STATEMENT_SEPARATOR_INDEX)
+        assert error.sql == MULTI_STATEMENT_SQL
+        assert error.separator_index == MULTI_STATEMENT_SEPARATOR_INDEX
+
+    def test_survives_pickling_and_copying(self):
+        # a two-argument __init__ breaks the default Exception reduction, so the error could not
+        # cross a process boundary (ProcessPoolExecutor, celery) without __reduce__
+        import copy
+        import pickle
+
+        error = MultipleStatementsError(MULTI_STATEMENT_SQL, MULTI_STATEMENT_SEPARATOR_INDEX)
+        for restored in (pickle.loads(pickle.dumps(error)), copy.copy(error), copy.deepcopy(error)):
+            assert isinstance(restored, MultipleStatementsError)
+            assert restored.sql == MULTI_STATEMENT_SQL
+            assert restored.separator_index == MULTI_STATEMENT_SEPARATOR_INDEX
+            assert str(restored) == str(error)
+
+    def test_the_message_names_the_index_without_echoing_the_sql(self):
+        message = str(MultipleStatementsError(MULTI_STATEMENT_SQL, MULTI_STATEMENT_SEPARATOR_INDEX))
+        assert str(MULTI_STATEMENT_SEPARATOR_INDEX) in message
+        assert MULTI_STATEMENT_SQL not in message
+        assert "trailing ';' is allowed" in message
+        assert "DBAPI connection" in message
+        # psycopg2's own nextset text claims PostgreSQL cannot do this; it can, and we do not repeat it
+        assert "does not support" not in message
+
+    def test_the_raised_error_reports_the_index_of_the_offending_separator(self):
+        commands = MockCommands(MockConnection())
+        with pytest.raises(MultipleStatementsError) as exc_info:
+            commands.query(MULTI_STATEMENT_SQL)
+        assert exc_info.value.sql == MULTI_STATEMENT_SQL
+        assert exc_info.value.separator_index == MULTI_STATEMENT_SEPARATOR_INDEX
+
+
+class TestMultiStatementGuardSync:
+    @pytest.fixture
+    def connection(self):
+        return RecordingConnection()
+
+    @pytest.fixture
+    def commands(self, connection):
+        return MockCommands(connection)
+
+    @pytest.mark.parametrize("entry_point", SYNC_ENTRY_POINTS)
+    def test_every_entry_point_refuses_with_zero_driver_work(self, commands, connection, entry_point):
+        call = _sync_entry_points(commands, MULTI_STATEMENT_SQL)[entry_point]
+        with pytest.raises(MultipleStatementsError):
+            call()
+        # no cursor acquired, nothing executed, nothing entered, exited, or closed
+        assert connection.log.events == []
+        assert connection.cursor_calls == 0
+
+    @pytest.mark.parametrize("sql", [sql for sql, _ in _MULTI_STATEMENT_CORPUS])
+    def test_every_multi_statement_shape_is_refused(self, commands, sql):
+        with pytest.raises(MultipleStatementsError):
+            commands.query(sql)
+
+    def test_query_multiple_refuses_when_any_query_is_multi_statement(self, commands, connection):
+        # all handlers construct before the cursor block, so the second query never runs a first query
+        with pytest.raises(MultipleStatementsError):
+            commands.query_multiple(("select 1 as a", MULTI_STATEMENT_SQL))
+        assert connection.log.events == []
+
+    @pytest.mark.parametrize("sql", _SINGLE_STATEMENT_CORPUS)
+    def test_single_statement_sql_still_reaches_the_driver_unchanged(self, commands, connection, sql):
+        commands.execute(sql)
+        assert connection.log.of_kind("execute")[0].sql == sql
+
+    @pytest.mark.parametrize("sql", _SINGLE_STATEMENT_CORPUS)
+    def test_single_statement_sql_also_reaches_the_driver_unchanged_through_query(self, commands, connection, sql):
+        # the execute path above is the write side; a ';' in a literal or comment must be just as
+        # ordinary on the read side, which is the path the injection shape actually targets
+        commands.query(sql)
+        assert connection.log.of_kind("execute")[0].sql == sql
+
+    @pytest.mark.parametrize("payload", [b"select 1 as a; drop table t", bytearray(b"select 1; drop t")])
+    def test_non_str_sql_is_refused_before_any_driver_work(self, commands, connection, payload):
+        """Indexing bytes yields ints, so every comparison in the str scanner would be False.
+
+        Without an explicit type check the guard silently passes the payload to the driver, which
+        happily executes both statements. `param` already runtime-rejects these types.
+        """
+        with pytest.raises(TypeError, match="sql must be a str"):
+            commands.execute(payload)
+        assert connection.log.events == []
+        assert connection.cursor_calls == 0
+
+    def test_a_trailing_semicolon_still_queries(self, commands):
+        assert commands.query("select 1 as a;") == [{"id": 1, "label": "alpha"}, {"id": 2, "label": "beta"}]
+
+    def test_empty_executemany_params_are_still_a_no_op_for_legal_sql(self, commands, connection):
+        assert commands.execute("select 1 as a;", params=[]) == 0
+        # the guard now runs first, but the short-circuit still keeps the driver out of it
+        assert connection.log.events == []
+
+
+class TestMultiStatementGuardAsync:
+    @pytest.fixture
+    def connection(self):
+        return RecordingAsyncConnection()
+
+    @pytest.fixture
+    def commands(self, connection):
+        return MockAsyncCommands(connection)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("entry_point", ASYNC_ENTRY_POINTS)
+    async def test_every_entry_point_refuses_with_zero_driver_work(self, commands, connection, entry_point):
+        call = _async_entry_points(commands, MULTI_STATEMENT_SQL)[entry_point]
+        with pytest.raises(MultipleStatementsError):
+            await call()
+        assert connection.log.events == []
+        assert connection.cursor_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_query_multiple_async_refuses_when_any_query_is_multi_statement(self, commands, connection):
+        with pytest.raises(MultipleStatementsError):
+            await commands.query_multiple_async(("select 1 as a", MULTI_STATEMENT_SQL))
+        assert connection.log.events == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("sql", _SINGLE_STATEMENT_CORPUS)
+    async def test_single_statement_sql_still_reaches_the_driver_unchanged(self, commands, connection, sql):
+        await commands.execute_async(sql)
+        assert connection.log.of_kind("execute")[0].sql == sql
+
+    @pytest.mark.asyncio
+    async def test_empty_executemany_params_are_still_a_no_op_for_legal_sql(self, commands, connection):
+        assert await commands.execute_async("select 1 as a;", params=[]) == 0
+        assert connection.log.events == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("payload", [b"select 1 as a; drop table t", bytearray(b"select 1; drop t")])
+    async def test_non_str_sql_is_refused_before_any_driver_work(self, commands, connection, payload):
+        with pytest.raises(TypeError, match="sql must be a str"):
+            await commands.execute_async(payload)
+        assert connection.log.events == []
+        assert connection.cursor_calls == 0
+
+
+class TestMultiStatementGuardPrecedence:
+    """Pins where the guard sits among the pre-driver checks (issue #583's precedence table)."""
+
+    @pytest.fixture
+    def connection(self):
+        return RecordingConnection()
+
+    @pytest.fixture
+    def commands(self, connection):
+        return MockCommands(connection)
+
+    def test_unsupported_options_win(self, commands, connection):
+        with pytest.raises(UnsupportedFeatureError):
+            commands.query(MULTI_STATEMENT_SQL, options=pydapper.CommandOptions(max_rows=1))
+        assert connection.log.events == []
+
+    def test_the_param_alias_conflict_wins(self, commands):
+        with pytest.raises(ValueError, match="not both"):
+            commands.query(MULTI_STATEMENT_SQL, param={"id": 1}, params={"id": 1})
+
+    def test_a_top_level_list_on_a_read_path_wins(self, commands):
+        with pytest.raises(InvalidParameterShapeException):
+            commands.query(MULTI_STATEMENT_SQL, params=[{"id": 1}])
+
+    def test_the_model_mapper_conflict_wins(self, commands):
+        with pytest.raises(ValueError, match="not both"):
+            commands.query(MULTI_STATEMENT_SQL, model=dict, mapper=lambda row: row)
+
+    def test_the_guard_wins_over_a_missing_parameter(self, commands, connection):
+        # both are pre-driver, but the SQL is refused before its placeholder values are resolved
+        with pytest.raises(MultipleStatementsError):
+            commands.query("select ?id?; drop table t")
+        assert connection.log.events == []

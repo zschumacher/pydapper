@@ -40,6 +40,17 @@ class RecordingAsyncDbApi:
         return self.connection
 
 
+# mysql-connector-python is an optional extra, so the constant is mirrored rather than imported.
+# tests/test_mysql/test_mysql_connector_python.py pins this against the installed driver.
+MULTI_STATEMENTS = 65536
+
+
+class RecordingMySqlDbApi(RecordingDbApi):
+    """A ``mysql.connector`` stand-in that exposes the ``ClientFlag`` constants ``connect`` reads."""
+
+    constants = SimpleNamespace(ClientFlag=SimpleNamespace(MULTI_STATEMENTS=MULTI_STATEMENTS))
+
+
 def parsed_dsn(**overrides):
     values = {
         "host": "db-host",
@@ -132,7 +143,7 @@ def test_pymssql_connect_imports_dbapi_and_wraps_connection(monkeypatch):
 def test_network_adapters_preserve_driver_default_behavior_for_an_absent_port(
     monkeypatch, module, commands_class, dbapi_name, dsn
 ):
-    dbapi = RecordingDbApi()
+    dbapi = RecordingMySqlDbApi() if module is mysql_module else RecordingDbApi()
     patch_dbapi_import(monkeypatch, module, dbapi_name, dbapi)
 
     commands_class.connect(PydapperParseResult(dsn))
@@ -141,7 +152,7 @@ def test_network_adapters_preserve_driver_default_behavior_for_an_absent_port(
 
 
 def test_mysql_connect_imports_dbapi_and_wraps_connection(monkeypatch):
-    dbapi = RecordingDbApi()
+    dbapi = RecordingMySqlDbApi()
     import_calls = patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
 
     commands = mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn(), charset="utf8mb4")
@@ -156,9 +167,128 @@ def test_mysql_connect_imports_dbapi_and_wraps_connection(monkeypatch):
             "password": "password",
             "database": "app",
             "charset": "utf8mb4",
+            "client_flags": [-MULTI_STATEMENTS],
         }
     ]
     assert import_calls == ["mysql.connector"]
+
+
+def test_mysql_connect_denies_multi_statements_when_the_caller_passes_no_client_flags(monkeypatch):
+    dbapi = RecordingMySqlDbApi()
+    patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
+
+    mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn())
+
+    assert dbapi.calls[0]["client_flags"] == [-MULTI_STATEMENTS]
+
+
+@pytest.mark.parametrize("caller_value", [[], [1, 2], (1, 2)])
+def test_mysql_connect_appends_the_denial_after_a_caller_sequence(monkeypatch, caller_value):
+    dbapi = RecordingMySqlDbApi()
+    patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
+
+    mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn(), client_flags=caller_value)
+
+    assert dbapi.calls[0]["client_flags"] == [*caller_value, -MULTI_STATEMENTS]
+
+
+def test_mysql_connect_masks_the_bit_out_of_a_caller_int_without_list_wrapping(monkeypatch):
+    dbapi = RecordingMySqlDbApi()
+    patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
+
+    mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn(), client_flags=3383821)
+
+    resolved = dbapi.calls[0]["client_flags"]
+    assert resolved == 3383821 & ~MULTI_STATEMENTS
+    assert isinstance(resolved, int)
+    assert not resolved & MULTI_STATEMENTS
+
+
+def test_mysql_connect_leaves_an_int_without_the_bit_untouched(monkeypatch):
+    dbapi = RecordingMySqlDbApi()
+    patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
+
+    mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn(), client_flags=1)
+
+    assert dbapi.calls[0]["client_flags"] == 1
+
+
+# The driver resolves the option as `config["client_flags"] or ClientFlag.get_default()`, and that
+# default has MULTI_STATEMENTS set. A falsy resolved value therefore never reaches the setter and
+# silently re-enables the flag, so "never emit something falsy" is the property that actually
+# matters -- pinning individual inputs is not enough. tests/test_mysql/ pins the upstream `or`.
+_FALSY_CLIENT_FLAGS = [None, 0, False]
+
+
+@pytest.mark.parametrize("caller_value", _FALSY_CLIENT_FLAGS)
+def test_mysql_connect_treats_a_falsy_client_flags_as_absent(monkeypatch, caller_value):
+    dbapi = RecordingMySqlDbApi()
+    patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
+
+    mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn(), client_flags=caller_value)
+
+    assert dbapi.calls[0]["client_flags"] == [-MULTI_STATEMENTS]
+
+
+def test_mysql_connect_rejects_client_flags_that_asks_only_for_multi_statements(monkeypatch):
+    dbapi = RecordingMySqlDbApi()
+    patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
+
+    # masking the bit would leave 0, which the driver reads as "use the default" -- re-enabling it
+    with pytest.raises(ValueError, match="CLIENT_MULTI_STATEMENTS and nothing else"):
+        mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn(), client_flags=MULTI_STATEMENTS)
+
+    assert dbapi.calls == []
+
+
+@pytest.mark.parametrize("caller_value", [set(), "", {}, frozenset()])
+def test_mysql_connect_rejects_a_falsy_unsupported_client_flags_type(monkeypatch, caller_value):
+    dbapi = RecordingMySqlDbApi()
+    patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
+
+    # a truthy unsupported type is the driver's error to raise, but a falsy one never reaches it
+    with pytest.raises(ValueError, match="not a supported value"):
+        mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn(), client_flags=caller_value)
+
+    assert dbapi.calls == []
+
+
+def test_mysql_connect_forwards_a_negative_int_for_the_driver_to_reject(monkeypatch):
+    dbapi = RecordingMySqlDbApi()
+    patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
+
+    # negative ints are truthy, so they do reach the driver's setter, which rejects them
+    mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn(), client_flags=-MULTI_STATEMENTS)
+
+    assert dbapi.calls[0]["client_flags"] == -MULTI_STATEMENTS
+
+
+@pytest.mark.parametrize(
+    "caller_value",
+    [None, 0, False, [], (), [MULTI_STATEMENTS], (MULTI_STATEMENTS,), MULTI_STATEMENTS | 1, 3383821, 1],
+)
+def test_mysql_connect_never_resolves_client_flags_to_a_falsy_value(monkeypatch, caller_value):
+    """The fail-open invariant: whatever pydapper hands the driver must be truthy."""
+    dbapi = RecordingMySqlDbApi()
+    patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
+
+    mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn(), client_flags=caller_value)
+
+    resolved = dbapi.calls[0]["client_flags"]
+    assert resolved, f"a falsy client_flags ({resolved!r}) makes the driver fall back to its default"
+    if isinstance(resolved, int):
+        assert not resolved & MULTI_STATEMENTS
+    else:
+        assert -MULTI_STATEMENTS in resolved
+
+
+def test_mysql_connect_forwards_an_unsupported_client_flags_type_for_the_driver_to_reject(monkeypatch):
+    dbapi = RecordingMySqlDbApi()
+    patch_dbapi_import(monkeypatch, mysql_module, "mysql.connector", dbapi)
+
+    mysql_module.MySqlConnectorPythonCommands.connect(parsed_dsn(), client_flags="not-a-flag")
+
+    assert dbapi.calls[0]["client_flags"] == "not-a-flag"
 
 
 class MySqlLifecycleCursor:

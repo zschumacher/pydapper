@@ -38,8 +38,13 @@ Why would I use *pydapper*?
   Why not use SQL instead?
 
 **Safe from SQL injection**
-: pydapper provides a consistent syntax for declaring query parameters and guarantees it is converted to the safest
-  possible parameter substitution for the dbapi to deter SQL injection
+: pydapper provides a consistent syntax for declaring query parameters, and guarantees that parameter values are handed
+  to the dbapi as parameters and are never formatted into the SQL string by pydapper. How a given dbapi then binds
+  those values — server-side parameters, or escaping and quoting them client-side — is the driver's own business.
+  On top of that, pydapper refuses SQL that contains more than one statement, raising `MultipleStatementsError` before
+  the SQL reaches the driver. That check is a lexical guard rail rather than a parser, so it is defense in depth and
+  not a substitute for parameter binding; see
+  [One statement per call](methods/query.md#one-statement-per-call) for what it does and does not catch.
   Parameter placeholders use the form `?name?`, where `name` starts with an ASCII letter or underscore and then contains
   only ASCII letters, numbers, or underscores. Placeholder-shaped text inside single-quoted text, double-quoted text,
   `--` line comments, and `/* ... */` block comments is ignored; PostgreSQL dollar-quoted strings are not special-cased

@@ -30,6 +30,7 @@ from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
 from pydapper.exceptions import MoreThanOneResultException
+from pydapper.exceptions import MultipleStatementsError
 from pydapper.exceptions import NoResultException
 from pydapper.exceptions import PyDapperException
 from pydapper.exceptions import RowMappingException
@@ -138,6 +139,7 @@ def public_exceptions() -> None:
     assert_type(MoreThanOneResultException(), MoreThanOneResultException)
     assert_type(MissingParameterException(), MissingParameterException)
     assert_type(InvalidParameterShapeException(), InvalidParameterShapeException)
+    assert_type(MultipleStatementsError("select 1; select 2", 9), MultipleStatementsError)
     assert_type(UnsupportedFeatureError(), UnsupportedFeatureError)
     assert_type(RowMappingException(), RowMappingException)
 

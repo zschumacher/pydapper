@@ -31,6 +31,7 @@ from pydapper._context import _AwaitableAsyncContextManager as _RealAwaitableAsy
 from pydapper.bigquery import GoogleBigqueryClientCommands
 from pydapper.capabilities import AdapterCapability
 from pydapper.command_options import CommandOptions
+from pydapper.commands import BaseSqlParamHandler
 from pydapper.commands import Commands
 from pydapper.exceptions import MoreThanOneResultException
 from pydapper.mssql import PymssqlCommands
@@ -104,6 +105,50 @@ TRANSACTION_CASE_IDS = (
     "transactions.commit-failure-propagates",
     "transactions.context-base-exception-rollback",
     "transactions.context-not-reentrant",
+)
+
+#: The four mandatory core cases that certify the one-statement-per-call guard. Unlike the
+#: transactions block above these are not a capability profile: they ship in `core-sync` and
+#: `core-async` and every adapter gets them. The core parity guard compares only the *sets* of
+#: case ids across modes, so this literal is what pins their order, kinds, and descriptions.
+SQL_GUARD_CASE_IDS = (
+    "sql.multi-statement-rejected",
+    "sql.multi-statement-before-driver-work",
+    "sql.trailing-semicolon-accepted",
+    "sql.separator-in-text-accepted",
+)
+
+SQL_GUARD_CASE_KINDS = ("live", "instrumented", "instrumented", "instrumented")
+
+#: The command entry points the two `sql.multi-statement-*` cases sweep. The cases iterate a module-level
+#: table in `_cases_sync.py`/`_cases_async.py`, so deleting a row there would silently shrink what
+#: "every command entry point raises" certifies without failing anything. This literal is what stops that.
+SQL_GUARD_SYNC_ENTRY_POINTS = (
+    "execute",
+    "execute(params=[...])",
+    "execute(params=[])",
+    "query",
+    "query(buffered=False)",
+    "query_first",
+    "query_first_or_default",
+    "query_single",
+    "query_single_or_default",
+    "execute_scalar",
+    "query_multiple",
+)
+
+SQL_GUARD_ASYNC_ENTRY_POINTS = (
+    "execute_async",
+    "execute_async(params=[...])",
+    "execute_async(params=[])",
+    "query_async",
+    "query_async(buffered=False)",
+    "query_first_async",
+    "query_first_or_default_async",
+    "query_single_async",
+    "query_single_or_default_async",
+    "execute_scalar_async",
+    "query_multiple_async",
 )
 
 
@@ -1341,6 +1386,79 @@ def test_query_path_hook_ordering_mutant_fails_its_named_case(isolated_registry,
             return commands_class(FakeSyncConnection(seeded_mini_db()))
 
     _assert_only_the_named_hook_case_failed(run_core_sync(_Harness()), mutant)
+
+
+# ------------------------------------------------------------------ sql guard negative control
+#
+# `BaseSqlParamHandler.__init__` is the single guard site and no first-party handler overrides
+# it. This mutant is what happens if one starts to: the class is conformant in every other
+# respect, so it must be caught by the two `sql.*` refusal cases and by nothing else.
+
+
+class _UnguardedParamHandler(BaseSqlParamHandler):
+    """A handler that rebuilds ``__init__`` without the multi-statement guard."""
+
+    def __init__(self, sql, param=None):
+        self._sql = sql
+        self._param = param
+        self.ordered_param_values = self._resolve_ordered_param_values()
+
+    def get_param_placeholder(self, param_name: str) -> str:
+        return "%s"
+
+
+class _UnguardedSyncCommands(MockSyncConformanceCommands):
+    SqlParamHandler = _UnguardedParamHandler
+
+
+class _UnguardedAsyncCommands(MockAsyncConformanceCommands):
+    SqlParamHandler = _UnguardedParamHandler
+
+
+def _assert_only_the_sql_guard_cases_failed(report):
+    """The mutant runs the FULL core profile, so this proves narrowness as well as detection."""
+    failed = {failure.case_id for failure in report.failures}
+    assert failed == {"sql.multi-statement-rejected", "sql.multi-statement-before-driver-work"}, (
+        "swallowing the guard must be caught by both refusal cases and must not disturb the "
+        f"accept cases; failures were {sorted(failed)}"
+    )
+    passed = {result.case_id for result in report.results if result.passed}
+    assert {"sql.trailing-semicolon-accepted", "sql.separator-in-text-accepted"} <= passed
+    named = next(f for f in report.failures if f.case_id == "sql.multi-statement-before-driver-work")
+    # failing the right case on the wrong assertion would prove nothing about what it pins
+    assert "must refuse multi-statement SQL" in named.message
+    assert "nothing was raised" in named.message
+
+
+def test_a_command_class_that_swallows_the_sql_guard_fails_its_named_case(isolated_registry):
+    name = "conformance-mock-unguarded-sql"
+    _register_mock_sync(name=name, commands=_UnguardedSyncCommands)
+
+    class _Harness(MockSyncConformanceHarness):
+        adapter_name = name
+        command_class = _UnguardedSyncCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        def create_commands(self):
+            return _UnguardedSyncCommands(FakeSyncConnection(seeded_mini_db()))
+
+    _assert_only_the_sql_guard_cases_failed(run_core_sync(_Harness()))
+
+
+@pytest.mark.asyncio
+async def test_an_async_command_class_that_swallows_the_sql_guard_fails_its_named_case(isolated_registry):
+    name = "conformance-mock-unguarded-sql-async"
+    _register_mock_async(name=name, async_commands=_UnguardedAsyncCommands)
+
+    class _Harness(MockAsyncConformanceHarness):
+        adapter_name = name
+        command_class = _UnguardedAsyncCommands
+        connect_dsn = f"sqlite+{name}://mock"
+
+        async def create_commands(self):
+            return _UnguardedAsyncCommands(FakeAsyncConnection(seeded_mini_db()))
+
+    _assert_only_the_sql_guard_cases_failed(await run_core_async(_Harness()))
 
 
 @pytest.mark.asyncio
@@ -2865,6 +2983,54 @@ def test_documented_transactions_cases_match_the_shipped_profile():
     documented = tuple(re.findall(r"^\| `(transactions\.[a-z-]+)` \|", text, flags=re.MULTILINE))
     assert documented == TRANSACTION_CASE_IDS
     assert f"{len(TRANSACTION_CASE_IDS)} cases per mode" in text
+
+
+def test_sql_guard_cases_are_exactly_the_named_cases_in_both_core_profiles():
+    """The core parity guard compares only sets of ids, so order, kinds, and descriptions are
+    pinned here or nowhere. These are mandatory core cases, not a capability profile, so a
+    rename, reorder, or deletion has to fail here rather than quietly weaken the baseline.
+    """
+    modes = (("sync", core_sync_profile().sync_cases), ("async", core_async_profile().async_cases))
+    descriptions = {}
+    for mode, cases in modes:
+        guard_cases = tuple(case for case in cases if case.case_id.startswith("sql."))
+        assert tuple(case.case_id for case in guard_cases) == SQL_GUARD_CASE_IDS, mode
+        assert tuple(case.kind for case in guard_cases) == SQL_GUARD_CASE_KINDS, mode
+        assert all(case.description for case in guard_cases), mode
+        # the group sits between the execute.* and rows.* groups in both modes
+        ids = [case.case_id for case in cases]
+        start = ids.index(SQL_GUARD_CASE_IDS[0])
+        assert ids[start - 1] == "execute.nested-list-single-value", mode
+        assert ids[start + len(SQL_GUARD_CASE_IDS)] == "rows.query-buffered", mode
+        descriptions[mode] = tuple(case.description for case in guard_cases)
+    assert descriptions["sync"] == descriptions["async"]
+
+
+def test_sql_guard_entry_point_sweep_is_exactly_the_named_entry_points():
+    """The sweep table is what makes "every command entry point" true; pin it literally.
+
+    Without this, deleting a row from either table leaves the case passing while certifying less,
+    and the sync/async pair could drift apart one method at a time.
+    """
+    from pydapper.testing.adapter_conformance import _cases_async
+    from pydapper.testing.adapter_conformance import _cases_sync
+
+    sync_names = tuple(name for name, _ in _cases_sync._MULTI_STATEMENT_ENTRY_POINTS)
+    async_names = tuple(name for name, _ in _cases_async._MULTI_STATEMENT_ENTRY_POINTS)
+    assert sync_names == SQL_GUARD_SYNC_ENTRY_POINTS
+    assert async_names == SQL_GUARD_ASYNC_ENTRY_POINTS
+    # the two modes must stay method-for-method mirrored, in the same order
+    assert tuple(name.replace("_async", "") for name in async_names) == sync_names
+    # every public read/write command method must appear; nothing may be quietly dropped
+    for required in ("execute", "query", "query_first", "query_single", "execute_scalar", "query_multiple"):
+        assert any(name == required or name.startswith(f"{required}(") for name in sync_names), required
+
+
+def test_documented_sql_guard_cases_match_the_shipped_profiles():
+    """The docs table is the public contract; it may not drift from the shipped inventory."""
+    text = (REPO_ROOT / "docs" / "adapter_conformance.md").read_text(encoding="utf-8")
+    documented = tuple(re.findall(r"^\| `(sql\.[a-z-]+)` \|", text, flags=re.MULTILINE))
+    assert documented == SQL_GUARD_CASE_IDS
 
 
 def test_sync_case_run_must_not_be_a_coroutine_function():

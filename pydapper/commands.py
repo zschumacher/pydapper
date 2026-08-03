@@ -31,6 +31,7 @@ from ._context import _AwaitableAsyncContextManager
 from ._context import _close_quietly
 from ._context import _log_discarded_cleanup_error
 from ._sql_placeholders import PlaceholderSpan
+from ._sql_placeholders import find_statement_separator
 from ._sql_placeholders import scan_placeholder_spans
 from .capabilities import AdapterCapability
 from .command_options import CommandKind
@@ -39,6 +40,7 @@ from .exceptions import DuplicateColumnException
 from .exceptions import InvalidParameterShapeException
 from .exceptions import MissingParameterException
 from .exceptions import MoreThanOneResultException
+from .exceptions import MultipleStatementsError
 from .exceptions import NoResultException
 from .exceptions import UnsupportedFeatureError
 from .rows import RawRow
@@ -152,6 +154,17 @@ def _raise_if_list_params_for_read(param: Any) -> None:
         raise InvalidParameterShapeException("Top-level list params are only supported by execute and execute_async.")
 
 
+def _raise_if_multi_statement(sql: str) -> None:
+    # the scanner is a str lexer: indexing bytes yields ints, so every character comparison in it
+    # would silently be False and the guard would pass anything non-str straight to the driver
+    if not isinstance(sql, str):
+        raise TypeError(f"sql must be a str, got {type(sql).__name__}.")
+
+    separator_index = find_statement_separator(sql)
+    if separator_index is not None:
+        raise MultipleStatementsError(sql, separator_index)
+
+
 def _fetch_at_most_two_rows(cursor: "CursorType") -> Tuple[Any, ...]:
     fetchmany = getattr(cursor, "fetchmany", None)
     if callable(fetchmany):
@@ -233,6 +246,7 @@ def _get_param_value(param: Any, param_name: str) -> Any:
 
 class BaseSqlParamHandler(ABC):
     def __init__(self, sql: str, param: Union["ParamType", "ListParamType"] = None):
+        _raise_if_multi_statement(sql)
         self._sql = sql
         self._param = param
         self.ordered_param_values: Union[Tuple[Any, ...], List[Tuple[Any, ...]], Tuple] = (
@@ -604,10 +618,10 @@ class Commands(BaseCommands, ABC):
     def execute(self, sql, params=_PARAM_ALIAS_UNSET, *, param=_PARAM_ALIAS_UNSET, options=None):
         resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
+        handler = self.SqlParamHandler(sql, resolved_params)
         if _is_empty_executemany_params(resolved_params):
             return 0
 
-        handler = self.SqlParamHandler(sql, resolved_params)
         with self._cursor_context_proxy() as cursor:
             self._prepare_cursor(cursor, options=resolved_options)
             self._prepare_command(cursor, handler, options=resolved_options)
@@ -2007,10 +2021,10 @@ class CommandsAsync(BaseCommands, ABC):
     async def execute_async(self, sql, params=_PARAM_ALIAS_UNSET, *, param=_PARAM_ALIAS_UNSET, options=None):
         resolved_options = self._resolve_options(options)
         resolved_params = self._resolve_params(param, params)
+        handler = self.SqlParamHandler(sql, resolved_params)
         if _is_empty_executemany_params(resolved_params):
             return 0
 
-        handler = self.SqlParamHandler(sql, resolved_params)
         async with self.cursor() as cursor:
             await self._prepare_cursor_async(cursor, options=resolved_options)
             await self._prepare_command_async(cursor, handler, options=resolved_options)

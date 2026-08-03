@@ -78,3 +78,45 @@ committed.
 
 See [Transactions](../transactions.md) and
 [Context manager semantics](intro.md#context-manager-semantics) for the cross-driver picture.
+
+### Multi-statement SQL
+
+`mysql-connector-python` negotiates `CLIENT_MULTI_STATEMENTS` by default, which lets the server execute a whole
+batch of statements from one `execute()` call. pydapper does not want that capability on the wire, so
+**connections pydapper opens clear the flag at connect time** — `pydapper.connect("mysql://...")` passes
+`client_flags` that unset `CLIENT_MULTI_STATEMENTS`. (There is no async MySQL adapter; `mysql` registers a
+sync command class only.)
+
+The flag is cleared even when you supply your own `client_flags`:
+
+```python
+from mysql.connector.constants import ClientFlag
+
+# your FOUND_ROWS is kept; MULTI_STATEMENTS is cleared regardless
+pydapper.connect(dsn, client_flags=[ClientFlag.FOUND_ROWS])
+```
+
+| Your `client_flags` | What pydapper sends |
+|---|---|
+| omitted, `None`, `0`, or `False` | `[-MULTI_STATEMENTS]` |
+| a `list` or `tuple` | your entries, with `-MULTI_STATEMENTS` appended last |
+| a `list` or `tuple` that is empty | `[-MULTI_STATEMENTS]` |
+| a **positive** `int` with other bits set | the same `int` with only that bit masked off |
+| exactly `MULTI_STATEMENTS` | `ValueError` |
+| any other falsy value (`''`, `set()`, `{}`) | `ValueError` |
+| a negative `int`, or any other truthy value | forwarded unchanged, so the driver raises its own error |
+
+Because pydapper always passes `client_flags`, it wins over a `client_flags` set in a `my.cnf` read through
+`option_files` — the driver applies an option-file value only when the key is absent from the connect arguments. If you
+keep flags in an option file, pass them to `connect()` instead; pydapper preserves them and appends only the denial.
+
+The two `ValueError` cases exist because the driver resolves this option as
+`config["client_flags"] or ClientFlag.get_default()`, and that default **has `MULTI_STATEMENTS` set**. Anything
+falsy therefore skips the driver's own validation and silently re-enables the flag, so pydapper refuses rather
+than sending a value it knows will be ignored. If you asked for `MULTI_STATEMENTS` and nothing else, there is no
+honest answer — pass other flags alongside it, or open the connection yourself and use `using()`.
+
+Connect-time denial covers only connections pydapper opens. A connection you build yourself and hand to
+[`using()`](#example-using) keeps whatever flags you negotiated — the
+[one-statement-per-call guard](../methods/query.md#one-statement-per-call) still applies to commands run through
+it, which is why both halves exist.

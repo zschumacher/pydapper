@@ -1,5 +1,4 @@
 import pytest
-from mysql.connector import ProgrammingError
 
 from pydapper import connect
 from pydapper import using
@@ -103,6 +102,8 @@ def test_connect_refuses_client_flags_that_asks_only_for_multi_statements(dsn):
 
 def test_a_raw_cursor_on_a_pydapper_connection_cannot_run_a_batch_for_any_client_flags(dsn):
     """The connect-time denial must hold for every input shape, not just the default one."""
+    from mysql.connector import ProgrammingError
+
     for caller_value in (None, 0, False, [], [MULTI_STATEMENTS], MULTI_STATEMENTS | 1):
         with connect(dsn, client_flags=caller_value) as commands:
             assert not commands.connection._client_flags & MULTI_STATEMENTS, caller_value
@@ -128,6 +129,8 @@ def test_using_keeps_the_callers_own_flags(server, database_name, db_port):
 
 
 def test_appended_statement_never_executes(dsn):
+    from mysql.connector import ProgrammingError
+
     victim_sql = "select 1 as a; drop table multi_statement_victim;"
 
     with connect(dsn) as setup:

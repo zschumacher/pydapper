@@ -1,5 +1,6 @@
 ## Latest Changes
 
+* feat: reject multi-statement SQL before it reaches the driver. PR [#591](https://github.com/zschumacher/pydapper/pull/591) by [@zschumacher](https://github.com/zschumacher).
 * v1: reject multi-statement SQL before it reaches the driver. A pydapper command now executes exactly
   one SQL statement: SQL containing more than one raises the new `MultipleStatementsError` before a
   cursor is acquired, so nothing reaches the DBAPI. Previously the outcome was whatever the driver

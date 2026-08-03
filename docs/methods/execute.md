@@ -22,6 +22,8 @@ All command methods also accept keyword-only `options=`; see [Command options](.
 
 {!docs/.parameter_shapes_execute.md!}
 
+{!docs/.multi_statement_sql.md!}
+
 ## Example - Execute Insert
 ### Single
 Execute the INSERT statement a single time.

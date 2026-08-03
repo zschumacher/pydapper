@@ -1,5 +1,21 @@
 ## Latest Changes
 
+* v1: reject multi-statement SQL before it reaches the driver. A pydapper command now executes exactly
+  one SQL statement: SQL containing more than one raises the new `MultipleStatementsError` before a
+  cursor is acquired, so nothing reaches the DBAPI. Previously the outcome was whatever the driver
+  happened to do and no adapter raised — `psycopg2` returned the rows of the *last* statement,
+  `psycopg` the rows of the *first*, `mysql-connector-python` executed every statement including
+  appended DDL, and `sqlite3` raised a driver error whose type varies by Python version (on 3.10, a
+  `sqlite3.Warning`, which is not a `sqlite3.Error`). Detection is a
+  lexical scan sharing the placeholder scanner's skip set, not a SQL parser: a `;` inside single-quoted
+  text, double-quoted text, a `--` line comment, or a `/* ... */` block comment is ordinary text, and a
+  single trailing `;` followed only by whitespace and comments is still one statement. The guard runs
+  in `BaseSqlParamHandler.__init__`, so it covers every sync and async command entry point on every
+  first-party and third-party adapter, and it is certified by four new mandatory cases in the
+  `core-sync` and `core-async` conformance profiles (62 cases per mode, up from 58). MySQL additionally
+  denies the capability on the wire: connections pydapper opens now clear `CLIENT_MULTI_STATEMENTS` at
+  connect time. Scripts and PL/SQL blocks belong on the DBAPI connection directly — see
+  [One statement per call](methods/query.md#one-statement-per-call).
 * fix: close block-exit gaps in the transactions conformance profile. PR [#582](https://github.com/zschumacher/pydapper/pull/582) by [@zschumacher](https://github.com/zschumacher).
 * fix: close three block-exit gaps in the `transactions` conformance profile found by an adversarial
   sweep of the milestone. Each was confirmed by mutating the runtime and watching the suite stay
@@ -238,6 +254,45 @@
 
 ### Breaking Changes
 
+* Multi-statement SQL now raises `MultipleStatementsError` on every adapter instead of being handed to
+  the driver. SQL that previously "worked" by accident behaves differently everywhere: on `psycopg2`
+  and `aiopg` `db.query("select 1 as a; select 2 as b")` returned `[{'b': 2}]`, on `psycopg` it
+  returned `[{'a': 1}]`, on `mysql-connector-python` every appended statement executed, and on
+  `sqlite3` it raised a driver error whose type depends on the Python version — on 3.10 a
+  `sqlite3.Warning`, which `except sqlite3.Error` cannot catch. All of them now
+  raise before a cursor is acquired. Split the statements into separate calls, or run the script
+  against the DBAPI connection directly (`commands.connection.cursor()`).
+* `mysql-connector-python` connections opened by pydapper no longer negotiate `CLIENT_MULTI_STATEMENTS`.
+  `pydapper.connect("mysql://...")` now passes `client_flags` clearing that bit, and clears it even when
+  you supply your own: a list or tuple keeps your entries and has the denial appended, and a positive
+  `int` is passed through with only that bit masked off. Code that relied on sending a statement batch
+  through a pydapper-opened MySQL connection — including through a raw cursor taken off
+  `commands.connection` — now gets the server's own syntax error. Open your own connection and pass it to
+  `using()` to keep the flag. Two kinds of input now raise `ValueError` instead of connecting:
+  `client_flags` equal to exactly `CLIENT_MULTI_STATEMENTS`, and falsy values that are neither an integer,
+  `None`, nor an empty list or tuple (`''`, `set()`, `{}`). Both are cases where the driver resolves
+  `client_flags or ClientFlag.get_default()` and would silently restore a default that has the flag set,
+  so pydapper refuses rather than negotiating a capability it just denied. `None`, `0`, `False`, and an
+  empty list or tuple are all read as "use the default" and resolve to the denial. One consequence: because
+  pydapper always passes `client_flags`, a `client_flags` entry in a `my.cnf` loaded via `option_files` is
+  now ignored — the driver only applies option-file values for keys absent from the connect arguments. Pass
+  those flags to `connect()` instead and pydapper will preserve them.
+* The guard's notion of "literal" and "comment" is one fixed ANSI-flavored set, so SQL using
+  dialect-specific forms can now be refused even though it is a single statement. Confirmed cases: a `;`
+  inside a `mysql` backtick identifier (``select `a;b` from t``) or a `pymssql` bracket identifier
+  (`select [a;b] from t`), and a `mysql` `#` comment following a trailing semicolon
+  (`select 1 as a; # done`). Rewrite the identifier or comment, or use a `--` comment. Making the literal
+  forms per-adapter is tracked in [#590](https://github.com/zschumacher/pydapper/issues/590).
+* `sql` must now be a `str`. `bytes` and `bytearray` previously reached the driver — and, because the
+  scanner is a `str` lexer, bypassed the multi-statement guard entirely — and now raise `TypeError`
+  before any driver work. Decode the value before passing it.
+* A top-level `;` inside a PostgreSQL dollar-quoted body (`psycopg2`, `psycopg`) or an Oracle anonymous
+  PL/SQL block (`oracledb`) is now rejected. The guard is lexical and has no dialect awareness, so
+  `DO $$ ... ; ... $$` and `BEGIN ... ; ... END;` trip it even though they are one statement to the
+  server. This is deliberate: the alternative — exempting SQL by leading keyword — would let
+  `BEGIN; select 1; commit;` through on the default PostgreSQL adapter, which is the exact shape the
+  guard exists to stop. Run these blocks on the DBAPI connection directly:
+  `commands.connection.cursor().execute(plsql_block)`.
 * DSNs now follow the focused `<database>[+<adapter>]://...` v1 grammar. Incidental inherited conveniences such as
   `name=value` strings, constructor default injection, dict-like mutation, tuple-style iteration or indexing,
   environment helpers, and multiple hosts are intentionally not reproduced. Multi-plus input such as

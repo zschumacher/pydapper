@@ -16,6 +16,8 @@
 
 {!docs/.parameter_shapes_read.md!}
 
+{!docs/.multi_statement_sql.md!}
+
 {!docs/.row_mapping.md!}
 
 ## Cardinality

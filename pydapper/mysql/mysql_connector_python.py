@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+from typing import Any
 from typing import ClassVar
 
 from pydapper.capabilities import AdapterCapability
@@ -18,6 +19,61 @@ from ..utils import validate_no_duplicate_columns
 if TYPE_CHECKING:
     from ..dsn_parser import PydapperParseResult
     from ..types import CursorType
+
+
+_UNSET = object()
+
+
+def _resolve_client_flags(mysql: Any, caller_value: Any) -> Any:
+    """Clear ``CLIENT_MULTI_STATEMENTS`` from the flags pydapper negotiates at connect time.
+
+    pydapper refuses multi-statement SQL before the driver is reached, so the capability is denied on
+    the wire too. The driver's setter treats a positive ``int`` as a wholesale replacement of its
+    default and a ``list``/``tuple`` as an ordered sequence applied over the current value, so an
+    ``int`` is masked rather than list-wrapped.
+
+    The critical constraint is that the result must never be **falsy**. ``MySQLConnectionAbstract.config``
+    resolves the option as ``config["client_flags"] or ClientFlag.get_default()``, and the default has
+    ``MULTI_STATEMENTS`` set, so any falsy value silently re-enables the very capability this denies --
+    and never reaches the setter that would otherwise have rejected it. The driver's own
+    ``DEFAULT_CONFIGURATION["client_flags"]`` is ``0``, so falsy values are not hypothetical.
+    """
+    multi_statements = mysql.constants.ClientFlag.MULTI_STATEMENTS
+
+    # `None` and `0` are both the driver's own spelling of "use the default"
+    if caller_value is _UNSET or caller_value is None:
+        return [-multi_statements]
+
+    if isinstance(caller_value, (list, tuple)):
+        return [*caller_value, -multi_statements]
+
+    if isinstance(caller_value, int):
+        if caller_value == 0:
+            return [-multi_statements]
+
+        if caller_value < 0:
+            # truthy, so it reaches the driver's setter, which rejects it; that error is the driver's
+            return caller_value
+
+        resolved = caller_value & ~multi_statements
+        if resolved == 0:
+            raise ValueError(
+                "client_flags requested CLIENT_MULTI_STATEMENTS and nothing else, which pydapper does "
+                "not negotiate. Clearing it would leave no flags, and mysql-connector-python reads an "
+                "empty client_flags as 'use the driver default', which enables it again. Pass other "
+                "flags alongside it, or open the connection yourself and use pydapper.using()."
+            )
+        return resolved
+
+    if not caller_value:
+        raise ValueError(
+            f"client_flags={caller_value!r} is not a supported value. mysql-connector-python reads a "
+            "falsy client_flags as 'use the driver default', which enables CLIENT_MULTI_STATEMENTS; "
+            "pydapper does not negotiate it. Pass an int, list, or tuple of ClientFlag values."
+        )
+
+    # truthy and unsupported: the driver raises its own ProgrammingError
+    return caller_value
 
 
 def _discard_unread_result(cursor: "CursorType") -> None:
@@ -60,6 +116,7 @@ class MySqlConnectorPythonCommands(Commands):
     @classmethod
     def connect(cls, parsed_dsn: "PydapperParseResult", **connect_kwargs) -> "Commands":
         mysql = import_dbapi_module("mysql.connector")
+        connect_kwargs["client_flags"] = _resolve_client_flags(mysql, connect_kwargs.get("client_flags", _UNSET))
         conn = mysql.connect(
             host=parsed_dsn.host,
             port=parsed_dsn.port if parsed_dsn else 3306,

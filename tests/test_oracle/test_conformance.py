@@ -18,6 +18,17 @@ _CREATE = (
 )
 
 
+def _run_plsql_block(commands: Commands, block: str) -> None:
+    """Run an anonymous PL/SQL block on the DBAPI cursor.
+
+    A pydapper command executes exactly one statement, and the guard is lexical: the top-level ';'
+    inside a ``BEGIN ... END;`` block trips it. Driving the cursor directly is the documented escape
+    hatch for blocks and scripts, and this harness is the first-party demonstration of it.
+    """
+    with commands.connection.cursor() as cursor:
+        cursor.execute(block)
+
+
 class _OracledbConformanceHarness(SyncAdapterHarness):
     adapter_name = "oracledb"
     command_class = OracledbCommands
@@ -35,7 +46,7 @@ class _OracledbConformanceHarness(SyncAdapterHarness):
         import oracledb
 
         commands = OracledbCommands(oracledb.connect(password="pydapper", user="pydapper", dsn=self._oracle_dsn))
-        commands.execute(_DROP)
+        _run_plsql_block(commands, _DROP)
         commands.execute(_CREATE)
         seed_through_adapter(commands, self.table_name, supports_empty_strings=False)
         commands.connection.commit()
@@ -44,7 +55,7 @@ class _OracledbConformanceHarness(SyncAdapterHarness):
     def teardown_commands(self, commands: Commands) -> None:
         with suppress(Exception):
             commands.connection.rollback()
-            commands.execute(_DROP)
+            _run_plsql_block(commands, _DROP)
         commands.connection.close()
 
 

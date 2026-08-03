@@ -15,6 +15,8 @@ All command methods also accept keyword-only `options=`; see [Command options](.
 
 {!docs/.parameter_shapes_read.md!}
 
+{!docs/.multi_statement_sql.md!}
+
 ## Cardinality
 - 0 rows: raises `NoResultException`.
 - 1+ rows: returns the first column of the first row.

@@ -27,7 +27,8 @@ Each profile covers registration and selection, the #541 cursor lifecycle (clean
 failure, error precedence, truthy-exit non-suppression, plain and context-manager cursors, unbuffered
 exhaustion and explicit `close()`/`aclose()`), parameter handling and execution, row mapping and `RawRow`
 mappers, zero/one/many cardinality, scalar semantics (no row vs SQL `NULL` vs falsey values), command options,
-preparation-hook ordering, and capability honesty. Hook ordering is checked on every distinct command path that
+preparation-hook ordering, the [one-statement-per-call guard](methods/query.md#one-statement-per-call), and
+capability honesty. Hook ordering is checked on every distinct command path that
 owns a cursor — `execute`, buffered `query`, unbuffered `query`, `query_first`/`query_single`/`execute_scalar`,
 and `query_multiple` — because each opens its own cursor block: `_prepare_cursor` must run exactly once per
 command-owned cursor and `_prepare_command` exactly once per executed handler, both on the *entered* cursor and
@@ -40,6 +41,18 @@ Cases are either **live** (they run through your real database resources) or **i
 real concrete command class around framework-owned recording and fault-injection connections, so cursor counts,
 call order, exception precedence, and "fails before driver work" guarantees are observed directly rather than
 inferred from return values).
+
+Four of these mandatory cases certify the one-statement-per-call guard. They are core cases, not a capability
+profile: every adapter gets them and none can opt out. The two accept cases are deliberately **instrumented**
+rather than live, because whether a *server* tolerates a trailing `;` is dialect-specific (Oracle rejects it) —
+they pin that pydapper does not refuse the SQL, never that the database accepts it.
+
+| Case id | Kind | Pins |
+|---|---|---|
+| `sql.multi-statement-rejected` | live | every command entry point raises `MultipleStatementsError`, and the connection is still usable for a normal query afterwards |
+| `sql.multi-statement-before-driver-work` | instrumented | the raise happens with zero recorded driver events — no cursor acquired, nothing executed |
+| `sql.trailing-semicolon-accepted` | instrumented | one trailing `;` plus trailing whitespace and comments is not multi-statement, and the SQL reaches the driver unchanged |
+| `sql.separator-in-text-accepted` | instrumented | a `;` inside single-quoted text, double-quoted text, a `--` comment, or a `/* */` comment does not trip the guard and reaches the driver unchanged |
 
 ## Optional capability profiles
 
@@ -314,7 +327,7 @@ service or emulator is available.
 | `psycopg` | `Psycopg3Commands` | sync | `transactions` | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md); the connection context manager commits on clean exit, rolls back on error, and then closes the connection |
 | `psycopg` | `Psycopg3CommandsAsync` | async | `transactions` | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage (including its synchronous cursor-factory normalization); live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md); the connection context manager commits on clean exit, rolls back on error, and then closes the connection |
 | `aiopg` | `AiopgCommands` | async | *(none)* | `tests/test_postgresql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `postgresql` marker when Docker is available | [PostgreSQL](database_support/postgresql.md); aiopg is autocommit-only and emulates `executemany` by looping `execute`; its connection-level commit/rollback raise, so `transactions` is not declared even though the async APIs exist; its async context manager closes on exit (everything was already durable) |
-| `mysql` | `MySqlConnectorPythonCommands` | sync | `transactions` | `tests/test_mysql/test_conformance.py` | service-free instrumented + mock coverage (including its `query_first` unread-result drain); live suite under the `mysql` marker when Docker is available | [MySQL](database_support/mysql.md); unread results must be drained before a cursor closes; the connection context manager only closes — exit never commits, uncommitted DML is discarded, and MySQL implicitly commits DDL statements (temporary tables excepted) |
+| `mysql` | `MySqlConnectorPythonCommands` | sync | `transactions` | `tests/test_mysql/test_conformance.py` | service-free instrumented + mock coverage (including its `query_first` unread-result drain); live suite under the `mysql` marker when Docker is available | [MySQL](database_support/mysql.md); unread results must be drained before a cursor closes; the connection context manager only closes — exit never commits, uncommitted DML is discarded, and MySQL implicitly commits DDL statements (temporary tables excepted); the driver enables `CLIENT_MULTI_STATEMENTS` by default, so pydapper clears it at connect time on connections it opens |
 | `pymssql` | `PymssqlCommands` | sync | `transactions` | `tests/test_mssql/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `mssql` marker when Docker is available | [Microsoft SQL Server](database_support/mssql.md); non-autocommit connections hold an always-open `BEGIN TRAN`, the context manager only closes, and `close()` implicitly rolls back all uncommitted work |
 | `oracledb` | `OracledbCommands` | sync | `transactions` | `tests/test_oracle/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `oracle` marker when Docker is available | [Oracle](database_support/oracle.md); unquoted identifiers fold to uppercase (`column_case="upper"`), and `''` is stored as NULL (`supports_empty_strings=False`); the connection context manager rolls back uncommitted work and closes — exit never commits — and Oracle implicitly commits DDL statements |
 | `google` | `GoogleBigqueryClientCommands` | sync | *(none)* | `tests/test_bigquery/test_conformance.py` | service-free instrumented + mock coverage; live suite under the `bigquery` marker when the emulator is available | [Google BigQuery](database_support/bigquery.md); the emulator's DML rowcounts are unreliable (`strict_rowcounts=False`), and the DBAPI cannot bind an untyped `None`, so the harness seeds the canonical SQL `NULL` note through a sentinel and a literal `UPDATE`; the DBAPI's `commit()` is a no-op and there is no `rollback()`, so `transactions` is not declared; the DBAPI connection has no context manager, so with-block exit performs no driver call |

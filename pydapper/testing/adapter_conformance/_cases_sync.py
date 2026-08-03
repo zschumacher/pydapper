@@ -22,6 +22,7 @@ from pydapper.exceptions import DuplicateColumnException
 from pydapper.exceptions import InvalidParameterShapeException
 from pydapper.exceptions import MissingParameterException
 from pydapper.exceptions import MoreThanOneResultException
+from pydapper.exceptions import MultipleStatementsError
 from pydapper.exceptions import NoResultException
 from pydapper.exceptions import UnsupportedFeatureError
 from pydapper.rows import RawRow
@@ -780,6 +781,119 @@ def _execute_nested_list(ctx: SyncCaseContext) -> None:
         len(bound) == 2 and bound[1] == [1, 2, 3],
         f"a nested list must bind as one value; driver saw {bound!r}",
     )
+
+
+# --------------------------------------------------------------------------------------
+# one statement per call
+# --------------------------------------------------------------------------------------
+
+
+_MULTI_STATEMENT_ENTRY_POINTS: Tuple[Tuple[str, Callable[[Any, str], Any]], ...] = (
+    ("execute", lambda commands, sql: commands.execute(sql)),
+    ("execute(params=[...])", lambda commands, sql: commands.execute(sql, params=[{"id": 1}])),
+    ("execute(params=[])", lambda commands, sql: commands.execute(sql, params=[])),
+    ("query", lambda commands, sql: commands.query(sql)),
+    ("query(buffered=False)", lambda commands, sql: commands.query(sql, buffered=False)),
+    ("query_first", lambda commands, sql: commands.query_first(sql)),
+    ("query_first_or_default", lambda commands, sql: commands.query_first_or_default(sql, None)),
+    ("query_single", lambda commands, sql: commands.query_single(sql)),
+    ("query_single_or_default", lambda commands, sql: commands.query_single_or_default(sql, None)),
+    ("execute_scalar", lambda commands, sql: commands.execute_scalar(sql)),
+    ("query_multiple", lambda commands, sql: commands.query_multiple((sql,))),
+)
+
+
+@_case(
+    "sql.multi-statement-rejected",
+    "Every command entry point refuses multi-statement SQL and the connection stays usable",
+    "live",
+)
+def _sql_multi_statement_rejected(ctx: SyncCaseContext) -> None:
+    commands = ctx.create_commands()
+    select_all = ctx.sql("select_all")
+    multi_statement_sql = f"{select_all}; {select_all}"
+
+    for name, call in _MULTI_STATEMENT_ENTRY_POINTS:
+        with ctx.expect_raises(
+            MultipleStatementsError,
+            description=f"{name} must refuse multi-statement SQL",
+        ):
+            call(commands, multi_statement_sql)
+
+    rows = commands.query(select_all)
+    expected = [dict(ctx.expected_row(row)) for row in ctx.seeded_rows()]
+    ctx.check(rows == expected, f"the connection must stay usable after a refusal; query returned {rows!r}")
+
+
+@_case(
+    "sql.multi-statement-before-driver-work",
+    "Multi-statement SQL is refused with zero driver work: no cursor acquired, nothing executed",
+    "instrumented",
+)
+def _sql_multi_statement_before_driver_work(ctx: SyncCaseContext) -> None:
+    for name, call in _MULTI_STATEMENT_ENTRY_POINTS:
+        connection = ctx.recording_connection()
+        commands = ctx.instrumented_commands(connection)
+        with ctx.expect_raises(MultipleStatementsError, description=f"{name} must refuse multi-statement SQL"):
+            call(commands, "SELECT id, label FROM t; DROP TABLE t")
+        ctx.check(
+            connection.cursor_calls == 0,
+            f"{name} must refuse before a cursor is acquired; saw {connection.cursor_calls} acquisitions",
+        )
+        ctx.check(
+            connection.log.events == [],
+            f"{name} must record no driver work; observed {connection.log.kinds()!r}",
+        )
+
+
+@_case(
+    "sql.trailing-semicolon-accepted",
+    "One trailing ';' with trailing whitespace and comments is not multi-statement and reaches the driver",
+    "instrumented",
+)
+def _sql_trailing_semicolon_accepted(ctx: SyncCaseContext) -> None:
+    # instrumented, not live: whether a *server* accepts a trailing ';' is dialect-specific (Oracle
+    # rejects it). This pins only that pydapper does not refuse the SQL and passes it through as written.
+    for sql in (
+        "SELECT id, label FROM t;",
+        "SELECT id, label FROM t;   \n\t",
+        "SELECT id, label FROM t; -- done",
+        "SELECT id, label FROM t; /* done */",
+    ):
+        connection = ctx.recording_connection()
+        commands = ctx.instrumented_commands(connection)
+        commands.query(sql)
+        execute_event = connection.log.first("execute")
+        if execute_event is None:
+            ctx.fail(f"a single trailing ';' must reach the driver; {sql!r} never executed")
+        ctx.check(
+            execute_event.sql == sql,
+            f"the guard must not rewrite SQL; driver saw {execute_event.sql!r}, expected {sql!r}",
+        )
+
+
+@_case(
+    "sql.separator-in-text-accepted",
+    "A ';' inside quoted text or a comment is ordinary text and reaches the driver unchanged",
+    "instrumented",
+)
+def _sql_separator_in_text_accepted(ctx: SyncCaseContext) -> None:
+    for sql in (
+        "SELECT ';' FROM t",
+        'SELECT ";" FROM t',
+        "SELECT id, label FROM t -- ; DROP TABLE t",
+        "SELECT id, label FROM t /* ; DROP TABLE t */",
+    ):
+        connection = ctx.recording_connection()
+        commands = ctx.instrumented_commands(connection)
+        commands.query(sql)
+        execute_event = connection.log.first("execute")
+        if execute_event is None:
+            ctx.fail(f"a ';' inside text or a comment must not trip the guard; {sql!r} never executed")
+        ctx.check(
+            execute_event.sql == sql,
+            f"the guard must not rewrite SQL; driver saw {execute_event.sql!r}, expected {sql!r}",
+        )
 
 
 # --------------------------------------------------------------------------------------
